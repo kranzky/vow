@@ -1,0 +1,112 @@
+// Exercises the runtime: strings, lists, maps, options, loops, with, short-circuit.
+
+struct Counter
+  name: String,
+  count: Int where it >= 0,
+end struct Counter
+
+fn word_counts(text: String) -> Map<String, Int> do
+  var counts: Map<String, Int> = {}
+  var start = 0
+  var i = 0
+  while i < len(text)
+    invariant 0 <= start
+    invariant start <= i
+    invariant i <= len(text)
+  do
+    if text[i] == 32 then
+      if i > start then
+        let w = slice(of: text, from: start, to: i)
+        match lookup(map: counts, key: w)
+        case Some(value: n) then
+          set counts = insert(map: counts, key: w, value: n + 1)
+        case None then
+          set counts = insert(map: counts, key: w, value: 1)
+        end match
+      end if
+      set start = i + 1
+    end if
+    set i = i + 1
+  end while
+  if start < len(text) then
+    let w = slice(of: text, from: start, to: len(text))
+    match lookup(map: counts, key: w)
+    case Some(value: n) then
+      set counts = insert(map: counts, key: w, value: n + 1)
+    case None then
+      set counts = insert(map: counts, key: w, value: 1)
+    end match
+  end if
+  return counts
+end fn word_counts
+
+fn describe(n: Int) -> String do
+  match n
+  case 0 then
+    return "zero"
+  case -1 then
+    return "minus one"
+  else
+    if (n % 2) == 0 then
+      return "even"
+    end if
+    return "odd"
+  end match
+end fn describe
+
+fn main() uses console, proc do
+  let counts = word_counts("the cat and the hat and the bat")
+  var lines: List<String> = []
+  for k in keys(counts) do
+    match lookup(map: counts, key: k)
+    case Some(value: n) then
+      set lines = push(list: lines, item: k ++ "=" ++ int_to_str(n))
+    case None then
+      panic("missing key")
+    end match
+  end for
+  print(join(parts: lines, sep: ", ") ++ "\n")
+
+  let xs = [5, 3, 8]
+  let ys = push(list: xs, item: 13)
+  let zs = push(list: xs, item: 21)
+  print(int_to_str(len(xs)) ++ " " ++ int_to_str(ys[3]) ++ " " ++ int_to_str(zs[3]) ++ "\n")
+  let both = ys ++ slice(of: zs, from: 1, to: 3)
+  var total = 0
+  for i in 0..len(both) do
+    set total = total + both[i]
+  end for
+  print("total " ++ int_to_str(total) ++ "\n")
+
+  let c = Counter(name: "clicks", count: 2)
+  let d = c with (count: c.count + 5)
+  print(c.name ++ " " ++ int_to_str(c.count) ++ " -> " ++ int_to_str(d.count) ++ "\n")
+
+  print(describe(0) ++ " " ++ describe(-1) ++ " " ++ describe(7) ++ " " ++ describe(10) ++ "\n")
+  print(int_to_str(-7 / 2) ++ " " ++ int_to_str(-7 % 2) ++ " " ++ int_to_str(7 / -2) ++ "\n")
+
+  match str_to_int("-123")
+  case Some(value: v) then
+    print("parsed " ++ int_to_str(v * 2) ++ "\n")
+  case None then
+    print("no parse\n")
+  end match
+  let bad: Option<Int> = str_to_int("12x")
+  match bad
+  case Some(value: v) then
+    print("unexpected\n")
+  case None then
+    print("rejected 12x\n")
+  end match
+
+  let empty: List<Int> = []
+  if (len(empty) > 0) and (empty[0] == 1) then
+    print("short-circuit failed\n")
+  else
+    print("short-circuit ok\n")
+  end if
+
+  let o = run(argv: ["tr", "a-z", "A-Z"], input: "shout\n")
+  print("run: " ++ int_to_str(o.code) ++ " " ++ o.out)
+  print(hash("vow") ++ " " ++ char(86) ++ "\n")
+end fn main

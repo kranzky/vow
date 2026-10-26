@@ -1,0 +1,38 @@
+// Shapes: enums, structs, refinements and a total match.
+
+type Nat = Int where it >= 0
+
+struct Rect
+  w: Nat,
+  h: Nat,
+end struct Rect
+
+enum Shape
+  Square(side: Nat),
+  Box(rect: Rect),
+  Empty,
+end enum Shape
+
+fn area(s: Shape) -> Nat do
+  match s
+  case Square(side: n) then
+    return n * n
+  case Box(rect: r) then
+    return r.w * r.h
+  case Empty then
+    return 0
+  end match
+end fn area
+
+fn total_area(shapes: List<Shape>) -> Nat do
+  var sum = 0
+  for s in shapes invariant sum >= 0 do
+    set sum = sum + area(s)
+  end for
+  return sum
+end fn total_area
+
+fn main() uses console do
+  let shapes = [Shape.Square(side: 3), Shape.Box(rect: Rect(w: 2, h: 5)), Shape.Empty]
+  print("total area: " ++ int_to_str(total_area(shapes)) ++ "\n")
+end fn main
