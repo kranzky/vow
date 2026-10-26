@@ -19,7 +19,7 @@
       x64/arm64 (static musl) and Windows x64 via GitHub Releases, Homebrew tap,
       install script and Scoop/winget; bundle Z3 (MIT); port `run()` to CreateProcess
       on Windows; support `cc`, `clang`, MSVC and `zig cc` as the C backend
-- [ ] M10: vow.kranzky.com: static site with the spec, the LLM guide, `llms.txt` and
+- [x] M10: vow.kranzky.com: static site with the spec, the LLM guide, `llms.txt` and
       examples (GitHub Pages + CNAME)
 - [ ] M11: Backends beyond C, in order: `#line` directives so C-level errors and
       debuggers point at `.vow` lines; bundled `zig cc` to remove the C toolchain

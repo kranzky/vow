@@ -6,5 +6,6 @@ llms docs/VOW_FOR_LLMS.md
 humans docs/VOW_FOR_HUMANS.md
 spec docs/SPEC.md
 roadmap ROADMAP.md
+changelog CHANGELOG.md
 report tools/vowsite/REPORT.md
 license UNLICENSE

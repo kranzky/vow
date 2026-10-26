@@ -103,7 +103,8 @@ Commands: `check`, `build -o <exe>`, `run`, `emit-c`, `hash`. Options: `--json`
 
 ## Status
 
-Vow v0 is an experiment, not yet a V1. Notable gaps: no floats, generics or modules;
+The current release is **v0.1.0** (see the [changelog](CHANGELOG.md)). Vow is an
+experiment, not yet a V1. Notable gaps: no floats, generics or modules;
 termination is proved only where measures are given; memory is never freed; Unix
 only. See the roadmap.
 

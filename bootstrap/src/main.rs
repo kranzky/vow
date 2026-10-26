@@ -13,6 +13,8 @@ use diag::{Diag, Pos};
 use std::path::{Path, PathBuf};
 use std::process::exit;
 
+pub const VERSION: &str = "0.1.0";
+
 const USAGE: &str = "usage: vowc <command> <file.vow> [options]
 
 commands:
@@ -21,6 +23,7 @@ commands:
   run     build and run (remaining arguments after -- go to the program)
   emit-c  print the generated C
   hash    print each function's body hash and verification key
+  version print the compiler version (no file needed)
 
 options:
   --json        machine-readable diagnostics (one JSON object per line)
@@ -150,6 +153,10 @@ fn report(diags: &[Diag], files: &[String], json: bool) {
 
 fn main() {
     let argv: Vec<String> = std::env::args().skip(1).collect();
+    if argv.first().map(|s| s.as_str()) == Some("version") {
+        println!("vowc {} ({})", VERSION, hash::VERIFIER_VERSION);
+        return;
+    }
     if argv.len() < 2 {
         eprint!("{}", USAGE);
         exit(2);

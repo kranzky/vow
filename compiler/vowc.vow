@@ -7,6 +7,10 @@ import "codegen.vow"
 import "hash.vow"
 import "runtime_h.vow"
 
+fn vow_version() -> String do
+  return "0.1.0"
+end fn vow_version
+
 fn usage() -> String do
   return "usage: vowc <command> <file.vow> [options]\n\n" ++
     "commands:\n" ++
@@ -14,7 +18,8 @@ fn usage() -> String do
     "  build   check, verify and compile to an executable (-o <path>)\n" ++
     "  run     build and run (remaining arguments after -- go to the program)\n" ++
     "  emit-c  print the generated C\n" ++
-    "  hash    print each function's body hash and verification key\n\n" ++
+    "  hash    print each function's body hash and verification key\n" ++
+    "  version print the compiler version (no file needed)\n\n" ++
     "options:\n" ++
     "  --json        machine-readable diagnostics (one JSON object per line)\n" ++
     "  --no-verify   skip the Z3 verifier (unsafe: contracts are not checked)\n" ++
@@ -160,6 +165,10 @@ end fn hole_diags
 
 fn main() uses console, fs, proc do
   let argv = args()
+  if (len(argv) >= 1) and (argv[0] == "version") then
+    print("vowc " ++ vow_version() ++ " (" ++ verifier_version() ++ ")\n")
+    return
+  end if
   if len(argv) < 2 then
     eprint(usage())
     exit(2)
