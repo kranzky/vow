@@ -48,7 +48,10 @@ Must-have, language and proofs:
 - [ ] Modules with visibility, then packages
 
 Must-have, runtime and portability:
-- [ ] Memory reclamation (reference counting or GC)
+- [ ] Memory reclamation: reference counting, with in-place updates of uniquely
+      referenced values (as in Koka's Perceus, Lean 4 and Swift's copy-on-write); today
+      fannkuch-redux allocates 19.7 GB (see `bench/RESULTS.md`)
+- [ ] A hash map alongside the persistent ordered `Map`
 - [ ] Windows `run()`, `#line` mapping, readable panics
 - [x] `std/text.vow` (verified text library), `make_dir`, `list_dir`
 - [ ] More standard modules and a C FFI; `net`/`time`/`random` effects

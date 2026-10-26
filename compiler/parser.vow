@@ -101,7 +101,7 @@ fn ident(p: inout Parser, ctx: String) -> Token do
   end if
   var d = diag(pos: t.pos, msg: "expected a name " ++ ctx ++ ", found " ++ describe(t))
   if t.kind == "keyword" then
-    set d = with_note(d: d, note: "'" ++ t.text ++ "' is a keyword: keywords can label fields and arguments, but cannot name variables or parameters")
+    set d = with_note(d: d, note: "'" ++ t.text ++ "' is a keyword: keywords can label fields and arguments, but cannot name variables, parameters, functions or types")
   end if
   fail(p: inout p, d: d)
   return t with (text: "?")

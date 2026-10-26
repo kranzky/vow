@@ -104,6 +104,45 @@ hatches. It also reaches a fixpoint: compiled by itself, it produces byte-identi
 This proves memory safety and the stated contracts, not that the compiler is correct
 end to end. CompCert, a C compiler proved correct in Coq, is in a different league.
 
+## Performance
+
+We timed three programs from the
+[Computer Language Benchmarks Game](https://benchmarksgame-team.pages.debian.net/benchmarksgame/),
+written as the same straightforward, single-threaded algorithm in every language (the
+Game's fastest entries use SIMD and multiple threads, which would measure tuning rather
+than languages). Every output was checked against C's. Times are the best of three runs
+on an Apple M1 Pro; memory is the peak footprint.
+
+| Benchmark | Vow | C | Rust | Go | JavaScript | Python |
+|---|---|---|---|---|---|---|
+| binary-trees, depth 18 (allocation) | **0.51 s**, 2.1 GB | 1.17 s, 17 MB | 1.22 s, 17 MB | 1.64 s, 40 MB | 0.62 s, 415 MB | 5.78 s, 38 MB |
+| fannkuch-redux, n = 10 (array updates) | 4.34 s, 19.7 GB | 0.18 s, 1 MB | 0.19 s, 1 MB | 0.18 s, 2 MB | 0.24 s, 13 MB | 4.57 s, 6 MB |
+| k-nucleotide, 500k bases (hash maps) | 1.52 s, 1.6 GB | 0.07 s, 18 MB | 0.12 s, 16 MB | 0.12 s, 32 MB | 0.36 s, 69 MB | 0.54 s, 23 MB |
+
+Full results, toolchain versions and the programs are in
+[the benchmark results](../bench/RESULTS.md); `bench/run.py` reproduces them.
+
+What the numbers say:
+
+- **Allocation is cheap, because memory is never freed.** binary-trees runs faster
+  than C, but it uses over a hundred times the memory. That is not a strength to rely
+  on: it is the same design choice that makes the other two results bad.
+- **Updating data in place is very expensive.** Vow values are immutable, so changing
+  one element of a list copies it. fannkuch-redux, which swaps array elements millions
+  of times, runs 24 times slower than C (as slow as Python) and allocates 19.7 GB.
+- **Maps are persistent trees, not hash tables.** k-nucleotide is 21 times slower than
+  C and 3 times slower than Python.
+- **Proofs remove bounds checks**, so verified indexing costs nothing at runtime, but
+  that is small next to the allocation costs above.
+- **Floating-point benchmarks can't run yet:** n-body, spectral-norm and mandelbrot
+  need `Float`, which Vow v0 doesn't have.
+
+The fix is known. When a value has only one reference, it can be updated in place
+without breaking value semantics. Koka (Perceus), Lean 4 and Swift's copy-on-write do
+exactly this, and Vow's immutable values are a natural fit. With reference counting
+and a hash map, Vow should land near Go on these programs. That is on the
+[roadmap](../ROADMAP.md) for V1.
+
 ## Where Vow's ideas come from
 
 | Idea | Where it comes from |
@@ -128,7 +167,9 @@ Today, for most things. Vow v0 is an experiment:
 - macOS and Linux only;
 - no package ecosystem;
 - termination and overflow are not proved unless you ask for them (`decreases`) or
-  check them at runtime (overflow traps).
+  check them at runtime (overflow traps);
+- programs that update data in place, or use large maps, are slow and memory-hungry
+  (see Performance above).
 
 Use Python or TypeScript for breadth, Go or Rust for production systems, and Dafny or
 SPARK when you need machine-checked proofs today. Use Vow to explore what a language

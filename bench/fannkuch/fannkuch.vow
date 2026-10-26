@@ -1,0 +1,88 @@
+// fannkuch-redux (Computer Language Benchmarks Game): permutations and flips.
+// Vow values are immutable, so updating an element builds a new list.
+
+fn set_at(xs: List<Int>, i: Int where (0 <= it) and (it < len(xs)), v: Int) -> List<Int>
+  ensures len(result) == len(xs)
+do
+  return (slice(of: xs, from: 0, to: i) ++ [v]) ++ slice(of: xs, from: i + 1, to: len(xs))
+end fn set_at
+
+// Reverse the first k + 1 elements.
+fn flip(xs: List<Int>, k: Int where (0 <= it) and (it < len(xs))) -> List<Int>
+  ensures len(result) == len(xs)
+do
+  var out: List<Int> = []
+  var j = k
+  while j >= 0 invariant (-1 <= j) and (j <= k) invariant len(out) == (k - j) decreases j + 1 do
+    set out = push(list: out, item: xs[j])
+    set j = j - 1
+  end while
+  return out ++ slice(of: xs, from: k + 1, to: len(xs))
+end fn flip
+
+fn count_flips(perm1: List<Int>) -> Int do
+  var perm = perm1
+  var flips = 0
+  if len(perm) == 0 then
+    return 0
+  end if
+  var k = perm[0]
+  while (k > 0) and (k < len(perm)) invariant len(perm) == len(perm1) do
+    set perm = flip(xs: perm, k: k)
+    set flips = flips + 1
+    set k = perm[0]
+  end while
+  return flips
+end fn count_flips
+
+fn main() uses console, proc do
+  let a = args()
+  var n = 7
+  if len(a) > 0 then
+    set n = value_or(opt: str_to_int(a[0]), default: 7)
+  end if
+  if (n < 1) or (n > 12) then
+    panic("n must be between 1 and 12")
+  end if
+  var perm1: List<Int> = []
+  var count: List<Int> = []
+  for i in 0..n invariant len(perm1) == i invariant len(count) == i do
+    set perm1 = push(list: perm1, item: i)
+    set count = push(list: count, item: 0)
+  end for
+  var max_flips = 0
+  var checksum = 0
+  var perm_count = 0
+  var r = n
+  while true invariant len(perm1) == n invariant len(count) == n invariant (1 <= r) and (r <= n) do
+    while r != 1 invariant (1 <= r) and (r <= n) invariant len(count) == n decreases r do
+      set count = set_at(xs: count, i: r - 1, v: r)
+      set r = r - 1
+    end while
+    let flips = count_flips(perm1)
+    if flips > max_flips then
+      set max_flips = flips
+    end if
+    if (perm_count % 2) == 0 then
+      set checksum = checksum + flips
+    else
+      set checksum = checksum - flips
+    end if
+    // The next permutation: rotate the first r + 1 elements while counts run out.
+    var more = true
+    while more invariant len(perm1) == n invariant len(count) == n invariant (1 <= r) and (r <= n) do
+      if r == n then
+        print(int_to_str(checksum) ++ "\nPfannkuchen(" ++ int_to_str(n) ++ ") = " ++ int_to_str(max_flips) ++ "\n")
+        return
+      end if
+      set perm1 = (slice(of: perm1, from: 1, to: r + 1) ++ [perm1[0]]) ++ slice(of: perm1, from: r + 1, to: n)
+      set count = set_at(xs: count, i: r, v: count[r] - 1)
+      if count[r] > 0 then
+        set more = false
+      else
+        set r = r + 1
+      end if
+    end while
+    set perm_count = perm_count + 1
+  end while
+end fn main

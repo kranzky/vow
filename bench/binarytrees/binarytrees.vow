@@ -1,0 +1,60 @@
+// binary-trees (Computer Language Benchmarks Game): allocation and recursion.
+
+enum Tree
+  Leaf,
+  Node(left: Tree, right: Tree),
+end enum Tree
+
+fn make(depth: Int where it >= 0, leaf: Tree) -> Tree
+  decreases depth
+do
+  if depth == 0 then
+    return Tree.Node(left: leaf, right: leaf)
+  end if
+  return Tree.Node(left: make(depth: depth - 1, leaf: leaf), right: make(depth: depth - 1, leaf: leaf))
+end fn make
+
+fn checksum(t: Tree) -> Int do
+  match t
+  case Leaf then
+    return 0
+  case Node(left: l, right: r) then
+    return 1 + checksum(l) + checksum(r)
+  end match
+end fn checksum
+
+fn pow2(k: Int where it >= 0) -> Int do
+  var p = 1
+  for i in 0..k do
+    set p = p * 2
+  end for
+  return p
+end fn pow2
+
+fn main() uses console, proc do
+  let a = args()
+  var n = 10
+  if len(a) > 0 then
+    set n = value_or(opt: str_to_int(a[0]), default: 10)
+  end if
+  let min_depth = 4
+  var max_depth = n
+  if max_depth < (min_depth + 2) then
+    set max_depth = min_depth + 2
+  end if
+  let leaf = Tree.Leaf
+  let stretch = max_depth + 1
+  print("stretch tree of depth " ++ int_to_str(stretch) ++ "\t check: " ++ int_to_str(checksum(make(depth: stretch, leaf: leaf))) ++ "\n")
+  let long_lived = make(depth: max_depth, leaf: leaf)
+  var d = min_depth
+  while d <= max_depth invariant d >= min_depth decreases (max_depth - d) + 2 do
+    let iterations = pow2((max_depth - d) + min_depth)
+    var sum = 0
+    for i in 0..iterations do
+      set sum = sum + checksum(make(depth: d, leaf: leaf))
+    end for
+    print(int_to_str(iterations) ++ "\t trees of depth " ++ int_to_str(d) ++ "\t check: " ++ int_to_str(sum) ++ "\n")
+    set d = d + 2
+  end while
+  print("long lived tree of depth " ++ int_to_str(max_depth) ++ "\t check: " ++ int_to_str(checksum(long_lived)) ++ "\n")
+end fn main

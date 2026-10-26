@@ -99,6 +99,31 @@ do
   return find(s: s, p: p, from: 0) >= 0
 end fn contains
 
+// ---- ordering ----
+
+// Byte-wise lexicographic order: -1 if a sorts before b, 0 if equal, 1 if after.
+fn compare(a: String, b: String) -> Int
+  ensures (-1 <= result) and (result <= 1)
+do
+  var n = len(a)
+  if len(b) < n then
+    set n = len(b)
+  end if
+  for i in 0..n do
+    if a[i] < b[i] then
+      return -1
+    elif a[i] > b[i] then
+      return 1
+    end if
+  end for
+  if len(a) < len(b) then
+    return -1
+  elif len(a) > len(b) then
+    return 1
+  end if
+  return 0
+end fn compare
+
 // ---- splitting ----
 
 // The pieces of `s` between occurrences of byte `sep`. "a,b,,c" gives four pieces;

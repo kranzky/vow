@@ -148,6 +148,7 @@ your own string helpers:
 | `trim(s)`, `trim_start(s)`, `trim_end(s)` | no longer than `s`; no surrounding space |
 | `replace(s: s, old: o, new: n)`, `repeat(s: s, n: k)` | proved to terminate |
 | `to_lower(s)`, `to_upper(s)` | same length; no upper (lower) case letters |
+| `compare(a: x, b: y) -> Int` | byte-wise order: -1, 0 or 1 (strings have no `<`) |
 
 Library names share the global namespace, so don't define your own `trim` in a file
 that imports it.
@@ -416,6 +417,11 @@ end match
 
 **Building strings.** Collect parts in a `List<String>` and `join` once at the end.
 Repeated `++` copies the whole string every time.
+
+**Performance.** Values are immutable and v0 never frees memory, so updating one
+element of a list (`slice` + `++`) copies the list, and `Map` is a persistent tree.
+In hot loops, build new lists with `push` rather than rewriting elements, and keep
+maps small. See the benchmarks in `docs/COMPARISON.md`.
 
 **Removing the last list element.** `slice(of: xs, from: 0, to: len(xs) - 1)` after
 checking `len(xs) > 0`.

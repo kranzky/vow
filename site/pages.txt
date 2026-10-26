@@ -1,6 +1,7 @@
 @base https://github.com/kranzky/vow/blob/main/
 index README.md site/home.html
 compare docs/COMPARISON.md
+benchmarks bench/RESULTS.md
 llms docs/VOW_FOR_LLMS.md
 humans docs/VOW_FOR_HUMANS.md
 spec docs/SPEC.md

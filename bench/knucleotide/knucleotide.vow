@@ -1,0 +1,85 @@
+// k-nucleotide (Computer Language Benchmarks Game): strings and hash maps.
+// Percentages use integer arithmetic (Vow v0 has no floats).
+
+import "std/text.vow"
+
+struct Freq
+  key: String,
+  count: Int,
+end struct Freq
+
+fn counts(seq: String, k: Int where it >= 1) -> Map<String, Int> do
+  var table: Map<String, Int> = {}
+  let last = (len(seq) - k) + 1
+  for i in 0..last do
+    let key = slice(of: seq, from: i, to: i + k)
+    set table = insert(map: table, key: key, value: value_or(opt: lookup(map: table, key: key), default: 0) + 1)
+  end for
+  return table
+end fn counts
+
+// Sorted by count, highest first, then by key.
+fn before(a: Freq, b: Freq) -> Bool do
+  return (a.count > b.count) or ((a.count == b.count) and (compare(a: a.key, b: b.key) < 0))
+end fn before
+
+fn sorted(xs: List<Freq>) -> List<Freq> do
+  var out: List<Freq> = []
+  for x in xs do
+    var i = 0
+    while (i < len(out)) and before(a: out[i], b: x) invariant (0 <= i) and (i <= len(out)) decreases len(out) - i do
+      set i = i + 1
+    end while
+    set out = (slice(of: out, from: 0, to: i) ++ [x]) ++ slice(of: out, from: i, to: len(out))
+  end for
+  return out
+end fn sorted
+
+fn percent(count: Int, total: Int where it > 0) -> String do
+  let milli = ((count * 200000) + total) / (2 * total)
+  let frac = int_to_str(milli % 1000)
+  return int_to_str(milli / 1000) ++ "." ++ repeat(s: "0", n: 3 - len(frac)) ++ frac
+end fn percent
+
+fn frequencies(seq: String, k: Int where it >= 1) -> String do
+  let table = counts(seq: seq, k: k)
+  let total = (len(seq) - k) + 1
+  if total <= 0 then
+    return "\n"
+  end if
+  var entries: List<Freq> = []
+  for key in keys(table) do
+    set entries = push(list: entries, item: Freq(key: key, count: value_or(opt: lookup(map: table, key: key), default: 0)))
+  end for
+  var lines_out: List<String> = []
+  for e in sorted(entries) do
+    set lines_out = push(list: lines_out, item: e.key ++ " " ++ percent(count: e.count, total: total))
+  end for
+  return join(parts: lines_out, sep: "\n") ++ "\n\n"
+end fn frequencies
+
+fn main() uses console, fs, proc do
+  let a = args()
+  if len(a) < 1 then
+    panic("usage: knucleotide <fasta file>")
+  end if
+  let text = value_or(opt: read_file(a[0]), default: "")
+  var parts: List<String> = []
+  var inside = false
+  for line in lines(text) do
+    if starts_with(s: line, p: ">") then
+      set inside = starts_with(s: line, p: ">THREE")
+    elif inside then
+      set parts = push(list: parts, item: to_upper(line))
+    end if
+  end for
+  let seq = join(parts: parts, sep: "")
+  print(frequencies(seq: seq, k: 1))
+  print(frequencies(seq: seq, k: 2))
+  for s in ["GGT", "GGTA", "GGTATT", "GGTATTTTAATT", "GGTATTTTAATTTATAGT"] do
+    if len(s) >= 1 then
+      let table = counts(seq: seq, k: len(s))
+      print(int_to_str(value_or(opt: lookup(map: table, key: s), default: 0)) ++ "\t" ++ s ++ "\n")
+    end if
+  end for
+end fn main

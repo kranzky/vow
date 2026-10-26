@@ -81,7 +81,7 @@ impl<'a> Parser<'a> {
             Ok((t.text, t.pos))
         } else if t.kind == TK::Keyword {
             Err(Diag::new(t.pos, &format!("expected a name {}, found {}", ctx, describe(&t))).note(&format!(
-                "'{}' is a keyword: keywords can label fields and arguments, but cannot name variables or parameters",
+                "'{}' is a keyword: keywords can label fields and arguments, but cannot name variables, parameters, functions or types",
                 t.text
             )))
         } else {

@@ -102,6 +102,31 @@ fn std_text() -> String do
     "  return find(s: s, p: p, from: 0) >= 0\n" ++
     "end fn contains\n" ++
     "\n" ++
+    "// ---- ordering ----\n" ++
+    "\n" ++
+    "// Byte-wise lexicographic order: -1 if a sorts before b, 0 if equal, 1 if after.\n" ++
+    "fn compare(a: String, b: String) -> Int\n" ++
+    "  ensures (-1 <= result) and (result <= 1)\n" ++
+    "do\n" ++
+    "  var n = len(a)\n" ++
+    "  if len(b) < n then\n" ++
+    "    set n = len(b)\n" ++
+    "  end if\n" ++
+    "  for i in 0..n do\n" ++
+    "    if a[i] < b[i] then\n" ++
+    "      return -1\n" ++
+    "    elif a[i] > b[i] then\n" ++
+    "      return 1\n" ++
+    "    end if\n" ++
+    "  end for\n" ++
+    "  if len(a) < len(b) then\n" ++
+    "    return -1\n" ++
+    "  elif len(a) > len(b) then\n" ++
+    "    return 1\n" ++
+    "  end if\n" ++
+    "  return 0\n" ++
+    "end fn compare\n" ++
+    "\n" ++
     "// ---- splitting ----\n" ++
     "\n" ++
     "// The pieces of `s` between occurrences of byte `sep`. \"a,b,,c\" gives four pieces;\n" ++
