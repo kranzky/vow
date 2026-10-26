@@ -21,7 +21,7 @@ unusual is the combination, and the reason for it.
 | Operator precedence | **none**: mixing needs parentheses | yes | yes | yes (5 levels) | yes | yes (15 levels) | yes |
 | Argument passing | **named**, except one-parameter calls | positional or keyword | positional | positional | positional | positional | mostly positional |
 | Mutation | values are immutable; `var` and `inout`, no aliasing | shared references | shared references | shared references | ownership and borrowing | raw pointers | heap with `modifies` clauses |
-| Memory management | none yet (v0) | reference counting and GC | GC | GC | ownership | manual | GC |
+| Memory management | reference counting, in-place updates when unshared | reference counting and GC | GC | GC | ownership | manual | GC |
 | Generics | no (v0) | duck typing | yes | yes | yes | no | yes |
 | Compiles to | C | bytecode | JavaScript | native | native | native | C#, Java, JS, Go, Python, ... |
 | Maturity | experimental | very mature | very mature | mature | mature | very mature | mature, used in industry |
@@ -115,33 +115,32 @@ on an Apple M1 Pro; memory is the peak footprint.
 
 | Benchmark | Vow | C | Rust | Go | JavaScript | Python |
 |---|---|---|---|---|---|---|
-| binary-trees, depth 18 (allocation) | **0.51 s**, 2.1 GB | 1.17 s, 17 MB | 1.22 s, 17 MB | 1.64 s, 40 MB | 0.62 s, 415 MB | 5.78 s, 38 MB |
-| fannkuch-redux, n = 10 (array updates) | 4.34 s, 19.7 GB | 0.18 s, 1 MB | 0.19 s, 1 MB | 0.18 s, 2 MB | 0.24 s, 13 MB | 4.57 s, 6 MB |
-| k-nucleotide, 500k bases (hash maps) | 1.52 s, 1.6 GB | 0.07 s, 18 MB | 0.12 s, 16 MB | 0.12 s, 32 MB | 0.36 s, 69 MB | 0.54 s, 23 MB |
+| binary-trees, depth 18 (allocation) | **0.92 s**, 49 MB | 1.14 s, 17 MB | 1.19 s, 17 MB | 1.58 s, 42 MB | 0.59 s, 427 MB | 5.60 s, 38 MB |
+| fannkuch-redux, n = 10 (array updates) | 0.39 s, 1 MB | 0.18 s, 1 MB | 0.19 s, 1 MB | 0.18 s, 2 MB | 0.24 s, 12 MB | 4.55 s, 6 MB |
+| k-nucleotide, 500k bases (hash maps) | 1.11 s, 21 MB | 0.06 s, 18 MB | 0.11 s, 15 MB | 0.11 s, 31 MB | 0.35 s, 69 MB | 0.56 s, 23 MB |
 
 Full results, toolchain versions and the programs are in
 [the benchmark results](../bench/RESULTS.md); `bench/run.py` reproduces them.
 
 What the numbers say:
 
-- **Allocation is cheap, because memory is never freed.** binary-trees runs faster
-  than C, but it uses over a hundred times the memory. That is not a strength to rely
-  on: it is the same design choice that makes the other two results bad.
-- **Updating data in place is very expensive.** Vow values are immutable, so changing
-  one element of a list copies it. fannkuch-redux, which swaps array elements millions
-  of times, runs 24 times slower than C (as slow as Python) and allocates 19.7 GB.
-- **Maps are persistent trees, not hash tables.** k-nucleotide is 21 times slower than
-  C and 3 times slower than Python.
-- **Proofs remove bounds checks**, so verified indexing costs nothing at runtime, but
-  that is small next to the allocation costs above.
+- **Memory use is in line with C, Rust and Go.** Vow counts references: an object is
+  freed as soon as nothing refers to it.
+- **Updates happen in place when nothing else can see them.** Vow values are
+  immutable, but when a list or struct has only one reference, `set_at`, `push`,
+  `with` and `insert` change it in place, and nobody can observe the difference.
+  fannkuch-redux, which swaps elements millions of times, runs about twice as long as C.
+- **Allocation is fast.** binary-trees, which allocates and frees millions of small
+  objects, runs faster than C's `malloc`/`free`, thanks to a size-class allocator.
+- **Maps are persistent trees, not hash tables.** k-nucleotide is 18 times slower than
+  C and twice as slow as Python. A hash map is on the [roadmap](../ROADMAP.md).
+- **Proofs remove bounds checks**, so verified indexing costs nothing at runtime.
 - **Floating-point benchmarks can't run yet:** n-body, spectral-norm and mandelbrot
-  need `Float`, which Vow v0 doesn't have.
+  need `Float`, which Vow doesn't have.
 
-The fix is known. When a value has only one reference, it can be updated in place
-without breaking value semantics. Koka (Perceus), Lean 4 and Swift's copy-on-write do
-exactly this, and Vow's immutable values are a natural fit. With reference counting
-and a hash map, Vow should land near Go on these programs. That is on the
-[roadmap](../ROADMAP.md) for V1.
+The in-place updates follow the approach of Koka's Perceus, Lean 4 and Swift's
+copy-on-write. Before them (Vow 0.1, which never freed memory), fannkuch-redux took
+4.34 s and 19.7 GB.
 
 ## Where Vow's ideas come from
 
@@ -162,14 +161,11 @@ and a hash map, Vow should land near Go on these programs. That is on the
 Today, for most things. Vow v0 is an experiment:
 
 - no floating-point numbers, generics, modules, closures or concurrency;
-- memory is never freed, which suits batch tools such as compilers and site
-  generators but not long-running services;
 - macOS and Linux only;
 - no package ecosystem;
 - termination and overflow are not proved unless you ask for them (`decreases`) or
   check them at runtime (overflow traps);
-- programs that update data in place, or use large maps, are slow and memory-hungry
-  (see Performance above).
+- programs built around large maps are slow (see Performance above).
 
 Use Python or TypeScript for breadth, Go or Rust for production systems, and Dafny or
 SPARK when you need machine-checked proofs today. Use Vow to explore what a language

@@ -1,5 +1,43 @@
 # Changelog
 
+## v0.2.0
+
+Memory management: Vow now frees memory and updates values in place.
+
+### Runtime and code generation
+
+- Reference counting. Every heap object carries a count and a layout record; objects
+  are freed as soon as nothing refers to them, iteratively, so long chains cannot
+  overflow the stack. A size-class allocator reuses freed memory.
+- In-place updates. When a value has a single reference, `with`, `push`, `set_at` and
+  `insert` change it in place instead of copying, which preserves value semantics. In
+  `set x = op(x, ...)` the old value is moved into `op`, so the common update pattern
+  allocates nothing.
+- Benchmarks: fannkuch-redux from 4.34 s and 19.7 GB to 0.39 s and 1 MB;
+  binary-trees from 2.1 GB to 49 MB (still faster than C); k-nucleotide from 1.6 GB to
+  21 MB. Compiling the compiler peaks at 17 MB instead of 92 MB.
+- The self-hosted compiler emits the new code. The Rust bootstrap keeps the v0 runtime
+  (`bootstrap/vow_rt0.h`) and serves as the first bootstrap stage and as an independent
+  front end and verifier: both still emit identical SMT for every program
+  (`make differential`).
+
+### Language
+
+- `set_at(list: xs, at: i, value: v)`: a list with one element replaced, with bounds
+  and element-level facts for the verifier.
+- A call that passes a var `inout` may no longer modify it in another argument
+  (`f(x: inout n, by: g(inout n))`); the verifier's model and the runtime disagreed
+  there.
+
+### Testing
+
+- `make test-rc` builds every test, example and benchmark, and the compiler itself,
+  with a debug runtime that poisons freed memory and panics on any use after free, and
+  requires zero objects live at exit.
+- A new aliasing test shares values and then updates them through every operation and
+  control path; its output must match copying semantics.
+- `VOW_CFLAGS` passes extra flags to the C compiler.
+
 ## v0.1.0
 
 The first release of Vow: an experimental programming language designed for language
@@ -51,7 +89,8 @@ models to write, with contracts proved by the Z3 SMT solver at compile time.
 
 - No floating point, generics, modules, closures or concurrency.
 - Memory is never freed, and immutable updates copy: programs that update data in place
-  or use large maps are slow and memory-hungry (see `bench/RESULTS.md`).
+  or use large maps are slow and memory-hungry (see `bench/RESULTS.md`). Fixed in
+  v0.2.0.
 - Termination is proved only where a measure is given; integer overflow traps at
   runtime rather than being proved absent.
 - macOS and Linux only. Verification requires Z3.

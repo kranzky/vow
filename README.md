@@ -123,10 +123,9 @@ make test                             # test suite (also needs Rust for the boot
 
 ## Status
 
-The current release is **v0.1.0** (see the [changelog](CHANGELOG.md)). Vow is an
+The current release is **v0.2.0** (see the [changelog](CHANGELOG.md)). Vow is an
 experiment, not yet a V1. Notable gaps: no floats, generics or modules;
-termination is proved only where measures are given; memory is never freed; Unix
-only. See the roadmap.
+termination is proved only where measures are given; Unix only. See the roadmap.
 
 ## License
 

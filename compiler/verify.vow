@@ -1543,6 +1543,27 @@ fn vbuiltin(v: inout Verifier, e: Expr, name: String, p: List<String>, pe: List<
     let at_r = "(elem_" ++ s ++ " " ++ r ++ " " ++ q ++ ")"
     add_qdef(v: inout v, d: "(assert (forall ((" ++ q ++ " Int)) (! (=> (and (<= 0 " ++ q ++ ") (< " ++ q ++ " (len " ++ a0 ++ "))) (= " ++ at_r ++ " (elem_" ++ s ++ " " ++ a0 ++ " " ++ q ++ "))) :pattern (" ++ at_r ++ "))))")
     return r
+  case "set_at" then
+    let goal = "(and (<= 0 " ++ a1 ++ ") (< " ++ a1 ++ " (len " ++ a0 ++ ")))"
+    var what = "set_at index in bounds"
+    if len(pe) >= 2 then
+      set what = "set_at index in bounds: 0 <= " ++ pretty_expr(pe[1]) ++ " < len(" ++ pretty_expr(pe[0]) ++ ")"
+    end if
+    obligation(v: inout v, st: st, pos: e.pos, what: what, goal: goal)
+    var et = Ty.TUnknown
+    match rty
+    case TList(elem: t) then
+      set et = t
+    else
+    end match
+    let s = sort_of(et)
+    let r = fresh(v: inout v, sort: "Val")
+    add_def(v: inout v, d: "(assert (= (len " ++ r ++ ") (len " ++ a0 ++ ")))")
+    add_def(v: inout v, d: "(assert (= (elem_" ++ s ++ " " ++ r ++ " " ++ a1 ++ ") " ++ a2 ++ "))")
+    let q = fresh_q(inout v)
+    let at_r = "(elem_" ++ s ++ " " ++ r ++ " " ++ q ++ ")"
+    add_qdef(v: inout v, d: "(assert (forall ((" ++ q ++ " Int)) (! (=> (and (<= 0 " ++ q ++ ") (< " ++ q ++ " (len " ++ a0 ++ ")) (not (= " ++ q ++ " " ++ a1 ++ "))) (= " ++ at_r ++ " (elem_" ++ s ++ " " ++ a0 ++ " " ++ q ++ "))) :pattern (" ++ at_r ++ "))))")
+    return r
   case "slice" then
     let goal = "(and (<= 0 " ++ a1 ++ ") (<= " ++ a1 ++ " " ++ a2 ++ ") (<= " ++ a2 ++ " (len " ++ a0 ++ ")))"
     var what = "slice bounds"

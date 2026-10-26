@@ -418,10 +418,14 @@ end match
 **Building strings.** Collect parts in a `List<String>` and `join` once at the end.
 Repeated `++` copies the whole string every time.
 
-**Performance.** Values are immutable and v0 never frees memory, so updating one
-element of a list (`slice` + `++`) copies the list, and `Map` is a persistent tree.
-In hot loops, build new lists with `push` rather than rewriting elements, and keep
-maps small. See the benchmarks in `docs/COMPARISON.md`.
+**Performance: update in place with `set x = op(x, ...)`.** Values are immutable, but
+when a value has only one reference, `push`, `set_at`, `with` and `insert` update it in
+place. Write updates as `set xs = set_at(list: xs, at: i, value: v)`,
+`set s = s with (count: s.count + 1)` or `set m = insert(map: m, key: k, value: v)`:
+the old value is moved into the operation, so nothing is copied. A second reference
+(`let copy = xs`) makes the next update copy once, which is what keeps `copy`
+unchanged. `Map` is a persistent tree, so very large maps are slower than hash maps in
+other languages.
 
 **Removing the last list element.** `slice(of: xs, from: 0, to: len(xs) - 1)` after
 checking `len(xs) > 0`.

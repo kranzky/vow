@@ -134,6 +134,8 @@ fn builtin_params(name: String) -> Option<List<String>> do
     return Option.Some(value: ["x"])
   case "push" then
     return Option.Some(value: ["list", "item"])
+  case "set_at" then
+    return Option.Some(value: ["list", "at", "value"])
   case "slice" then
     return Option.Some(value: ["of", "from", "to"])
   case "join" then
@@ -1416,7 +1418,62 @@ fn check_inout(c: inout Checker, fname: String, args: List<Arg>, order: List<Int
       end match
     end if
   end for
+  // A var passed inout must not also be modified while the other arguments are
+  // evaluated: the callee would see a different value from the one passed.
+  for v in seen do
+    for a in args do
+      if not a.is_inout then
+        var nested: List<String> = []
+        inout_vars(e: a.value, out: inout nested)
+        if contains_str(xs: nested, x: v) then
+          err(c: inout c, pos: a.pos, msg: "'" ++ v ++ "' is passed inout to '" ++ fname ++ "' and also modified by this argument; use separate statements")
+        end if
+      end if
+    end for
+  end for
 end fn check_inout
+
+// Variables passed inout anywhere inside an expression.
+fn inout_vars(e: Expr, out: inout List<String>) do
+  match e.kind
+  case Call(callee: c, args: args) then
+    inout_vars(e: c, out: inout out)
+    for a in args do
+      if a.is_inout then
+        match a.value.kind
+        case Var(name: n) then
+          set out = push(list: out, item: n)
+        else
+        end match
+      end if
+      inout_vars(e: a.value, out: inout out)
+    end for
+  case With(obj: c, args: args) then
+    inout_vars(e: c, out: inout out)
+    for a in args do
+      inout_vars(e: a.value, out: inout out)
+    end for
+  case ListLit(items: items) then
+    for x in items do
+      inout_vars(e: x, out: inout out)
+    end for
+  case Unary(op: op, x: x) then
+    inout_vars(e: x, out: inout out)
+  case Field(obj: x, name: f) then
+    inout_vars(e: x, out: inout out)
+  case Binary(op: op, l: l, r: r) then
+    inout_vars(e: l, out: inout out)
+    inout_vars(e: r, out: inout out)
+  case Index(obj: l, idx: r) then
+    inout_vars(e: l, out: inout out)
+    inout_vars(e: r, out: inout out)
+  case Quant(q: q, name: n, lo: lo, hi: hi, body: b) then
+    inout_vars(e: lo, out: inout out)
+    inout_vars(e: hi, out: inout out)
+    inout_vars(e: b, out: inout out)
+  else
+  end match
+end fn inout_vars
 
 fn match_args(c: inout Checker, pos: Pos, what: String, params: List<String>, args: List<Arg>) -> Option<List<Int>> do
   for a in args do
@@ -1960,6 +2017,23 @@ fn builtin_call(c: inout Checker, e: Expr, name: String, a: List<Expr> where len
       return Ty.TUnknown
     else
       err(c: inout c, pos: a[0].pos, msg: "'push' needs a List, not " ++ ty_show(lt))
+      return Ty.TUnknown
+    end match
+  case "set_at" then
+    let lt = check_expr(c: inout c, e: a[0], expected: expected)
+    if len(a) < 3 then
+      return Ty.TUnknown
+    end if
+    want(c: inout c, x: a[1], t: Ty.TInt, what: "'at'")
+    match lt
+    case TList(elem: t) then
+      want(c: inout c, x: a[2], t: t, what: "the new element")
+      return lt
+    case TUnknown then
+      let _ = check_expr(c: inout c, e: a[2], expected: Option.None)
+      return Ty.TUnknown
+    else
+      err(c: inout c, pos: a[0].pos, msg: "'set_at' needs a List, not " ++ ty_show(lt))
       return Ty.TUnknown
     end match
   case "slice" then

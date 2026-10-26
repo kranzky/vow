@@ -13,7 +13,7 @@ use diag::{Diag, Pos};
 use std::path::{Path, PathBuf};
 use std::process::exit;
 
-pub const VERSION: &str = "0.1.0";
+pub const VERSION: &str = "0.2.0";
 
 const USAGE: &str = "usage: vowc <command> <file.vow> [options]
 
@@ -328,7 +328,8 @@ fn order_preamble(mut pre: Vec<String>) -> Vec<String> {
     pre
 }
 
-const RUNTIME: &str = include_str!("../../runtime/vow_rt.h");
+/// The bootstrap compiler targets the frozen v0 runtime (no reference counting).
+const RUNTIME: &str = include_str!("../vow_rt0.h");
 
 fn compile_c(c: &str, exe: &Path) -> Result<(), String> {
     let dir = std::env::temp_dir().join(format!("vowc-{}", std::process::id()));

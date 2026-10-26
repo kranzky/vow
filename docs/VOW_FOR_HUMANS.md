@@ -167,8 +167,10 @@ Being clear about the limits matters more than the guarantees.
 - **There are escape hatches.** `check` turns an unproved claim into a runtime test,
   and `--no-verify` skips proofs entirely. Both are visible: `check` in the source,
   `--no-verify` in your build configuration.
-- **Memory is never freed** by the v0 runtime. That's fine for batch tools such as
-  compilers, not for long-running services.
+- **Memory is reference counted**, so it is reclaimed promptly, but the reference
+  counting is in the generated C and the runtime, outside what the verifier proves. It
+  is tested heavily (including a debug runtime that catches any use after free), not
+  proved.
 
 ## Status
 

@@ -115,6 +115,7 @@ pub const BUILTINS: &[Builtin] = &[
     Builtin { name: "is_some", params: &["x"], effect: None, noreturn: false },
     Builtin { name: "is_none", params: &["x"], effect: None, noreturn: false },
     Builtin { name: "push", params: &["list", "item"], effect: None, noreturn: false },
+    Builtin { name: "set_at", params: &["list", "at", "value"], effect: None, noreturn: false },
     Builtin { name: "slice", params: &["of", "from", "to"], effect: None, noreturn: false },
     Builtin { name: "join", params: &["parts", "sep"], effect: None, noreturn: false },
     Builtin { name: "int_to_str", params: &["n"], effect: None, noreturn: false },
@@ -959,6 +960,23 @@ impl Checker {
                 }
             }
         }
+        // A var passed inout must not also be modified while the other arguments are
+        // evaluated: the callee would see a different value from the one passed.
+        for v in &seen {
+            for a in args {
+                if a.inout {
+                    continue;
+                }
+                let mut nested = Vec::new();
+                inout_vars(&a.value, &mut nested);
+                if nested.contains(v) {
+                    self.err(
+                        a.pos,
+                        &format!("'{}' is passed inout to '{}' and also modified by this argument; use separate statements", v, fname),
+                    );
+                }
+            }
+        }
     }
 
     fn match_args(&mut self, pos: Pos, what: &str, params: &[String], args: &[Arg]) -> Option<Vec<usize>> {
@@ -1444,6 +1462,25 @@ impl Checker {
                     }
                 }
             }
+            "set_at" => {
+                let lt = self.expr(a[0], expected);
+                want(self, a[1], &int, "'at'");
+                match &lt {
+                    Ty::List(t) => {
+                        let t = (**t).clone();
+                        want(self, a[2], &t, "the new element");
+                        lt
+                    }
+                    Ty::Unknown => {
+                        self.expr(a[2], None);
+                        Ty::Unknown
+                    }
+                    t => {
+                        self.err(a[0].pos, &format!("'set_at' needs a List, not {}", t.show()));
+                        Ty::Unknown
+                    }
+                }
+            }
             "slice" => {
                 let t = self.expr(a[0], expected);
                 want(self, a[1], &int, "'from'");
@@ -1571,6 +1608,37 @@ impl Checker {
                 Ty::Unknown
             }
         }
+    }
+}
+
+/// Variables passed inout anywhere inside an expression.
+fn inout_vars(e: &Expr, out: &mut Vec<String>) {
+    match &e.kind {
+        EK::Call(c, args) | EK::With(c, args) => {
+            inout_vars(c, out);
+            for a in args {
+                if let (true, EK::Var(n)) = (a.inout, &a.value.kind) {
+                    out.push(n.clone());
+                }
+                inout_vars(&a.value, out);
+            }
+        }
+        EK::List(items) => {
+            for i in items {
+                inout_vars(i, out);
+            }
+        }
+        EK::Unary(_, x) | EK::Field(x, _) => inout_vars(x, out),
+        EK::Binary(_, l, r) | EK::Index(l, r) => {
+            inout_vars(l, out);
+            inout_vars(r, out);
+        }
+        EK::Quant(_, _, lo, hi, b) => {
+            inout_vars(lo, out);
+            inout_vars(hi, out);
+            inout_vars(b, out);
+        }
+        _ => {}
     }
 }
 

@@ -1,9 +1,22 @@
-// C code generation. Every expression is lowered to temporaries in written order,
-// because C leaves argument evaluation order unspecified. The output must match the
-// bootstrap compiler's byte for byte.
+// C code generation with reference counting. Every expression is lowered to
+// temporaries in written order, because C leaves argument evaluation order
+// unspecified.
+//
+// Ownership: each value is either owned (the code holds a reference that must be
+// consumed or dropped) or borrowed (valid while its owner lives). Owned temporaries not
+// consumed by the end of a statement are dropped; owned locals are dropped when their
+// scope ends, including on return, break and continue. Parameters are borrowed. In
+// `set x = op(x, ...)`, when op consumes x (with, push, set_at, insert, list ++), the
+// old value is moved into op instead of duplicated, so op can update it in place.
+// See runtime/vow_rt.h for which runtime functions consume their arguments.
 
 import "check.vow"
 import "pretty.vow"
+
+struct Val
+  c: String,
+  owned: Bool,
+end struct Val
 
 struct Gen
   info: Info,
@@ -14,6 +27,18 @@ struct Gen
   strs: List<String>,
   str_index: Map<String, Int>,
   io_params: List<String>,
+  // Owned locals (and scoped temporaries) in enclosing scopes, innermost last.
+  owned_vars: List<String>,
+  scope_marks: List<Int>,
+  loop_marks: List<Int>,
+  // Owned temporaries of the statement being generated; nested C blocks push marks.
+  temps: List<String>,
+  temp_marks: List<Int>,
+  // The Var expression whose value `set` moves into a consuming operation, or -1.
+  move_id: Int,
+  moved: Bool,
+  // Variables passed inout somewhere in the current statement.
+  inout_vars: List<String>,
 end struct Gen
 
 fn c_string(s: String) -> String do
@@ -52,7 +77,9 @@ fn c_params(f: FnDecl) -> String do
 end fn c_params
 
 fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool) -> String do
-  var g = Gen(info: info, files: files, out: [], ind: 0, tmp: 0, strs: [], str_index: {}, io_params: [])
+  var g = Gen(info: info, files: files, out: [], ind: 0, tmp: 0, strs: [], str_index: {}, io_params: [],
+    owned_vars: [], scope_marks: [], loop_marks: [], temps: [], temp_marks: [], move_id: -1,
+    moved: false, inout_vars: [])
   var body: List<String> = []
   for item in items do
     match item
@@ -88,14 +115,17 @@ fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool) 
   set c = push(list: c, item: "    vow_argv = argv;")
   for i in 0..len(g.strs) do
     let s = g.strs[i]
-    set c = push(list: c, item: "    vow_s[" ++ int_to_str(i) ++ "] = vstr_new(" ++ c_string(s) ++ ", " ++ int_to_str(len(s)) ++ ");")
+    set c = push(list: c, item: "    vow_s[" ++ int_to_str(i) ++ "] = vow_immortal(vstr_new(" ++ c_string(s) ++ ", " ++ int_to_str(len(s)) ++ "));")
   end for
   set c = push(list: c, item: "    f_main();")
   set c = push(list: c, item: "    fflush(stdout);")
+  set c = push(list: c, item: "    vow_report_leaks();")
   set c = push(list: c, item: "    return 0;")
   set c = push(list: c, item: "}")
   return join(parts: c, sep: "\n") ++ "\n"
 end fn generate
+
+// ---- emitting ----
 
 fn line(g: inout Gen, s: String) do
   set g = g with (out: push(list: g.out, item: repeat(s: "    ", n: g.ind) ++ s))
@@ -146,6 +176,228 @@ fn dedent(g: inout Gen) do
   set g = g with (ind: g.ind - 1)
 end fn dedent
 
+// ---- ownership ----
+
+fn is_heap(t: Ty) -> Bool do
+  match t
+  case TInt then
+    return false
+  case TBool then
+    return false
+  case TUnit then
+    return false
+  case TUnknown then
+    return false
+  else
+    return true
+  end match
+end fn is_heap
+
+fn heap_of(g: Gen, e: Expr) -> Bool do
+  return is_heap(type_of(info: g.info, e: e))
+end fn heap_of
+
+fn plain_val(c: String) -> Val do
+  return Val(c: c, owned: false)
+end fn plain_val
+
+// A new owned temporary holding rhs (or a plain one, for non-heap values).
+fn owned_tmp(g: inout Gen, rhs: String, heap: Bool) -> Val do
+  let t = bind(g: inout g, rhs: rhs)
+  if heap then
+    set g = g with (temps: push(list: g.temps, item: t))
+  end if
+  return Val(c: t, owned: heap)
+end fn owned_tmp
+
+fn remove_last(xs: List<String>, x: String) -> List<String> do
+  var i = len(xs) - 1
+  while i >= 0 invariant i < len(xs) decreases i + 1 do
+    if xs[i] == x then
+      return slice(of: xs, from: 0, to: i) ++ slice(of: xs, from: i + 1, to: len(xs))
+    end if
+    set i = i - 1
+  end while
+  return xs
+end fn remove_last
+
+// An owned reference to v for a consuming position: an owned temporary is moved, a
+// borrowed value is duplicated.
+fn take(g: inout Gen, v: Val, heap: Bool) -> String do
+  if not heap then
+    return v.c
+  end if
+  if v.owned then
+    set g = g with (temps: remove_last(xs: g.temps, x: v.c))
+    return v.c
+  end if
+  line(g: inout g, s: "vdup(" ++ v.c ++ ");")
+  return v.c
+end fn take
+
+// Drops the owned temporaries above the innermost mark.
+fn flush(g: inout Gen) do
+  var mark = 0
+  let nm = len(g.temp_marks)
+  if nm > 0 then
+    set mark = g.temp_marks[nm - 1]
+  end if
+  let ts = g.temps
+  var i = len(ts) - 1
+  while (i >= mark) and (i >= 0) invariant i < len(ts) decreases i + 1 do
+    line(g: inout g, s: "vdrop(" ++ ts[i] ++ ");")
+    set i = i - 1
+  end while
+  if (mark >= 0) and (mark <= len(g.temps)) then
+    set g = g with (temps: slice(of: g.temps, from: 0, to: mark))
+  end if
+end fn flush
+
+fn push_frame(g: inout Gen) do
+  set g = g with (temp_marks: push(list: g.temp_marks, item: len(g.temps)))
+end fn push_frame
+
+fn pop_frame(g: inout Gen) do
+  flush(inout g)
+  let n = len(g.temp_marks)
+  if n > 0 then
+    set g = g with (temp_marks: slice(of: g.temp_marks, from: 0, to: n - 1))
+  end if
+end fn pop_frame
+
+fn declare_owned(g: inout Gen, c: String) do
+  set g = g with (owned_vars: push(list: g.owned_vars, item: c))
+end fn declare_owned
+
+fn enter_scope(g: inout Gen) do
+  set g = g with (scope_marks: push(list: g.scope_marks, item: len(g.owned_vars)))
+end fn enter_scope
+
+// Emits drops for the owned variables above mark, innermost first, without forgetting
+// them (other paths still need them).
+fn drop_to(g: inout Gen, mark: Int) do
+  let vs = g.owned_vars
+  var i = len(vs) - 1
+  while (i >= mark) and (i >= 0) invariant i < len(vs) decreases i + 1 do
+    line(g: inout g, s: "vdrop(" ++ vs[i] ++ ");")
+    set i = i - 1
+  end while
+end fn drop_to
+
+fn leave_scope(g: inout Gen) do
+  let marks = g.scope_marks
+  let n = len(marks)
+  if n == 0 then
+    return
+  end if
+  let mark = marks[n - 1]
+  drop_to(g: inout g, mark: mark)
+  if (mark >= 0) and (mark <= len(g.owned_vars)) then
+    set g = g with (owned_vars: slice(of: g.owned_vars, from: 0, to: mark))
+  end if
+  set g = g with (scope_marks: slice(of: marks, from: 0, to: n - 1))
+end fn leave_scope
+
+// ---- which variables a statement passes inout ----
+
+fn inout_in_expr(e: Expr, out: inout List<String>) do
+  match e.kind
+  case Call(callee: c, args: args) then
+    for a in args do
+      if a.is_inout then
+        match a.value.kind
+        case Var(name: n) then
+          set out = push(list: out, item: n)
+        else
+        end match
+      end if
+      inout_in_expr(e: a.value, out: inout out)
+    end for
+  case With(obj: o, args: args) then
+    inout_in_expr(e: o, out: inout out)
+    for a in args do
+      inout_in_expr(e: a.value, out: inout out)
+    end for
+  case ListLit(items: items) then
+    for x in items do
+      inout_in_expr(e: x, out: inout out)
+    end for
+  case Index(obj: a, idx: b) then
+    inout_in_expr(e: a, out: inout out)
+    inout_in_expr(e: b, out: inout out)
+  case Binary(op: op, l: a, r: b) then
+    inout_in_expr(e: a, out: inout out)
+    inout_in_expr(e: b, out: inout out)
+  case Field(obj: a, name: f) then
+    inout_in_expr(e: a, out: inout out)
+  case Unary(op: op, x: a) then
+    inout_in_expr(e: a, out: inout out)
+  case Quant(q: q, name: n, lo: lo, hi: hi, body: b) then
+    inout_in_expr(e: lo, out: inout out)
+    inout_in_expr(e: hi, out: inout out)
+    inout_in_expr(e: b, out: inout out)
+  else
+  end match
+end fn inout_in_expr
+
+// Generates a statement-level expression.
+fn gen_top(g: inout Gen, e: Expr) -> Val do
+  var io: List<String> = []
+  inout_in_expr(e: e, out: inout io)
+  set g = g with (inout_vars: io)
+  let v = gen_expr(g: inout g, e: e)
+  set g = g with (inout_vars: [])
+  return v
+end fn gen_top
+
+// In `set name = value`, the variable read that value's top-level operation consumes,
+// when its old value can be moved there (-1 otherwise).
+fn move_candidate(g: Gen, value: Expr, name: String) -> Int do
+  var io: List<String> = []
+  inout_in_expr(e: value, out: inout io)
+  if contains_str(xs: io, x: name) then
+    return -1
+  end if
+  match value.kind
+  case With(obj: o, args: args) then
+    return var_id(e: o, name: name)
+  case Binary(op: op, l: l, r: r) then
+    if (op == "++") and (ty_show(type_of(info: g.info, e: l)) != "String") then
+      return var_id(e: l, name: name)
+    end if
+    return -1
+  case Call(callee: c, args: args) then
+    match call_info(info: g.info, e: value)
+    case Some(value: ci) then
+      if (ci.kind == "builtin") and contains_str(xs: ["push", "set_at", "insert"], x: ci.name) and (len(ci.order) > 0) then
+        let i = ci.order[0]
+        if (i >= 0) and (i < len(args)) then
+          return var_id(e: args[i].value, name: name)
+        end if
+      end if
+      return -1
+    case None then
+      return -1
+    end match
+  else
+    return -1
+  end match
+end fn move_candidate
+
+fn var_id(e: Expr, name: String) -> Int do
+  match e.kind
+  case Var(name: n) then
+    if n == name then
+      return e.id
+    end if
+    return -1
+  else
+    return -1
+  end match
+end fn var_id
+
+// ---- functions and statements ----
+
 fn gen_function(g: inout Gen, f: FnDecl) do
   var io: List<String> = []
   for p in f.params do
@@ -153,10 +405,10 @@ fn gen_function(g: inout Gen, f: FnDecl) do
       set io = push(list: io, item: p.name)
     end if
   end for
-  set g = g with (io_params: io)
+  set g = g with (io_params: io, owned_vars: [], scope_marks: [], loop_marks: [], temps: [], temp_marks: [])
   line(g: inout g, s: "static V f_" ++ f.name ++ "(" ++ c_params(f) ++ ") {")
   indent(inout g)
-  gen_block(g: inout g, stmts: f.body)
+  gen_scoped(g: inout g, stmts: f.body)
   line(g: inout g, s: "return 0;")
   dedent(inout g)
   line(g: inout g, s: "}")
@@ -169,31 +421,78 @@ fn gen_block(g: inout Gen, stmts: List<Stmt>) do
   end for
 end fn gen_block
 
+// A block with its own scope: owned locals declared in it are dropped at its end.
+fn gen_scoped(g: inout Gen, stmts: List<Stmt>) do
+  enter_scope(inout g)
+  gen_block(g: inout g, stmts: stmts)
+  leave_scope(inout g)
+end fn gen_scoped
+
 fn braced(g: inout Gen, stmts: List<Stmt>) do
   indent(inout g)
-  gen_block(g: inout g, stmts: stmts)
+  gen_scoped(g: inout g, stmts: stmts)
   dedent(inout g)
 end fn braced
+
+fn gen_loop_body(g: inout Gen, stmts: List<Stmt>) do
+  set g = g with (loop_marks: push(list: g.loop_marks, item: len(g.owned_vars)))
+  gen_scoped(g: inout g, stmts: stmts)
+  let n = len(g.loop_marks)
+  if n > 0 then
+    set g = g with (loop_marks: slice(of: g.loop_marks, from: 0, to: n - 1))
+  end if
+end fn gen_loop_body
+
+fn loop_mark(g: Gen) -> Int do
+  let n = len(g.loop_marks)
+  if n > 0 then
+    return g.loop_marks[n - 1]
+  end if
+  return 0
+end fn loop_mark
 
 fn gen_stmt(g: inout Gen, s: Stmt) do
   match s.kind
   case Let(name: name, ty: ty, value: value, mutable: m) then
-    let v = gen_expr(g: inout g, e: value)
+    let v = gen_top(g: inout g, e: value)
     if name == "_" then
-      line(g: inout g, s: "(void)" ++ v ++ ";")
+      line(g: inout g, s: "(void)" ++ v.c ++ ";")
+      flush(inout g)
     else
-      line(g: inout g, s: "V l_" ++ name ++ " = " ++ v ++ ";")
+      let heap = heap_of(g: g, e: value)
+      let c = take(g: inout g, v: v, heap: heap)
+      line(g: inout g, s: "V l_" ++ name ++ " = " ++ c ++ ";")
+      flush(inout g)
+      if heap then
+        declare_owned(g: inout g, c: "l_" ++ name)
+      end if
     end if
   case Set(name: name, value: value) then
-    let v = gen_expr(g: inout g, e: value)
-    line(g: inout g, s: cvar(g: g, n: name) ++ " = " ++ v ++ ";")
+    let lv = cvar(g: g, n: name)
+    let heap = heap_of(g: g, e: value)
+    if heap then
+      set g = g with (move_id: move_candidate(g: g, value: value, name: name), moved: false)
+    end if
+    let v = gen_top(g: inout g, e: value)
+    let moved = g.moved
+    set g = g with (move_id: -1, moved: false)
+    let c = take(g: inout g, v: v, heap: heap)
+    if heap and not moved then
+      line(g: inout g, s: "vdrop(" ++ lv ++ ");")
+    end if
+    line(g: inout g, s: lv ++ " = " ++ c ++ ";")
+    flush(inout g)
   case Return(value: rv) then
     match rv
     case None then
+      drop_to(g: inout g, mark: 0)
       line(g: inout g, s: "return 0;")
     case Some(value: e) then
-      let v = gen_expr(g: inout g, e: e)
-      line(g: inout g, s: "return " ++ v ++ ";")
+      let v = gen_top(g: inout g, e: e)
+      let c = take(g: inout g, v: v, heap: heap_of(g: g, e: e))
+      flush(inout g)
+      drop_to(g: inout g, mark: 0)
+      line(g: inout g, s: "return " ++ c ++ ";")
     end match
   case If(arms: arms, els: els) then
     if len(arms) > 0 then
@@ -202,53 +501,70 @@ fn gen_stmt(g: inout Gen, s: Stmt) do
   case While(cond: cond, invs: invs, body: body) then
     line(g: inout g, s: "for (;;) {")
     indent(inout g)
-    let c = gen_expr(g: inout g, e: cond)
-    line(g: inout g, s: "if (!" ++ c ++ ") break;")
-    gen_block(g: inout g, stmts: body)
+    let c = gen_top(g: inout g, e: cond)
+    flush(inout g)
+    line(g: inout g, s: "if (!" ++ c.c ++ ") break;")
+    gen_loop_body(g: inout g, stmts: body)
     dedent(inout g)
     line(g: inout g, s: "}")
   case ForRange(name: v, lo: lo, hi: hi, invs: invs, body: body) then
-    let a = gen_expr(g: inout g, e: lo)
-    let b = gen_expr(g: inout g, e: hi)
+    let a = gen_top(g: inout g, e: lo)
+    let b = gen_top(g: inout g, e: hi)
+    flush(inout g)
     let lv = "l_" ++ v
-    line(g: inout g, s: "for (V " ++ lv ++ " = " ++ a ++ "; VI(" ++ lv ++ ") < VI(" ++ b ++ "); " ++ lv ++ " = (V)(VI(" ++ lv ++ ") + 1)) {")
-    braced(g: inout g, stmts: body)
-    line(g: inout g, s: "}")
-  case ForEach(name: v, list: l, invs: invs, body: body) then
-    let lv = gen_expr(g: inout g, e: l)
-    let k = fresh_tmp(inout g)
-    line(g: inout g, s: "for (int64_t " ++ k ++ " = 0; " ++ k ++ " < VL(" ++ lv ++ ")->len; " ++ k ++ "++) {")
+    line(g: inout g, s: "for (V " ++ lv ++ " = " ++ a.c ++ "; VI(" ++ lv ++ ") < VI(" ++ b.c ++ "); " ++ lv ++ " = (V)(VI(" ++ lv ++ ") + 1)) {")
     indent(inout g)
-    line(g: inout g, s: "V l_" ++ v ++ " = VL(" ++ lv ++ ")->buf->items[" ++ k ++ "];")
-    gen_block(g: inout g, stmts: body)
+    gen_loop_body(g: inout g, stmts: body)
     dedent(inout g)
     line(g: inout g, s: "}")
+  case ForEach(name: v, list: l, invs: invs, body: body) then
+    // The loop owns the list it iterates, so the body may reassign the variable it came from.
+    enter_scope(inout g)
+    let lv = gen_top(g: inout g, e: l)
+    let owned_list = take(g: inout g, v: lv, heap: true)
+    let owner = bind(g: inout g, rhs: owned_list)
+    flush(inout g)
+    declare_owned(g: inout g, c: owner)
+    let k = fresh_tmp(inout g)
+    line(g: inout g, s: "for (int64_t " ++ k ++ " = 0; " ++ k ++ " < VL(" ++ owner ++ ")->len; " ++ k ++ "++) {")
+    indent(inout g)
+    line(g: inout g, s: "V l_" ++ v ++ " = VB(VL(" ++ owner ++ ")->buf)->items[" ++ k ++ "];")
+    gen_loop_body(g: inout g, stmts: body)
+    dedent(inout g)
+    line(g: inout g, s: "}")
+    leave_scope(inout g)
   case Match(scrut: scrut, cases: cases, els: els) then
     gen_match(g: inout g, scrut: scrut, cases: cases, els: els)
   case Assert(e: e) then
     line(g: inout g, s: "#ifndef VOW_VERIFIED")
-    let c = gen_expr(g: inout g, e: e)
+    let c = gen_top(g: inout g, e: e)
+    flush(inout g)
     let msg = "assertion failed at " ++ loc(g: g, pos: s.pos) ++ ": " ++ pretty_expr(e)
-    line(g: inout g, s: "if (!" ++ c ++ ") vow_panic(" ++ c_string(msg) ++ ");")
+    line(g: inout g, s: "if (!" ++ c.c ++ ") vow_panic(" ++ c_string(msg) ++ ");")
     line(g: inout g, s: "#endif")
   case Check(e: e) then
-    let c = gen_expr(g: inout g, e: e)
+    let c = gen_top(g: inout g, e: e)
+    flush(inout g)
     let msg = "check failed at " ++ loc(g: g, pos: s.pos) ++ ": " ++ pretty_expr(e)
-    line(g: inout g, s: "if (!" ++ c ++ ") vow_panic(" ++ c_string(msg) ++ ");")
+    line(g: inout g, s: "if (!" ++ c.c ++ ") vow_panic(" ++ c_string(msg) ++ ");")
   case Break then
+    drop_to(g: inout g, mark: loop_mark(g))
     line(g: inout g, s: "break;")
   case Continue then
+    drop_to(g: inout g, mark: loop_mark(g))
     line(g: inout g, s: "continue;")
   case ExprStmt(e: e) then
-    let v = gen_expr(g: inout g, e: e)
-    line(g: inout g, s: "(void)" ++ v ++ ";")
+    let v = gen_top(g: inout g, e: e)
+    line(g: inout g, s: "(void)" ++ v.c ++ ";")
+    flush(inout g)
   end match
 end fn gen_stmt
 
 fn gen_if(g: inout Gen, arms: List<Arm> where len(it) > 0, els: Option<List<Stmt>>) do
   let a = arms[0]
-  let cv = gen_expr(g: inout g, e: a.cond)
-  line(g: inout g, s: "if (" ++ cv ++ ") {")
+  let cv = gen_top(g: inout g, e: a.cond)
+  flush(inout g)
+  line(g: inout g, s: "if (" ++ cv.c ++ ") {")
   braced(g: inout g, stmts: a.body)
   if len(arms) > 1 then
     line(g: inout g, s: "} else {")
@@ -270,7 +586,17 @@ end fn gen_if
 
 fn gen_match(g: inout Gen, scrut: Expr, cases: List<Case>, els: Option<List<Stmt>>) do
   let st = type_of(info: g.info, e: scrut)
-  let v = gen_expr(g: inout g, e: scrut)
+  enter_scope(inout g)
+  let sv = gen_top(g: inout g, e: scrut)
+  var v = sv.c
+  if is_heap(st) then
+    // The match owns its scrutinee, so binders stay valid even if the arm reassigns
+    // the variable it came from.
+    let owned_scrut = take(g: inout g, v: sv, heap: true)
+    set v = bind(g: inout g, rhs: owned_scrut)
+    declare_owned(g: inout g, c: v)
+  end if
+  flush(inout g)
   var variants: List<VariantInfo> = []
   var is_enum = false
   match variants_of(info: g.info, t: st)
@@ -314,7 +640,7 @@ fn gen_match(g: inout Gen, scrut: Expr, cases: List<Case>, els: Option<List<Stmt
       end if
     else
     end match
-    gen_block(g: inout g, stmts: cs.body)
+    gen_scoped(g: inout g, stmts: cs.body)
     dedent(inout g)
   end for
   match els
@@ -333,65 +659,121 @@ fn gen_match(g: inout Gen, scrut: Expr, cases: List<Case>, els: Option<List<Stmt
       line(g: inout g, s: "}")
     end if
   end match
+  leave_scope(inout g)
 end fn gen_match
 
-fn is_str_map(g: Gen, e: Expr) -> String do
-  match type_of(info: g.info, e: e)
+// ---- expressions ----
+
+fn elem_heap(t: Ty) -> Bool do
+  match t
+  case TList(elem: e) then
+    return is_heap(e)
+  else
+    return false
+  end match
+end fn elem_heap
+
+// Runtime flags for a map type: 1 heap keys, 2 heap values, 4 string keys.
+fn map_flags(t: Ty) -> String do
+  match t
   case TMap(key: k, val: v) then
+    var f = 0
     if ty_show(k) == "String" then
-      return "1"
+      set f = 5
     end if
-    return "0"
+    if is_heap(v) then
+      set f = f + 2
+    end if
+    return int_to_str(f)
   else
     return "0"
   end match
-end fn is_str_map
+end fn map_flags
 
-fn gen_expr(g: inout Gen, e: Expr) -> String do
+fn flag(b: Bool) -> String do
+  if b then
+    return "1"
+  end if
+  return "0"
+end fn flag
+
+// The pointer mask for an object whose payload word i + offset holds field i.
+fn field_mask(fields: List<FieldInfo>, offset: Int where it >= 0) -> String do
+  var mask = 0
+  var bit = 1
+  for i in 0..offset do
+    if bit < 4611686018427387904 then
+      set bit = bit * 2
+    end if
+  end for
+  for f in fields do
+    if is_heap(f.rty.ty) then
+      set mask = mask + bit
+    end if
+    if bit < 4611686018427387904 then
+      set bit = bit * 2
+    end if
+  end for
+  return "UINT64_C(" ++ int_to_str(mask) ++ ")"
+end fn field_mask
+
+fn gen_expr(g: inout Gen, e: Expr) -> Val do
   match e.kind
   case IntLit(value: n) then
-    return "(V)INT64_C(" ++ int_to_str(n) ++ ")"
+    return plain_val("(V)INT64_C(" ++ int_to_str(n) ++ ")")
   case StrLit(value: s) then
-    return str_lit(g: inout g, s: s)
+    return plain_val(str_lit(g: inout g, s: s))
   case BoolLit(value: b) then
     if b then
-      return "1"
+      return plain_val("1")
     end if
-    return "0"
+    return plain_val("0")
   case Var(name: n) then
+    if e.id == g.move_id then
+      // `set` moves the variable's old value into the operation consuming it.
+      set g = g with (moved: true)
+      return Val(c: cvar(g: g, n: n), owned: true)
+    end if
+    if heap_of(g: g, e: e) and contains_str(xs: g.inout_vars, x: n) then
+      // The statement passes this variable inout, which may replace it: keep our own
+      // reference so nothing borrowed from it can dangle.
+      return owned_tmp(g: inout g, rhs: "vdup(" ++ cvar(g: g, n: n) ++ ")", heap: true)
+    end if
     // Copied so that a later inout argument in the same call cannot change it.
-    return bind(g: inout g, rhs: cvar(g: g, n: n))
+    return plain_val(bind(g: inout g, rhs: cvar(g: g, n: n)))
   case It then
-    return "0 /* spec-only */"
+    return plain_val("0 /* spec-only */")
   case Result then
-    return "0 /* spec-only */"
+    return plain_val("0 /* spec-only */")
   case Hole(name: n) then
-    return "0 /* spec-only */"
+    return plain_val("0 /* spec-only */")
   case Call(callee: callee, args: args) then
     return gen_call(g: inout g, e: e, args: args)
   case ListLit(items: items) then
-    let acc = bind(g: inout g, rhs: "vlist_empty()")
+    let eh = elem_heap(type_of(info: g.info, e: e))
+    let acc = owned_tmp(g: inout g, rhs: "vlist_empty(" ++ flag(eh) ++ ")", heap: true)
     for x in items do
       let v = gen_expr(g: inout g, e: x)
-      line(g: inout g, s: acc ++ " = vlist_push(" ++ acc ++ ", " ++ v ++ ");")
+      let c = take(g: inout g, v: v, heap: eh)
+      line(g: inout g, s: acc.c ++ " = vlist_push(" ++ acc.c ++ ", " ++ c ++ ");")
     end for
     return acc
   case EmptyMap then
-    return "vmap_empty()"
+    return plain_val("vmap_empty()")
   case Index(obj: o, idx: i) then
     let ov = gen_expr(g: inout g, e: o)
     let iv = gen_expr(g: inout g, e: i)
     match type_of(info: g.info, e: o)
     case TStr then
-      return bind(g: inout g, rhs: "vstr_byte(" ++ ov ++ ", " ++ iv ++ ")")
+      return plain_val(bind(g: inout g, rhs: "vstr_byte(" ++ ov.c ++ ", " ++ iv.c ++ ")"))
     else
-      return bind(g: inout g, rhs: "vlist_get(" ++ ov ++ ", " ++ iv ++ ")")
+      return plain_val(bind(g: inout g, rhs: "vlist_get(" ++ ov.c ++ ", " ++ iv.c ++ ")"))
     end match
   case Field(obj: o, name: f) then
     match call_info(info: g.info, e: e)
     case Some(value: ci) then
       if ci.kind == "variant" then
-        return bind(g: inout g, rhs: "vow_variant0(" ++ int_to_str(ci.variant) ++ ")")
+        return owned_tmp(g: inout g, rhs: "vow_variant0(" ++ int_to_str(ci.variant) ++ ")", heap: true)
       end if
     case None then
     end match
@@ -403,7 +785,7 @@ fn gen_expr(g: inout Gen, e: Expr) -> String do
     else
     end match
     let fi = find_field(fields: struct_fields(info: g.info, name: sn), name: f)
-    return bind(g: inout g, rhs: "VP(" ++ ov ++ ")[" ++ int_to_str(fi) ++ "]")
+    return plain_val(bind(g: inout g, rhs: "VP(" ++ ov.c ++ ")[" ++ int_to_str(fi) ++ "]"))
   case With(obj: o, args: args) then
     let ov = gen_expr(g: inout g, e: o)
     var sn = ""
@@ -413,27 +795,41 @@ fn gen_expr(g: inout Gen, e: Expr) -> String do
     else
     end match
     let fields = struct_fields(info: g.info, name: sn)
-    var names: List<String> = []
-    var vals: List<String> = []
+    var vals: List<Val> = []
     for a in args do
       let v = gen_expr(g: inout g, e: a.value)
-      set names = push(list: names, item: a.name)
       set vals = push(list: vals, item: v)
     end for
-    let r = bind(g: inout g, rhs: "vow_copy(" ++ ov ++ ", " ++ int_to_str(len(fields)) ++ ")")
-    for i in 0..len(names) do
+    let base = take(g: inout g, v: ov, heap: true)
+    var cs: List<String> = []
+    for i in 0..len(args) do
       if i < len(vals) then
-        let fi = find_field(fields: fields, name: names[i])
-        line(g: inout g, s: "VP(" ++ r ++ ")[" ++ int_to_str(fi) ++ "] = " ++ vals[i] ++ ";")
+        let fi = find_field(fields: fields, name: args[i].name)
+        var fh = false
+        if (fi >= 0) and (fi < len(fields)) then
+          set fh = is_heap(fields[fi].rty.ty)
+        end if
+        let c = take(g: inout g, v: vals[i], heap: fh)
+        set cs = push(list: cs, item: c)
+      end if
+    end for
+    let r = owned_tmp(g: inout g, rhs: "vow_with(" ++ base ++ ")", heap: true)
+    for i in 0..len(args) do
+      if i < len(cs) then
+        let fi = find_field(fields: fields, name: args[i].name)
+        if (fi >= 0) and (fi < len(fields)) and is_heap(fields[fi].rty.ty) then
+          line(g: inout g, s: "vdrop(VP(" ++ r.c ++ ")[" ++ int_to_str(fi) ++ "]);")
+        end if
+        line(g: inout g, s: "VP(" ++ r.c ++ ")[" ++ int_to_str(fi) ++ "] = " ++ cs[i] ++ ";")
       end if
     end for
     return r
   case Unary(op: op, x: x) then
     let v = gen_expr(g: inout g, e: x)
     if op == "-" then
-      return bind(g: inout g, rhs: "vneg(" ++ v ++ ")")
+      return plain_val(bind(g: inout g, rhs: "vneg(" ++ v.c ++ ")"))
     end if
-    return bind(g: inout g, rhs: "(V)!" ++ v)
+    return plain_val(bind(g: inout g, rhs: "(V)!" ++ v.c))
   case Binary(op: op, l: l, r: r) then
     return gen_binary(g: inout g, op: op, l: l, r: r)
   case Quant(q: q, name: v, lo: lo, hi: hi, body: body) then
@@ -446,80 +842,80 @@ fn gen_expr(g: inout Gen, e: Expr) -> String do
     end if
     let t = bind(g: inout g, rhs: init)
     let lv = "l_" ++ v
-    line(g: inout g, s: "for (V " ++ lv ++ " = " ++ a ++ "; VI(" ++ lv ++ ") < VI(" ++ b ++ "); " ++ lv ++ " = (V)(VI(" ++ lv ++ ") + 1)) {")
+    line(g: inout g, s: "for (V " ++ lv ++ " = " ++ a.c ++ "; VI(" ++ lv ++ ") < VI(" ++ b.c ++ "); " ++ lv ++ " = (V)(VI(" ++ lv ++ ") + 1)) {")
     indent(inout g)
+    push_frame(inout g)
     let bv = gen_expr(g: inout g, e: body)
+    pop_frame(inout g)
     if is_forall then
-      line(g: inout g, s: "if (!" ++ bv ++ ") { " ++ t ++ " = 0; break; }")
+      line(g: inout g, s: "if (!" ++ bv.c ++ ") { " ++ t ++ " = 0; break; }")
     else
-      line(g: inout g, s: "if (" ++ bv ++ ") { " ++ t ++ " = 1; break; }")
+      line(g: inout g, s: "if (" ++ bv.c ++ ") { " ++ t ++ " = 1; break; }")
     end if
     dedent(inout g)
     line(g: inout g, s: "}")
-    return t
+    return plain_val(t)
   end match
 end fn gen_expr
 
-fn gen_binary(g: inout Gen, op: String, l: Expr, r: Expr) -> String do
+fn gen_binary(g: inout Gen, op: String, l: Expr, r: Expr) -> Val do
   if (op == "and") or (op == "or") or (op == "implies") then
     let a = gen_expr(g: inout g, e: l)
-    var init = a
+    var init = a.c
     if op == "implies" then
       set init = "1"
     end if
     let t = bind(g: inout g, rhs: init)
-    var guard = a
+    var guard = a.c
     if op == "or" then
       set guard = "!" ++ t
     end if
     line(g: inout g, s: "if (" ++ guard ++ ") {")
     indent(inout g)
+    push_frame(inout g)
     let b = gen_expr(g: inout g, e: r)
-    line(g: inout g, s: t ++ " = " ++ b ++ ";")
+    line(g: inout g, s: t ++ " = " ++ b.c ++ ";")
+    pop_frame(inout g)
     dedent(inout g)
     line(g: inout g, s: "}")
-    return t
+    return plain_val(t)
   end if
   let a = gen_expr(g: inout g, e: l)
   let b = gen_expr(g: inout g, e: r)
   let is_str = ty_show(type_of(info: g.info, e: l)) == "String"
-  var rhs = ""
   match op
-  case "+" then
-    set rhs = "vadd(" ++ a ++ ", " ++ b ++ ")"
-  case "-" then
-    set rhs = "vsub(" ++ a ++ ", " ++ b ++ ")"
-  case "*" then
-    set rhs = "vmul(" ++ a ++ ", " ++ b ++ ")"
-  case "/" then
-    set rhs = "vdiv(" ++ a ++ ", " ++ b ++ ")"
-  case "%" then
-    set rhs = "vmod(" ++ a ++ ", " ++ b ++ ")"
-  case "==" then
-    if is_str then
-      set rhs = "vstr_eq(" ++ a ++ ", " ++ b ++ ")"
-    else
-      set rhs = "(V)(" ++ a ++ " == " ++ b ++ ")"
-    end if
-  case "!=" then
-    if is_str then
-      set rhs = "(V)!vstr_eq(" ++ a ++ ", " ++ b ++ ")"
-    else
-      set rhs = "(V)!(V)(" ++ a ++ " == " ++ b ++ ")"
-    end if
   case "++" then
     if is_str then
-      set rhs = "vstr_cat(" ++ a ++ ", " ++ b ++ ")"
-    else
-      set rhs = "vlist_cat(" ++ a ++ ", " ++ b ++ ")"
+      return owned_tmp(g: inout g, rhs: "vstr_cat(" ++ a.c ++ ", " ++ b.c ++ ")", heap: true)
     end if
+    let ac = take(g: inout g, v: a, heap: true)
+    return owned_tmp(g: inout g, rhs: "vlist_cat(" ++ ac ++ ", " ++ b.c ++ ")", heap: true)
+  case "+" then
+    return plain_val(bind(g: inout g, rhs: "vadd(" ++ a.c ++ ", " ++ b.c ++ ")"))
+  case "-" then
+    return plain_val(bind(g: inout g, rhs: "vsub(" ++ a.c ++ ", " ++ b.c ++ ")"))
+  case "*" then
+    return plain_val(bind(g: inout g, rhs: "vmul(" ++ a.c ++ ", " ++ b.c ++ ")"))
+  case "/" then
+    return plain_val(bind(g: inout g, rhs: "vdiv(" ++ a.c ++ ", " ++ b.c ++ ")"))
+  case "%" then
+    return plain_val(bind(g: inout g, rhs: "vmod(" ++ a.c ++ ", " ++ b.c ++ ")"))
+  case "==" then
+    if is_str then
+      return plain_val(bind(g: inout g, rhs: "vstr_eq(" ++ a.c ++ ", " ++ b.c ++ ")"))
+    end if
+    return plain_val(bind(g: inout g, rhs: "(V)(" ++ a.c ++ " == " ++ b.c ++ ")"))
+  case "!=" then
+    if is_str then
+      return plain_val(bind(g: inout g, rhs: "(V)!vstr_eq(" ++ a.c ++ ", " ++ b.c ++ ")"))
+    end if
+    return plain_val(bind(g: inout g, rhs: "(V)!(V)(" ++ a.c ++ " == " ++ b.c ++ ")"))
   else
-    set rhs = "(V)(VI(" ++ a ++ ") " ++ op ++ " VI(" ++ b ++ "))"
+    return plain_val(bind(g: inout g, rhs: "(V)(VI(" ++ a.c ++ ") " ++ op ++ " VI(" ++ b.c ++ "))"))
   end match
-  return bind(g: inout g, rhs: rhs)
 end fn gen_binary
 
-fn gen_call(g: inout Gen, e: Expr, args: List<Arg>) -> String do
+fn gen_call(g: inout Gen, e: Expr, args: List<Arg>) -> Val do
   var ci = CallInfo(kind: "", name: "", variant: 0, order: [])
   match call_info(info: g.info, e: e)
   case Some(value: x) then
@@ -527,17 +923,17 @@ fn gen_call(g: inout Gen, e: Expr, args: List<Arg>) -> String do
   case None then
   end match
   // Evaluate arguments in written order, then pass them in parameter order.
-  var vals: List<String> = []
+  var vals: List<Val> = []
   for a in args do
-    var v = ""
+    var v = plain_val("0")
     var done = false
     if a.is_inout then
       match a.value.kind
       case Var(name: n) then
         if contains_str(xs: g.io_params, x: n) then
-          set v = "l_" ++ n
+          set v = plain_val("l_" ++ n)
         else
-          set v = "&l_" ++ n
+          set v = plain_val("&l_" ++ n)
         end if
         set done = true
       else
@@ -548,7 +944,7 @@ fn gen_call(g: inout Gen, e: Expr, args: List<Arg>) -> String do
     end if
     set vals = push(list: vals, item: v)
   end for
-  var p: List<String> = []
+  var p: List<Val> = []
   var pe: List<Expr> = []
   for i in ci.order do
     if (i >= 0) and (i < len(vals)) and (i < len(args)) then
@@ -556,113 +952,152 @@ fn gen_call(g: inout Gen, e: Expr, args: List<Arg>) -> String do
       set pe = push(list: pe, item: args[i].value)
     end if
   end for
+  let rh = heap_of(g: g, e: e)
   if ci.kind == "user" then
-    return bind(g: inout g, rhs: "f_" ++ ci.name ++ "(" ++ join(parts: p, sep: ", ") ++ ")")
+    // Parameters are borrowed: the arguments stay owned by this statement.
+    var cs: List<String> = []
+    for v in p do
+      set cs = push(list: cs, item: v.c)
+    end for
+    return owned_tmp(g: inout g, rhs: "f_" ++ ci.name ++ "(" ++ join(parts: cs, sep: ", ") ++ ")", heap: rh)
   end if
-  if ci.kind == "struct" then
-    let r = bind(g: inout g, rhs: "vow_new(" ++ int_to_str(len(p)) ++ ")")
+  if (ci.kind == "struct") or (ci.kind == "variant") then
+    var fields: List<FieldInfo> = []
+    var offset = 0
+    if ci.kind == "struct" then
+      set fields = struct_fields(info: g.info, name: ci.name)
+    else
+      set offset = 1
+      match variants_of(info: g.info, t: type_of(info: g.info, e: e))
+      case Some(value: vs) then
+        if (ci.variant >= 0) and (ci.variant < len(vs)) then
+          set fields = vs[ci.variant].fields
+        end if
+      case None then
+      end match
+    end if
+    var cs: List<String> = []
     for i in 0..len(p) do
-      line(g: inout g, s: "VP(" ++ r ++ ")[" ++ int_to_str(i) ++ "] = " ++ p[i] ++ ";")
+      var fh = false
+      if i < len(fields) then
+        set fh = is_heap(fields[i].rty.ty)
+      end if
+      let c = take(g: inout g, v: p[i], heap: fh)
+      set cs = push(list: cs, item: c)
+    end for
+    let r = owned_tmp(g: inout g, rhs: "vow_fields(" ++ int_to_str(len(p) + offset) ++ ", " ++ field_mask(fields: fields, offset: offset) ++ ")", heap: true)
+    if offset == 1 then
+      line(g: inout g, s: "VP(" ++ r.c ++ ")[0] = " ++ int_to_str(ci.variant) ++ ";")
+    end if
+    for i in 0..len(cs) do
+      line(g: inout g, s: "VP(" ++ r.c ++ ")[" ++ int_to_str(i + offset) ++ "] = " ++ cs[i] ++ ";")
     end for
     return r
   end if
-  if ci.kind == "variant" then
-    let r = bind(g: inout g, rhs: "vow_new(" ++ int_to_str(len(p) + 1) ++ ")")
-    line(g: inout g, s: "VP(" ++ r ++ ")[0] = " ++ int_to_str(ci.variant) ++ ";")
-    for i in 0..len(p) do
-      line(g: inout g, s: "VP(" ++ r ++ ")[" ++ int_to_str(i + 1) ++ "] = " ++ p[i] ++ ";")
-    end for
-    return r
-  end if
-  return gen_builtin(g: inout g, name: ci.name, p: p, pe: pe)
+  return gen_builtin(g: inout g, e: e, name: ci.name, p: p, pe: pe)
 end fn gen_call
 
-fn arg_at(p: List<String>, i: Int) -> String do
+fn arg_val(p: List<Val>, i: Int) -> Val do
   if (i >= 0) and (i < len(p)) then
     return p[i]
   end if
-  return "0"
-end fn arg_at
+  return plain_val("0")
+end fn arg_val
 
-fn gen_builtin(g: inout Gen, name: String, p: List<String>, pe: List<Expr>) -> String do
-  let a0 = arg_at(p: p, i: 0)
-  let a1 = arg_at(p: p, i: 1)
-  let a2 = arg_at(p: p, i: 2)
+fn gen_builtin(g: inout Gen, e: Expr, name: String, p: List<Val>, pe: List<Expr>) -> Val do
+  let v0 = arg_val(p: p, i: 0)
+  let v1 = arg_val(p: p, i: 1)
+  let v2 = arg_val(p: p, i: 2)
   var t0 = Ty.TUnknown
-  var sm = "0"
   if len(pe) > 0 then
     set t0 = type_of(info: g.info, e: pe[0])
-    set sm = is_str_map(g: g, e: pe[0])
   end if
   let s0 = ty_show(t0)
-  var rhs = ""
+  let rt = type_of(info: g.info, e: e)
+  let rh = is_heap(rt)
   match name
   case "len" then
     if s0 == "String" then
-      set rhs = "vstr_len(" ++ a0 ++ ")"
+      return plain_val(bind(g: inout g, rhs: "vstr_len(" ++ v0.c ++ ")"))
     elif starts_with(s: s0, p: "Map<") then
-      set rhs = "vmap_len(" ++ a0 ++ ")"
-    else
-      set rhs = "vlist_len(" ++ a0 ++ ")"
+      return plain_val(bind(g: inout g, rhs: "vmap_len(" ++ v0.c ++ ")"))
     end if
+    return plain_val(bind(g: inout g, rhs: "vlist_len(" ++ v0.c ++ ")"))
   case "push" then
-    set rhs = "vlist_push(" ++ a0 ++ ", " ++ a1 ++ ")"
+    let l = take(g: inout g, v: v0, heap: true)
+    let x = take(g: inout g, v: v1, heap: elem_heap(t0))
+    return owned_tmp(g: inout g, rhs: "vlist_push(" ++ l ++ ", " ++ x ++ ")", heap: true)
+  case "set_at" then
+    let l = take(g: inout g, v: v0, heap: true)
+    let x = take(g: inout g, v: v2, heap: elem_heap(t0))
+    return owned_tmp(g: inout g, rhs: "vlist_set_at(" ++ l ++ ", " ++ v1.c ++ ", " ++ x ++ ")", heap: true)
   case "slice" then
     if s0 == "String" then
-      set rhs = "vstr_slice(" ++ a0 ++ ", " ++ a1 ++ ", " ++ a2 ++ ")"
-    else
-      set rhs = "vlist_slice(" ++ a0 ++ ", " ++ a1 ++ ", " ++ a2 ++ ")"
+      return owned_tmp(g: inout g, rhs: "vstr_slice(" ++ v0.c ++ ", " ++ v1.c ++ ", " ++ v2.c ++ ")", heap: true)
     end if
+    return owned_tmp(g: inout g, rhs: "vlist_slice(" ++ v0.c ++ ", " ++ v1.c ++ ", " ++ v2.c ++ ")", heap: true)
   case "join" then
-    set rhs = "vjoin(" ++ a0 ++ ", " ++ a1 ++ ")"
+    return owned_tmp(g: inout g, rhs: "vjoin(" ++ v0.c ++ ", " ++ v1.c ++ ")", heap: true)
   case "int_to_str" then
-    set rhs = "vint_to_str(" ++ a0 ++ ")"
+    return owned_tmp(g: inout g, rhs: "vint_to_str(" ++ v0.c ++ ")", heap: true)
   case "str_to_int" then
-    set rhs = "vstr_to_int(" ++ a0 ++ ")"
+    return owned_tmp(g: inout g, rhs: "vstr_to_int(" ++ v0.c ++ ")", heap: true)
   case "char" then
-    set rhs = "vchar(" ++ a0 ++ ")"
+    return owned_tmp(g: inout g, rhs: "vchar(" ++ v0.c ++ ")", heap: true)
   case "hash" then
-    set rhs = "vhash(" ++ a0 ++ ")"
+    return owned_tmp(g: inout g, rhs: "vhash(" ++ v0.c ++ ")", heap: true)
   case "insert" then
-    set rhs = "vmap_insert(" ++ a0 ++ ", " ++ a1 ++ ", " ++ a2 ++ ", " ++ sm ++ ")"
+    let f = map_flags(t0)
+    var kh = false
+    var vh = false
+    match t0
+    case TMap(key: k, val: v) then
+      set kh = is_heap(k)
+      set vh = is_heap(v)
+    else
+    end match
+    let m = take(g: inout g, v: v0, heap: true)
+    let k = take(g: inout g, v: v1, heap: kh)
+    let x = take(g: inout g, v: v2, heap: vh)
+    return owned_tmp(g: inout g, rhs: "vmap_insert(" ++ m ++ ", " ++ k ++ ", " ++ x ++ ", " ++ f ++ ")", heap: true)
   case "lookup" then
-    set rhs = "vmap_lookup(" ++ a0 ++ ", " ++ a1 ++ ", " ++ sm ++ ")"
+    return owned_tmp(g: inout g, rhs: "vmap_lookup(" ++ v0.c ++ ", " ++ v1.c ++ ", " ++ map_flags(t0) ++ ")", heap: true)
   case "has" then
-    set rhs = "vmap_has(" ++ a0 ++ ", " ++ a1 ++ ", " ++ sm ++ ")"
+    return plain_val(bind(g: inout g, rhs: "vmap_has(" ++ v0.c ++ ", " ++ v1.c ++ ", " ++ map_flags(t0) ++ ")"))
   case "keys" then
-    set rhs = "vmap_keys(" ++ a0 ++ ")"
+    return owned_tmp(g: inout g, rhs: "vmap_keys(" ++ v0.c ++ ", " ++ map_flags(t0) ++ ")", heap: true)
   case "panic" then
-    line(g: inout g, s: "vow_panic(VS(" ++ a0 ++ ")->data);")
-    return "0"
+    line(g: inout g, s: "vow_panic(VS(" ++ v0.c ++ ")->data);")
+    return plain_val("0")
   case "exit" then
-    line(g: inout g, s: "vexit(" ++ a0 ++ ");")
-    return "0"
+    line(g: inout g, s: "vexit(" ++ v0.c ++ ");")
+    return plain_val("0")
   case "print" then
-    set rhs = "vprint(" ++ a0 ++ ")"
+    return plain_val(bind(g: inout g, rhs: "vprint(" ++ v0.c ++ ")"))
   case "eprint" then
-    set rhs = "veprint(" ++ a0 ++ ")"
+    return plain_val(bind(g: inout g, rhs: "veprint(" ++ v0.c ++ ")"))
   case "read_file" then
-    set rhs = "vread_file(" ++ a0 ++ ")"
+    return owned_tmp(g: inout g, rhs: "vread_file(" ++ v0.c ++ ")", heap: true)
   case "write_file" then
-    set rhs = "vwrite_file(" ++ a0 ++ ", " ++ a1 ++ ")"
+    return plain_val(bind(g: inout g, rhs: "vwrite_file(" ++ v0.c ++ ", " ++ v1.c ++ ")"))
   case "args" then
-    set rhs = "vargs()"
+    return owned_tmp(g: inout g, rhs: "vargs()", heap: true)
   case "make_dir" then
-    set rhs = "vmake_dir(" ++ a0 ++ ")"
+    return plain_val(bind(g: inout g, rhs: "vmake_dir(" ++ v0.c ++ ")"))
   case "list_dir" then
-    set rhs = "vlist_dir(" ++ a0 ++ ")"
+    return owned_tmp(g: inout g, rhs: "vlist_dir(" ++ v0.c ++ ")", heap: true)
   case "getenv" then
-    set rhs = "vgetenv(" ++ a0 ++ ")"
+    return owned_tmp(g: inout g, rhs: "vgetenv(" ++ v0.c ++ ")", heap: true)
   case "run" then
-    set rhs = "vrun(" ++ a0 ++ ", " ++ a1 ++ ")"
+    return owned_tmp(g: inout g, rhs: "vrun(" ++ v0.c ++ ", " ++ v1.c ++ ")", heap: true)
   case "is_some" then
-    set rhs = "(V)(VP(" ++ a0 ++ ")[0] == 1)"
+    return plain_val(bind(g: inout g, rhs: "(V)(VP(" ++ v0.c ++ ")[0] == 1)"))
   case "is_none" then
-    set rhs = "(V)(VP(" ++ a0 ++ ")[0] == 0)"
+    return plain_val(bind(g: inout g, rhs: "(V)(VP(" ++ v0.c ++ ")[0] == 0)"))
   case "value_or" then
-    set rhs = "(VP(" ++ a0 ++ ")[0] == 1 ? VP(" ++ a0 ++ ")[1] : " ++ a1 ++ ")"
+    let d = take(g: inout g, v: v1, heap: rh)
+    return owned_tmp(g: inout g, rhs: "vvalue_or(" ++ v0.c ++ ", " ++ d ++ ", " ++ flag(rh) ++ ")", heap: rh)
   else
-    set rhs = "0"
+    return plain_val("0")
   end match
-  return bind(g: inout g, rhs: rhs)
 end fn gen_builtin

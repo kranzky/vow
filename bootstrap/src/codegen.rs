@@ -471,6 +471,7 @@ impl<'a> Gen<'a> {
                         _ => format!("vlist_len({})", p[0]),
                     },
                     "push" => format!("vlist_push({}, {})", p[0], p[1]),
+                    "set_at" => format!("vlist_set_at({}, {}, {})", p[0], p[1], p[2]),
                     "slice" => match self.info.ty(pa[0]) {
                         Ty::Str => format!("vstr_slice({}, {}, {})", p[0], p[1], p[2]),
                         _ => format!("vlist_slice({}, {}, {})", p[0], p[1], p[2]),

@@ -1,24 +1,6 @@
 // fannkuch-redux (Computer Language Benchmarks Game): permutations and flips.
-// Vow values are immutable, so updating an element builds a new list.
-
-fn set_at(xs: List<Int>, i: Int where (0 <= it) and (it < len(xs)), v: Int) -> List<Int>
-  ensures len(result) == len(xs)
-do
-  return (slice(of: xs, from: 0, to: i) ++ [v]) ++ slice(of: xs, from: i + 1, to: len(xs))
-end fn set_at
-
-// Reverse the first k + 1 elements.
-fn flip(xs: List<Int>, k: Int where (0 <= it) and (it < len(xs))) -> List<Int>
-  ensures len(result) == len(xs)
-do
-  var out: List<Int> = []
-  var j = k
-  while j >= 0 invariant (-1 <= j) and (j <= k) invariant len(out) == (k - j) decreases j + 1 do
-    set out = push(list: out, item: xs[j])
-    set j = j - 1
-  end while
-  return out ++ slice(of: xs, from: k + 1, to: len(xs))
-end fn flip
+// set_at updates a list in place when nothing else refers to it, so after the first
+// copy of each permutation the flips and rotations allocate nothing.
 
 fn count_flips(perm1: List<Int>) -> Int do
   var perm = perm1
@@ -28,7 +10,16 @@ fn count_flips(perm1: List<Int>) -> Int do
   end if
   var k = perm[0]
   while (k > 0) and (k < len(perm)) invariant len(perm) == len(perm1) do
-    set perm = flip(xs: perm, k: k)
+    // Reverse perm[0..k].
+    var i = 0
+    var j = k
+    while i < j invariant (0 <= i) and (j < len(perm)) invariant len(perm) == len(perm1) decreases j - i do
+      let t = perm[i]
+      set perm = set_at(list: perm, at: i, value: perm[j])
+      set perm = set_at(list: perm, at: j, value: t)
+      set i = i + 1
+      set j = j - 1
+    end while
     set flips = flips + 1
     set k = perm[0]
   end while
@@ -56,7 +47,7 @@ fn main() uses console, proc do
   var r = n
   while true invariant len(perm1) == n invariant len(count) == n invariant (1 <= r) and (r <= n) do
     while r != 1 invariant (1 <= r) and (r <= n) invariant len(count) == n decreases r do
-      set count = set_at(xs: count, i: r - 1, v: r)
+      set count = set_at(list: count, at: r - 1, value: r)
       set r = r - 1
     end while
     let flips = count_flips(perm1)
@@ -75,8 +66,12 @@ fn main() uses console, proc do
         print(int_to_str(checksum) ++ "\nPfannkuchen(" ++ int_to_str(n) ++ ") = " ++ int_to_str(max_flips) ++ "\n")
         return
       end if
-      set perm1 = (slice(of: perm1, from: 1, to: r + 1) ++ [perm1[0]]) ++ slice(of: perm1, from: r + 1, to: n)
-      set count = set_at(xs: count, i: r, v: count[r] - 1)
+      let p0 = perm1[0]
+      for i in 0..r invariant len(perm1) == n do
+        set perm1 = set_at(list: perm1, at: i, value: perm1[i + 1])
+      end for
+      set perm1 = set_at(list: perm1, at: r, value: p0)
+      set count = set_at(list: count, at: r, value: count[r] - 1)
       if count[r] > 0 then
         set more = false
       else

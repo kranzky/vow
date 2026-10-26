@@ -1,0 +1,126 @@
+// Value semantics under reference counting: every update below happens to a value that
+// is shared with another variable, through every kind of in-place update and every
+// control path. Each line must print the same as with copying semantics.
+
+import "std/text.vow"
+
+struct Box
+  name: String,
+  items: List<String>,
+end struct Box
+
+fn show(xs: List<String>) -> String do
+  return "[" ++ join(parts: xs, sep: ",") ++ "]"
+end fn show
+
+fn ints(xs: List<Int>) -> String do
+  var parts: List<String> = []
+  for x in xs do
+    set parts = push(list: parts, item: int_to_str(x))
+  end for
+  return show(parts)
+end fn ints
+
+fn rename(b: inout Box, n: String) do
+  set b = b with (name: n)
+end fn rename
+
+fn add(b: inout Box, item: String) do
+  set b = b with (items: push(list: b.items, item: item))
+end fn add
+
+fn first_long(xs: List<String>) -> String do
+  for x in xs do
+    let shout = to_upper(x)
+    if len(x) > 3 then
+      return shout
+    end if
+  end for
+  return "none"
+end fn first_long
+
+fn count_until(xs: List<String>, stop: String) -> Int do
+  var n = 0
+  for x in xs do
+    let tag = x ++ "!"
+    if x == stop then
+      break
+    end if
+    if len(tag) > 5 then
+      continue
+    end if
+    set n = n + 1
+  end for
+  return n
+end fn count_until
+
+fn main() uses console do
+  // set_at on a shared list
+  var a = [1, 2, 3]
+  let b = a
+  set a = set_at(list: a, at: 0, value: 10)
+  print(ints(a) ++ " " ++ ints(b) ++ "\n")
+
+  // push onto a list shared with another variable, then diverge
+  var c = ["x"]
+  let d = c
+  set c = push(list: c, item: "y")
+  var e = d
+  set e = push(list: e, item: "z")
+  print(show(c) ++ " " ++ show(d) ++ " " ++ show(e) ++ "\n")
+
+  // with on a shared struct, inout on an alias
+  var box = Box(name: "one", items: ["i"])
+  let copy = box
+  rename(b: inout box, n: "two")
+  add(b: inout box, item: "j")
+  print(box.name ++ show(box.items) ++ " " ++ copy.name ++ show(copy.items) ++ "\n")
+
+  // nested sharing: two structs share a list; update one of them
+  let shared = ["s"]
+  var p = Box(name: "p", items: shared)
+  let q = Box(name: "q", items: shared)
+  set p = p with (items: push(list: p.items, item: "t"))
+  print(show(p.items) ++ " " ++ show(q.items) ++ " " ++ show(shared) ++ "\n")
+
+  // maps: insert into a shared map
+  var m: Map<String, List<String>> = {}
+  set m = insert(map: m, key: "k", value: ["v"])
+  let m2 = m
+  set m = insert(map: m, key: "k", value: ["w"])
+  set m = insert(map: m, key: "l", value: [])
+  print(show(value_or(opt: lookup(map: m, key: "k"), default: [])) ++ " " ++ show(value_or(opt: lookup(map: m2, key: "k"), default: [])))
+  print(" " ++ int_to_str(len(m)) ++ " " ++ int_to_str(len(m2)) ++ "\n")
+
+  // a match binder stays valid when the arm reassigns the scrutinee
+  var opt: Option<List<String>> = Option.Some(value: ["kept"])
+  match opt
+  case Some(value: inner) then
+    set opt = Option.None
+    print(show(inner) ++ " " ++ int_to_str(len(inner)) ++ "\n")
+  case None then
+    print("none\n")
+  end match
+
+  // reassigning the list a for loop iterates over
+  var walk = ["a", "b", "c"]
+  for w in walk do
+    set walk = push(list: walk, item: w ++ w)
+  end for
+  print(show(walk) ++ "\n")
+
+  // list of lists: set_at on an inner list shared with the outer one
+  var grid = [[1, 2], [3, 4]]
+  let row = grid[0]
+  set grid = set_at(list: grid, at: 0, value: set_at(list: grid[0], at: 1, value: 20))
+  print(ints(grid[0]) ++ " " ++ ints(row) ++ " " ++ ints(grid[1]) ++ "\n")
+
+  // early exits holding owned values
+  print(first_long(["ab", "abcd", "xyz"]) ++ " " ++ int_to_str(count_until(xs: ["a", "bbbbb", "c", "stop", "d"], stop: "stop")) ++ "\n")
+
+  // a value moved into an update while another statement still holds it
+  var s = ["base"]
+  let keep = s
+  set s = s ++ ["more"]
+  print(show(s) ++ " " ++ show(keep) ++ "\n")
+end fn main

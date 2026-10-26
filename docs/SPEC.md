@@ -106,8 +106,9 @@ end fn emit
 emit(g: inout gen, line: "x")      // 'inout' is written at the call site too
 ```
 
-An `inout` argument must be a `var` (or an `inout` parameter of the caller), and the same
-var may not be passed `inout` twice in one call. Semantically the callee receives the
+An `inout` argument must be a `var` (or an `inout` parameter of the caller). The same
+var may not be passed `inout` twice in one call, and no other argument of that call may
+modify it (for example by passing it `inout` to a nested call). Semantically the callee receives the
 value and the caller's var receives the callee's final value when the call returns.
 In `ensures`, an `inout` parameter names its final value; in `requires`, its initial
 value. The parameter's refinement must hold whenever it is assigned and is assumed by
@@ -213,6 +214,7 @@ SMT-LIB. The divisor must be provably non-zero.
 |---|---|
 | `len(x) -> Int where it >= 0` | List, String or Map |
 | `push(list: xs, item: x) -> List<T>` | amortised O(1) |
+| `set_at(list: xs, at: i, value: v) -> List<T>` | `xs` with element `i` replaced; requires `0 <= i < len(xs)`; in place when `xs` is unshared |
 | `slice(of: x, from: a, to: b)` | List or String; requires `0 <= a <= b <= len(x)` |
 | `join(parts: List<String>, sep: String) -> String` | |
 | `int_to_str(n) -> String` | |
@@ -297,6 +299,9 @@ Verified keys are stored in `<file>.vowcache`. Unchanged functions are not re-ve
 ## Runtime model
 
 Every value is one 64-bit word. Integers and booleans are unboxed. Strings, lists,
-maps, structs and enums are pointers to immutable heap objects. Memory comes from a bump
-allocator and is never freed. That suits batch programs such as compilers; long-running
-programs would need a collector.
+maps, structs and enums are pointers to immutable heap objects, each with a reference
+count. An object is freed as soon as nothing refers to it (cycles cannot occur, because
+values are immutable). When an object has a single reference, `with`, `push`, `set_at`
+and `insert` update it in place instead of copying; nothing else can observe the
+difference, so value semantics are preserved. In `set x = op(x, ...)`, the old value of
+`x` is moved into `op`, which is what makes such updates in place.

@@ -49,9 +49,9 @@ Must-have, language and proofs:
 - [ ] Modules with visibility, then packages
 
 Must-have, runtime and portability:
-- [ ] Memory reclamation: reference counting, with in-place updates of uniquely
-      referenced values (as in Koka's Perceus, Lean 4 and Swift's copy-on-write); today
-      fannkuch-redux allocates 19.7 GB (see `bench/RESULTS.md`)
+- [x] Memory reclamation: reference counting, with in-place updates of uniquely
+      referenced values (as in Koka's Perceus, Lean 4 and Swift's copy-on-write), and
+      `set_at`; fannkuch-redux went from 4.34 s and 19.7 GB to 0.39 s and 1 MB
 - [ ] A hash map alongside the persistent ordered `Map`
 - [ ] Windows `run()`, `#line` mapping, readable panics
 - [x] `std/text.vow` (verified text library), `make_dir`, `list_dir`

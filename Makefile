@@ -1,7 +1,8 @@
 # Building Vow.
 #
 #   make            build build/vowc from the C seed (needs only a C compiler)
-#   make test       run the test suite with both compilers
+#   make test       run the test suite with both compilers, the reference-counting
+#                   checks (debug runtime) and the differential verifier check
 #   make bootstrap  rebuild from the Rust bootstrap, check the self-hosting fixpoint
 #                   (stage 2 and stage 3 emit identical C) and refresh the seed
 #   make site       build vowsite (tools/vowsite) and generate public/ from site/
@@ -21,7 +22,7 @@ build/vowc: seed/vowc.c runtime/vow_rt.h
 $(RUST_VOWC): $(wildcard bootstrap/src/*.rs) runtime/vow_rt.h
 	cd bootstrap && cargo build --release -q
 
-test: build/vowc $(RUST_VOWC) test-site
+test: build/vowc $(RUST_VOWC) test-site test-rc differential
 	@echo "== bootstrap compiler (Rust)"
 	@VOWC=$(CURDIR)/$(RUST_VOWC) tests/run.sh
 	@echo "== self-hosted compiler"
@@ -42,15 +43,13 @@ test-site: build/vowsite
 
 bootstrap: $(RUST_VOWC) compiler/runtime_h.vow compiler/std_text.vow
 	@mkdir -p build
-	@echo "== stage 1: Rust bootstrap verifies and builds the self-hosted compiler"
+	@echo "== stage 1: the Rust bootstrap verifies and builds the self-hosted compiler"
 	$(RUST_VOWC) build compiler/vowc.vow -o build/stage1 --no-cache
 	@echo "== stage 2: stage 1 verifies and builds itself"
 	build/stage1 build compiler/vowc.vow -o build/stage2 --no-cache
-	@echo "== fixpoint: every compiler must emit identical C for the compiler"
-	$(RUST_VOWC) emit-c compiler/vowc.vow > build/stage1.c
+	@echo "== fixpoint: stage 2 and stage 3 must emit identical C"
 	build/stage1 emit-c compiler/vowc.vow > build/stage2.c
 	build/stage2 emit-c compiler/vowc.vow > build/stage3.c
-	cmp build/stage1.c build/stage2.c
 	cmp build/stage2.c build/stage3.c
 	cp build/stage3.c seed/vowc.c
 	cp build/stage2 build/vowc
@@ -65,4 +64,12 @@ compiler/std_text.vow: std/text.vow tools/embed.vow $(RUST_VOWC)
 clean:
 	rm -rf build bootstrap/target
 
-.PHONY: all test bootstrap clean site test-site
+test-rc: build/vowc
+	@echo "== reference counting (debug runtime)"
+	@VOWC=$(CURDIR)/build/vowc tests/rc.sh
+
+differential: build/vowc $(RUST_VOWC)
+	@echo "== differential: both verifiers"
+	@RUST_VOWC=$(RUST_VOWC) VOWC=build/vowc tests/differential.sh
+
+.PHONY: all test bootstrap clean site test-site test-rc differential

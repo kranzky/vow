@@ -8,7 +8,7 @@ import "hash.vow"
 import "runtime_h.vow"
 
 fn vow_version() -> String do
-  return "0.1.0"
+  return "0.2.0"
 end fn vow_version
 
 fn usage() -> String do
@@ -112,7 +112,18 @@ fn compile_c(c: String, exe: String) -> String uses fs, proc do
     set cc = x
   case None then
   end match
-  let r = run(argv: [cc, "-O2", "-std=c11", "-w", "-o", exe, cfile], input: "")
+  var argv = [cc, "-O2", "-std=c11", "-w"]
+  // VOW_CFLAGS adds C compiler flags, for example -DVOW_RC_DEBUG.
+  match getenv("VOW_CFLAGS")
+  case Some(value: flags) then
+    for f in split(s: flags, sep: ' ') do
+      if len(f) > 0 then
+        set argv = push(list: argv, item: f)
+      end if
+    end for
+  case None then
+  end match
+  let r = run(argv: argv ++ ["-o", exe, cfile], input: "")
   let _ = run(argv: ["rm", "-rf", dir], input: "")
   if r.code != 0 then
     return "C compiler '" ++ cc ++ "' failed"

@@ -1,0 +1,10 @@
+[10,2,3] [1,2,3]
+[x,y] [x] [x,z]
+two[i,j] one[i]
+[s,t] [s] [s]
+[w] [v] 2 1
+[kept] 1
+[a,b,c,aa,bb,cc]
+[1,20] [1,2] [3,4]
+ABCD 2
+[base,more] [base]

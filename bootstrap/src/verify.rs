@@ -1201,6 +1201,25 @@ impl<'a> Verifier<'a> {
                 ));
                 r
             }
+            "set_at" => {
+                let goal = format!("(and (<= 0 {i}) (< {i} (len {l})))", i = p[1], l = p[0]);
+                let what = format!("set_at index in bounds: 0 <= {} < len({})", pretty::expr(pe[1]), pretty::expr(pe[0]));
+                self.obligation(st, e.pos, what, goal);
+                let et = match &rty {
+                    Ty::List(t) => (**t).clone(),
+                    _ => Ty::Unknown,
+                };
+                let s = sort(&et);
+                let r = self.fresh("Val");
+                self.defs.push(format!("(assert (= (len {}) (len {})))", r, p[0]));
+                self.defs.push(format!("(assert (= (elem_{} {} {}) {}))", s, r, p[1], p[2]));
+                let q = self.fresh_q();
+                self.qdefs.push(format!(
+                    "(assert (forall (({q} Int)) (! (=> (and (<= 0 {q}) (< {q} (len {l})) (not (= {q} {i}))) (= (elem_{s} {r} {q}) (elem_{s} {l} {q}))) :pattern ((elem_{s} {r} {q})))))",
+                    q = q, l = p[0], i = p[1], s = s, r = r
+                ));
+                r
+            }
             "slice" => {
                 let goal = format!("(and (<= 0 {f}) (<= {f} {t}) (<= {t} (len {o})))", f = p[1], t = p[2], o = p[0]);
                 let what = format!(
