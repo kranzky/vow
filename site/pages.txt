@@ -1,6 +1,9 @@
-index
-spec
-llms
-humans
-roadmap
-license
+@base https://github.com/kranzky/vow/blob/main/
+index README.md site/home.html
+compare docs/COMPARISON.md
+llms docs/VOW_FOR_LLMS.md
+humans docs/VOW_FOR_HUMANS.md
+spec docs/SPEC.md
+roadmap ROADMAP.md
+report tools/vowsite/REPORT.md
+license UNLICENSE

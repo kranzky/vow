@@ -6,19 +6,26 @@ are proved by the Z3 SMT solver at compile time, and nothing depends on counting
 context far away.
 
 ```
+fn is_sorted(xs: List<Int>) -> Bool do
+  return forall i in 0..len(xs): forall j in i..len(xs): xs[i] <= xs[j]
+end fn is_sorted
+
 fn search(xs: List<Int>, target: Int) -> Int
-  ensures result >= -1
-  ensures result < len(xs)
+  requires is_sorted(xs)
+  ensures (-1 <= result) and (result < len(xs))
+  ensures (result >= 0) implies (xs[result] == target)
+  ensures (result == -1) implies (forall i in 0..len(xs): xs[i] != target)
 do
   var lo = 0
   var hi = len(xs)
   while lo < hi
-    invariant 0 <= lo
-    invariant lo <= hi
-    invariant hi <= len(xs)
+    invariant (0 <= lo) and (lo <= hi) and (hi <= len(xs))
+    invariant forall i in 0..lo: xs[i] < target
+    invariant forall i in hi..len(xs): xs[i] > target
+    decreases hi - lo
   do
     let mid = lo + ((hi - lo) / 2)
-    let x = xs[mid]                 // proved in bounds: no runtime check is emitted
+    let x = xs[mid]                    // proved in bounds: no runtime check
     if x == target then
       return mid
     elif x < target then
@@ -30,6 +37,9 @@ do
   return -1
 end fn search
 ```
+
+If this compiles, binary search is correct for every sorted input: a returned index
+holds the target, `-1` means the target is absent, and the loop terminates.
 
 ## What makes it different
 
@@ -88,6 +98,7 @@ Commands: `check`, `build -o <exe>`, `run`, `emit-c`, `hash`. Options: `--json`
 - [`docs/SPEC.md`](docs/SPEC.md): the language specification
 - [`docs/VOW_FOR_LLMS.md`](docs/VOW_FOR_LLMS.md): for language models writing Vow
 - [`docs/VOW_FOR_HUMANS.md`](docs/VOW_FOR_HUMANS.md): what people gain when their LLM colleagues write Vow
+- [`docs/COMPARISON.md`](docs/COMPARISON.md): how Vow compares with other languages, and where its ideas come from
 - [`ROADMAP.md`](ROADMAP.md): milestones and the V1 scope
 
 ## Status

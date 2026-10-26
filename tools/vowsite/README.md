@@ -9,14 +9,24 @@ build/vowc check tools/vowsite/vowsite.vow
 ```
 
 Open `public/index.html` in a browser. The executable is `build/vowsite`; it
-reads `site/pages.txt`, `site/template.html`, and `site/<name>.md` relative to its
-working directory and writes `public/<name>.html`. The destination directory must
-already exist (`make site` creates it). `make test` includes the vowsite tests.
+reads `site/pages.txt` relative to its working directory and writes
+`public/<name>.html` for each page. The destination directory must already exist
+(`make site` creates it). `make test` includes the vowsite tests. The site's
+workflow (`.github/workflows/site.yml`) publishes `public/` to vow.kranzky.com.
 
-The site contains copies of the README, specification, both language guides,
-roadmap and license. Local links point to HTML pages. Soft-wrapped list items and
-the README's indented fence are reformatted to fit the supported Markdown subset;
-the original repository documents are untouched.
+Each manifest line is `name`, `name source` or `name source template`; the
+defaults are `site/<name>.md` and `site/template.html`. A line `@base <url>` sets
+where relative links to files that are not pages go. The site is built from the
+repository's own documents (README, specification, guides, comparison, roadmap,
+this report and the license), so it cannot drift from them. Relative links between
+those documents, such as `docs/SPEC.md` or `../ROADMAP.md#v1-scope`, become links to
+their pages; other relative links resolve against `@base`.
+
+Codex wrote vowsite as task M12 (see `docs/tasks/M12-vowsite.md`). It was later
+extended to render the documents directly: list items may continue on indented
+lines and contain paragraphs and code fences, a blank line between items makes a
+loose list, `##` and `###` headings get `id` anchors, and links are rewritten as
+above.
 
 Manifest names use letters, digits, hyphens and underscores. Blank manifest lines
 are ignored; duplicate names, invalid names, missing inputs and failed writes
@@ -24,7 +34,7 @@ produce a diagnostic and a nonzero exit status. A page without a level-one headi
 uses its name as the title. Headings inside fenced code do not supply the title.
 
 The parser implements the Markdown subset in the task, not full CommonMark.
-Lists are flat. Tables need matching column counts and separator cells containing
+Lists are not nested. Tables need matching column counts and separator cells containing
 at least three hyphens; outer pipes are optional, and pipes inside inline code
 are retained. Unsupported block syntax stays paragraph text. Unclosed code fences
 extend to EOF, preserving original code whitespace and line endings. UTF-8 bytes

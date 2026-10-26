@@ -113,4 +113,18 @@ mv public.saved public
 : > site/pages.txt
 "$binary" > generated.log
 test ! -s generated.log
-printf '13 integration checks passed\n'
+
+# Pages from any path, a per-page template, @base, and links between directories.
+mkdir -p docs
+printf '# Guide\n[spec](SPEC.md) [roadmap](../ROADMAP.md) [code](../src/x.vow)\n' > docs/GUIDE.md
+printf '# Spec\n' > docs/SPEC.md
+printf '# Roadmap\n[guide](docs/GUIDE.md#top)\n' > ROADMAP.md
+printf '%s' '[home]{{content}}' > site/home.html
+printf '%s' '{{content}}' > site/template.html
+printf '@base https://example.com/blob/\nguide docs/GUIDE.md site/home.html\nspec docs/SPEC.md\nroadmap ROADMAP.md\n' > site/pages.txt
+"$binary" > generated.log
+printf '[home]<h1>Guide</h1>\n<p><a href="spec.html">spec</a> <a href="roadmap.html">roadmap</a> <a href="https://example.com/blob/src/x.vow">code</a></p>\n' > expected.html
+diff -u expected.html public/guide.html
+printf '<h1>Roadmap</h1>\n<p><a href="guide.html#top">guide</a></p>\n' > expected.html
+diff -u expected.html public/roadmap.html
+printf '14 integration checks passed\n'

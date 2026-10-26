@@ -31,8 +31,10 @@ build/vowsite: tools/vowsite/vowsite.vow build/vowc runtime/vow_rt.h
 	build/vowc build tools/vowsite/vowsite.vow -o $@
 
 site: build/vowsite
-	@mkdir -p public
+	@mkdir -p public/md
 	./build/vowsite
+	cp README.md ROADMAP.md docs/*.md public/md/
+	cp site/llms.txt site/CNAME public/
 
 test-site: build/vowsite
 	@echo "== vowsite"

@@ -1,0 +1,21 @@
+# Vow
+
+> Vow is an experimental programming language designed for language models to write.
+> Contracts, refinement types, loop invariants and termination measures are proved by
+> the Z3 SMT solver at compile time; side effects are declared in signatures; there is
+> no operator precedence. It compiles to C, and its compiler verifies itself.
+
+Read the guide for LLMs before writing Vow. Every pattern in it comes from verified code.
+
+## Docs
+
+- [Vow for LLMs](https://vow.kranzky.com/md/VOW_FOR_LLMS.md): rules, the proof workflow, reading diagnostics, idioms
+- [Specification](https://vow.kranzky.com/md/SPEC.md): grammar, types, built-ins and verification semantics
+- [Standard text library](https://github.com/kranzky/vow/blob/main/std/text.vow): verified string utilities with contracts
+
+## Optional
+
+- [How Vow compares](https://vow.kranzky.com/md/COMPARISON.md): other languages, and where Vow's ideas come from
+- [Vow for humans](https://vow.kranzky.com/md/VOW_FOR_HUMANS.md): what people gain when models write Vow
+- [Roadmap](https://vow.kranzky.com/md/ROADMAP.md)
+- [Examples](https://github.com/kranzky/vow/tree/main/examples)

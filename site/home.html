@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{title}} · Vow</title>
+<meta name="description" content="Vow: a programming language designed for language models to write, with contracts proved by Z3.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23194d3a'/%3E%3Cpath d='M8 9l8 15 8-15' fill='none' stroke='%23e8f3ee' stroke-width='3.2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #fbfbf8; --fg: #1d2420; --muted: #5b6660; --line: #dfe3dc;
+  --accent: #1f6b4f; --accent-soft: #e6f1eb; --code-bg: #f1f2ec; --code-fg: #26302b;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121614; --fg: #e3e8e4; --muted: #9aa69f; --line: #2a322e;
+    --accent: #7fd1ab; --accent-soft: #1b2a23; --code-bg: #1b201d; --code-fg: #dfe7e2;
+  }
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 17px/1.65 ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+a { color: var(--accent); text-underline-offset: 2px; }
+header.site {
+  border-bottom: 1px solid var(--line); background: var(--bg);
+  position: sticky; top: 0; z-index: 1;
+}
+header.site nav {
+  max-width: 54rem; margin: 0 auto; padding: 0.7rem 1rem;
+  display: flex; flex-wrap: wrap; gap: 0.3rem 1.1rem; align-items: baseline;
+}
+header.site .brand { font-weight: 700; font-size: 1.15rem; color: var(--fg); text-decoration: none; margin-right: auto; }
+header.site .brand span { color: var(--accent); }
+header.site nav a:not(.brand) { color: var(--muted); text-decoration: none; font-size: 0.95rem; }
+header.site nav a:not(.brand):hover { color: var(--accent); }
+main { max-width: 54rem; margin: 0 auto; padding: 1.5rem 1rem 3rem; }
+h1, h2, h3 { line-height: 1.25; letter-spacing: -0.01em; }
+h1 { font-size: 2.1rem; margin: 1rem 0 1.2rem; }
+h2 { font-size: 1.45rem; margin: 2.4rem 0 0.8rem; padding-top: 0.6rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.15rem; margin: 1.8rem 0 0.6rem; }
+h2 + h3 { margin-top: 1rem; }
+code {
+  font: 0.86em/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  background: var(--code-bg); color: var(--code-fg); padding: 0.1em 0.3em; border-radius: 4px;
+}
+pre {
+  background: var(--code-bg); color: var(--code-fg); border: 1px solid var(--line);
+  padding: 0.9rem 1rem; border-radius: 8px; overflow-x: auto; line-height: 1.5;
+}
+pre code { background: none; padding: 0; font-size: 0.84rem; }
+table {
+  display: block; overflow-x: auto; border-collapse: collapse;
+  margin: 1.2rem 0; font-size: 0.9rem; line-height: 1.45;
+}
+th, td { border: 1px solid var(--line); padding: 0.45rem 0.6rem; vertical-align: top; text-align: left; }
+th { background: var(--accent-soft); }
+tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--code-bg) 55%, transparent); }
+li { margin: 0.25rem 0; }
+li > p { margin: 0.4rem 0; }
+footer.site {
+  border-top: 1px solid var(--line); color: var(--muted); font-size: 0.88rem;
+  max-width: 54rem; margin: 0 auto; padding: 1.2rem 1rem 2.5rem;
+}
+@media (max-width: 600px) {
+  body { font-size: 16px; }
+  h1 { font-size: 1.7rem; }
+  header.site .brand { width: 100%; }
+}
+.hero { padding: 2.2rem 0 0.6rem; }
+.hero .eyebrow { color: var(--accent); font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; font-size: 0.8rem; margin: 0; }
+.hero .tagline { font-size: 2.5rem; margin: 0.4rem 0 1rem; max-width: 40rem; }
+.hero .lede { font-size: 1.15rem; color: var(--muted); max-width: 42rem; }
+.cta { display: flex; flex-wrap: wrap; gap: 0.6rem; margin: 1.4rem 0 0.4rem; }
+.button { display: inline-block; padding: 0.55rem 1rem; border-radius: 8px; background: var(--accent); color: var(--bg); text-decoration: none; font-weight: 600; }
+.button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+.home main > h1:first-of-type { display: none; }
+@media (max-width: 600px) { .hero .tagline { font-size: 1.85rem; } }
+</style>
+</head>
+<body class="home">
+<header class="site">
+<nav>
+<a class="brand" href="index.html">vow<span>.</span></a>
+<a href="compare.html">Compare</a>
+<a href="llms.html">For LLMs</a>
+<a href="humans.html">For humans</a>
+<a href="spec.html">Spec</a>
+<a href="roadmap.html">Roadmap</a>
+<a href="https://github.com/kranzky/vow">GitHub</a>
+</nav>
+</header>
+<main>
+<section class="hero">
+<p class="eyebrow">An experimental programming language</p>
+<h1 class="tagline">Code that language models write, and people can trust.</h1>
+<p class="lede">Vow proves contracts with the Z3 solver every time you compile, puts side
+effects in the signature, and leaves nothing to operator precedence. Its compiler is
+written in Vow and verifies itself.</p>
+<p class="cta"><a class="button" href="#getting-started">Get started</a>
+<a class="button ghost" href="compare.html">How Vow compares</a>
+<a class="button ghost" href="llms.html">Guide for LLMs</a></p>
+</section>
+{{content}}
+</main>
+<footer class="site">
+This site is generated by <a href="https://github.com/kranzky/vow/tree/main/tools/vowsite">vowsite</a>,
+a verified Vow program written by another language model. Vow is public domain
+(<a href="license.html">Unlicense</a>).
+</footer>
+</body>
+</html>
