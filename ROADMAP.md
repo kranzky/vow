@@ -7,10 +7,10 @@
 - [x] M4: Content-addressed hashing and verification cache
 - [x] M5: Self-hosted compiler written in Vow, verified by the bootstrap compiler
 - [x] M6: Fixpoint: the self-hosted compiler compiles itself to identical C
-- [ ] M7: `docs/VOW_FOR_LLMS.md`: a guide for other LLMs using Vow in their projects
+- [x] M7: `docs/VOW_FOR_LLMS.md`: a guide for other LLMs using Vow in their projects
       (syntax, gotchas, proof workflow, reading verifier output, idioms); every example
       in it is a compiled, verified file under `examples/`
-- [ ] M7b: `docs/VOW_FOR_HUMANS.md`: how people benefit when their LLM colleagues write
+- [x] M7b: `docs/VOW_FOR_HUMANS.md`: how people benefit when their LLM colleagues write
       Vow (reviewing contracts instead of bodies, effects as an audit surface,
       counterexamples, holes as handoff points) and, honestly, what is not guaranteed
 - [ ] M8: Public GitHub repo (Unlicense), CI on macOS, Linux and Windows

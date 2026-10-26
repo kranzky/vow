@@ -1,0 +1,56 @@
+// Word frequencies: string scanning with proved bounds, maps and options.
+
+fn is_letter(c: Int) -> Bool do
+  return ((c >= 'a') and (c <= 'z')) or ((c >= 'A') and (c <= 'Z'))
+end fn is_letter
+
+fn lower(c: Int) -> Int
+  ensures (0 <= result) and (result < 256)
+  requires (0 <= c) and (c < 256)
+do
+  if (c >= 'A') and (c <= 'Z') then
+    return c + 32
+  end if
+  return c
+end fn lower
+
+fn bump(counts: Map<String, Int>, word: String) -> Map<String, Int> do
+  match lookup(map: counts, key: word)
+  case Some(value: n) then
+    return insert(map: counts, key: word, value: n + 1)
+  case None then
+    return insert(map: counts, key: word, value: 1)
+  end match
+end fn bump
+
+fn words(text: String) -> List<String> do
+  var out: List<String> = []
+  var current: List<String> = []
+  for i in 0..len(text) do
+    let c = text[i]
+    if is_letter(c) then
+      set current = push(list: current, item: char(lower(c)))
+    elif len(current) > 0 then
+      set out = push(list: out, item: join(parts: current, sep: ""))
+      set current = []
+    end if
+  end for
+  if len(current) > 0 then
+    set out = push(list: out, item: join(parts: current, sep: ""))
+  end if
+  return out
+end fn words
+
+fn main() uses console do
+  var counts: Map<String, Int> = {}
+  for w in words("The cat saw the other cat. THE END") do
+    set counts = bump(counts: counts, word: w)
+  end for
+  for w in keys(counts) do
+    match lookup(map: counts, key: w)
+    case Some(value: n) then
+      print(w ++ " " ++ int_to_str(n) ++ "\n")
+    case None then
+    end match
+  end for
+end fn main

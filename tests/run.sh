@@ -29,5 +29,15 @@ for f in fail/*.vow; do
     echo "$got" | head -10
   fi
 done
+for f in ../examples/*.vow; do
+  got=$("$VOWC" check "$f" 2>&1)
+  if [ $? -eq 0 ]; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1))
+    echo "FAIL $f (examples must verify)"
+    echo "$got" | head -10
+  fi
+done
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

@@ -80,6 +80,8 @@ Commands: `check`, `build -o <exe>`, `run`, `emit-c`, `hash`. Options: `--json`
 ## Documents
 
 - [`docs/SPEC.md`](docs/SPEC.md): the language specification
+- [`docs/VOW_FOR_LLMS.md`](docs/VOW_FOR_LLMS.md): for language models writing Vow
+- [`docs/VOW_FOR_HUMANS.md`](docs/VOW_FOR_HUMANS.md): what people gain when their LLM colleagues write Vow
 - [`ROADMAP.md`](ROADMAP.md): milestones and the V1 scope
 
 ## Status

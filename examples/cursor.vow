@@ -1,0 +1,45 @@
+// A parser cursor whose struct refinements make every token access provable.
+// Idioms: sibling-field refinements, inout state, total helper functions.
+
+struct Cursor
+  toks: List<String> where len(it) > 0,
+  pos: Int where (0 <= it) and (it < len(toks)),
+end struct Cursor
+
+fn peek(c: Cursor) -> String do
+  return c.toks[c.pos]
+end fn peek
+
+fn advance(c: inout Cursor) -> String do
+  let t = c.toks[c.pos]
+  if (c.pos + 1) < len(c.toks) then
+    set c = c with (pos: c.pos + 1)
+  end if
+  return t
+end fn advance
+
+fn at_end(c: Cursor) -> Bool do
+  return peek(c) == "<eof>"
+end fn at_end
+
+// Sums "+"-separated integers, such as 1 + 2 + 39.
+fn sum(c: inout Cursor) -> Int do
+  var total = 0
+  while not at_end(c) do
+    let t = advance(inout c)
+    if t != "+" then
+      match str_to_int(t)
+      case Some(value: n) then
+        set total = total + n
+      case None then
+        return -1
+      end match
+    end if
+  end while
+  return total
+end fn sum
+
+fn main() uses console do
+  var c = Cursor(toks: ["1", "+", "2", "+", "39", "<eof>"], pos: 0)
+  print(int_to_str(sum(inout c)) ++ "\n")
+end fn main
