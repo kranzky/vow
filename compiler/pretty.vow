@@ -1,0 +1,292 @@
+// Canonical rendering of the AST: used for diagnostics, hole facts and hashing.
+
+import "ast.vow"
+
+fn quote(s: String) -> String do
+  var parts: List<String> = ["\""]
+  for i in 0..len(s) do
+    let c = s[i]
+    if c == '\n' then
+      set parts = push(list: parts, item: "\\n")
+    elif c == '\t' then
+      set parts = push(list: parts, item: "\\t")
+    elif c == '\r' then
+      set parts = push(list: parts, item: "\\r")
+    elif c == 0 then
+      set parts = push(list: parts, item: "\\0")
+    elif c == '\\' then
+      set parts = push(list: parts, item: "\\\\")
+    elif c == '"' then
+      set parts = push(list: parts, item: "\\\"")
+    else
+      set parts = push(list: parts, item: char(c))
+    end if
+  end for
+  set parts = push(list: parts, item: "\"")
+  return join(parts: parts, sep: "")
+end fn quote
+
+fn pretty_args(args: List<Arg>) -> String do
+  var parts: List<String> = []
+  for a in args do
+    var v = pretty_expr(a.value)
+    if a.is_inout then
+      set v = "inout " ++ v
+    end if
+    if len(a.name) > 0 then
+      set v = a.name ++ ": " ++ v
+    end if
+    set parts = push(list: parts, item: v)
+  end for
+  return join(parts: parts, sep: ", ")
+end fn pretty_args
+
+fn pretty_operand(e: Expr) -> String do
+  match e.kind
+  case Binary(op: o, l: a, r: b) then
+    return "(" ++ pretty_expr(e) ++ ")"
+  else
+    return pretty_expr(e)
+  end match
+end fn pretty_operand
+
+fn pretty_expr(e: Expr) -> String do
+  match e.kind
+  case IntLit(value: n) then
+    return int_to_str(n)
+  case StrLit(value: s) then
+    return quote(s)
+  case BoolLit(value: b) then
+    if b then
+      return "true"
+    end if
+    return "false"
+  case Var(name: n) then
+    return n
+  case It then
+    return "it"
+  case Result then
+    return "result"
+  case Hole(name: n) then
+    return "?" ++ n
+  case Call(callee: c, args: a) then
+    return pretty_expr(c) ++ "(" ++ pretty_args(a) ++ ")"
+  case ListLit(items: items) then
+    var parts: List<String> = []
+    for x in items do
+      set parts = push(list: parts, item: pretty_expr(x))
+    end for
+    return "[" ++ join(parts: parts, sep: ", ") ++ "]"
+  case EmptyMap then
+    return "{}"
+  case Index(obj: o, idx: i) then
+    return pretty_operand(o) ++ "[" ++ pretty_expr(i) ++ "]"
+  case Field(obj: o, name: f) then
+    return pretty_operand(o) ++ "." ++ f
+  case With(obj: o, args: a) then
+    return pretty_operand(o) ++ " with (" ++ pretty_args(a) ++ ")"
+  case Unary(op: op, x: x) then
+    if op == "not" then
+      return "not " ++ pretty_operand(x)
+    end if
+    return "-" ++ pretty_operand(x)
+  case Binary(op: op, l: l, r: r) then
+    return pretty_operand(l) ++ " " ++ op ++ " " ++ pretty_operand(r)
+  end match
+end fn pretty_expr
+
+fn pretty_type(t: TypeExpr) -> String do
+  var s = t.name
+  if len(t.args) > 0 then
+    var parts: List<String> = []
+    for a in t.args do
+      set parts = push(list: parts, item: pretty_type(a))
+    end for
+    set s = s ++ "<" ++ join(parts: parts, sep: ", ") ++ ">"
+  end if
+  match t.refine
+  case Some(value: r) then
+    set s = s ++ " where " ++ pretty_expr(r)
+  case None then
+  end match
+  return s
+end fn pretty_type
+
+fn pretty_fields(fs: List<Param>) -> String do
+  var parts: List<String> = []
+  for f in fs do
+    var io = ""
+    if f.is_inout then
+      set io = "inout "
+    end if
+    set parts = push(list: parts, item: f.name ++ ": " ++ io ++ pretty_type(f.ty))
+  end for
+  return join(parts: parts, sep: ", ")
+end fn pretty_fields
+
+fn pline(out: inout List<String>, ind: Int, s: String) do
+  set out = push(list: out, item: repeat(s: "  ", n: ind) ++ s)
+end fn pline
+
+fn pretty_invs(invs: List<Expr>) -> String do
+  var parts: List<String> = []
+  for i in invs do
+    set parts = push(list: parts, item: " invariant " ++ pretty_expr(i))
+  end for
+  return join(parts: parts, sep: "")
+end fn pretty_invs
+
+fn pretty_block(out: inout List<String>, stmts: List<Stmt>, ind: Int) do
+  for s in stmts do
+    pretty_stmt(out: inout out, s: s, ind: ind)
+  end for
+end fn pretty_block
+
+fn pretty_pat(p: Pat) -> String do
+  match p
+  case PInt(value: n) then
+    return int_to_str(n)
+  case PStr(value: s) then
+    return quote(s)
+  case PVariant(name: name, binds: binds) then
+    if len(binds) == 0 then
+      return name
+    end if
+    var parts: List<String> = []
+    for b in binds do
+      set parts = push(list: parts, item: b.field ++ ": " ++ b.binder)
+    end for
+    return name ++ "(" ++ join(parts: parts, sep: ", ") ++ ")"
+  end match
+end fn pretty_pat
+
+fn pretty_stmt(out: inout List<String>, s: Stmt, ind: Int) do
+  match s.kind
+  case Let(name: name, ty: ty, value: value, mutable: m) then
+    var kw = "let"
+    if m then
+      set kw = "var"
+    end if
+    match ty
+    case Some(value: t) then
+      pline(out: inout out, ind: ind, s: kw ++ " " ++ name ++ ": " ++ pretty_type(t) ++ " = " ++ pretty_expr(value))
+    case None then
+      pline(out: inout out, ind: ind, s: kw ++ " " ++ name ++ " = " ++ pretty_expr(value))
+    end match
+  case Set(name: name, value: value) then
+    pline(out: inout out, ind: ind, s: "set " ++ name ++ " = " ++ pretty_expr(value))
+  case Return(value: v) then
+    match v
+    case Some(value: e) then
+      pline(out: inout out, ind: ind, s: "return " ++ pretty_expr(e))
+    case None then
+      pline(out: inout out, ind: ind, s: "return")
+    end match
+  case If(arms: arms, els: els) then
+    var first = true
+    for a in arms do
+      var kw = "elif"
+      if first then
+        set kw = "if"
+      end if
+      set first = false
+      pline(out: inout out, ind: ind, s: kw ++ " " ++ pretty_expr(a.cond) ++ " then")
+      pretty_block(out: inout out, stmts: a.body, ind: ind + 1)
+    end for
+    match els
+    case Some(value: b) then
+      pline(out: inout out, ind: ind, s: "else")
+      pretty_block(out: inout out, stmts: b, ind: ind + 1)
+    case None then
+    end match
+    pline(out: inout out, ind: ind, s: "end if")
+  case While(cond: c, invs: invs, body: body) then
+    pline(out: inout out, ind: ind, s: "while " ++ pretty_expr(c) ++ pretty_invs(invs) ++ " do")
+    pretty_block(out: inout out, stmts: body, ind: ind + 1)
+    pline(out: inout out, ind: ind, s: "end while")
+  case ForRange(name: v, lo: lo, hi: hi, invs: invs, body: body) then
+    let head = "for " ++ v ++ " in " ++ pretty_expr(lo) ++ ".." ++ pretty_expr(hi) ++ pretty_invs(invs) ++ " do"
+    pline(out: inout out, ind: ind, s: head)
+    pretty_block(out: inout out, stmts: body, ind: ind + 1)
+    pline(out: inout out, ind: ind, s: "end for")
+  case ForEach(name: v, list: l, invs: invs, body: body) then
+    pline(out: inout out, ind: ind, s: "for " ++ v ++ " in " ++ pretty_expr(l) ++ pretty_invs(invs) ++ " do")
+    pretty_block(out: inout out, stmts: body, ind: ind + 1)
+    pline(out: inout out, ind: ind, s: "end for")
+  case Match(scrut: sc, cases: cases, els: els) then
+    pline(out: inout out, ind: ind, s: "match " ++ pretty_expr(sc))
+    for c in cases do
+      pline(out: inout out, ind: ind, s: "case " ++ pretty_pat(c.pat) ++ " then")
+      pretty_block(out: inout out, stmts: c.body, ind: ind + 1)
+    end for
+    match els
+    case Some(value: b) then
+      pline(out: inout out, ind: ind, s: "else")
+      pretty_block(out: inout out, stmts: b, ind: ind + 1)
+    case None then
+    end match
+    pline(out: inout out, ind: ind, s: "end match")
+  case Assert(e: e) then
+    pline(out: inout out, ind: ind, s: "assert " ++ pretty_expr(e))
+  case Check(e: e) then
+    pline(out: inout out, ind: ind, s: "check " ++ pretty_expr(e))
+  case Break then
+    pline(out: inout out, ind: ind, s: "break")
+  case Continue then
+    pline(out: inout out, ind: ind, s: "continue")
+  case ExprStmt(e: e) then
+    pline(out: inout out, ind: ind, s: pretty_expr(e))
+  end match
+end fn pretty_stmt
+
+fn fn_contract(f: FnDecl) -> String do
+  var s = "fn " ++ f.name ++ "(" ++ pretty_fields(f.params) ++ ")"
+  match f.ret
+  case Some(value: r) then
+    set s = s ++ " -> " ++ pretty_type(r)
+  case None then
+  end match
+  if len(f.effects) > 0 then
+    var u: List<String> = []
+    for e in f.effects do
+      set u = push(list: u, item: e.name)
+    end for
+    set s = s ++ " uses " ++ join(parts: u, sep: ", ")
+  end if
+  for r in f.pre do
+    set s = s ++ " requires " ++ pretty_expr(r)
+  end for
+  for e in f.post do
+    set s = s ++ " ensures " ++ pretty_expr(e)
+  end for
+  return s
+end fn fn_contract
+
+fn pretty_item(item: Item) -> String do
+  var out: List<String> = []
+  match item
+  case FnItem(decl: f) then
+    set out = push(list: out, item: fn_contract(f) ++ " do")
+    pretty_block(out: inout out, stmts: f.body, ind: 1)
+    set out = push(list: out, item: "end fn " ++ f.name)
+  case StructItem(decl: s) then
+    set out = push(list: out, item: "struct " ++ s.name)
+    for f in s.fields do
+      set out = push(list: out, item: "  " ++ f.name ++ ": " ++ pretty_type(f.ty) ++ ",")
+    end for
+    set out = push(list: out, item: "end struct " ++ s.name)
+  case EnumItem(decl: e) then
+    set out = push(list: out, item: "enum " ++ e.name)
+    for v in e.variants do
+      if len(v.fields) == 0 then
+        set out = push(list: out, item: "  " ++ v.name ++ ",")
+      else
+        set out = push(list: out, item: "  " ++ v.name ++ "(" ++ pretty_fields(v.fields) ++ "),")
+      end if
+    end for
+    set out = push(list: out, item: "end enum " ++ e.name)
+  case AliasItem(decl: a) then
+    set out = push(list: out, item: "type " ++ a.name ++ " = " ++ pretty_type(a.ty))
+  end match
+  return join(parts: out, sep: "\n")
+end fn pretty_item

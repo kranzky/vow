@@ -793,6 +793,22 @@ impl<'a> Verifier<'a> {
             }
             EK::With(o, args) => {
                 let ov = self.expr(o, st);
+                // The original value satisfies its struct's field refinements, so the
+                // fields that 'with' leaves unchanged still satisfy them.
+                if let Ty::Struct(sn) = self.info.ty(o) {
+                    let fields = self.info.structs[&sn].clone();
+                    let mut binds = HashMap::new();
+                    for (fname, fr) in &fields {
+                        let fnn = self.field_fn(&sn, fname, &fr.ty);
+                        binds.insert(fname.clone(), format!("({} {})", fnn, ov));
+                    }
+                    for (fname, fr) in &fields {
+                        for p in &fr.preds {
+                            let t = self.spec_with(p, binds.clone(), Some(binds[fname].clone()));
+                            st.facts.push(t);
+                        }
+                    }
+                }
                 let mut vals: HashMap<String, String> = HashMap::new();
                 for a in args {
                     let v = self.expr(&a.value, st);

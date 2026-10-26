@@ -1,0 +1,166 @@
+// Abstract syntax tree. Expressions carry an id so later passes can record types and
+// call resolutions in side tables.
+
+import "util.vow"
+
+struct Expr
+  id: Int,
+  pos: Pos,
+  kind: EK,
+end struct Expr
+
+enum EK
+  IntLit(value: Int),
+  StrLit(value: String),
+  BoolLit(value: Bool),
+  Var(name: String),
+  It,
+  Result,
+  Hole(name: String),
+  Call(callee: Expr, args: List<Arg>),
+  ListLit(items: List<Expr>),
+  EmptyMap,
+  Index(obj: Expr, idx: Expr),
+  Field(obj: Expr, name: String),
+  With(obj: Expr, args: List<Arg>),
+  Unary(op: String, x: Expr),
+  Binary(op: String, l: Expr, r: Expr),
+end enum EK
+
+// name is "" for a positional argument.
+struct Arg
+  name: String,
+  is_inout: Bool,
+  value: Expr,
+  pos: Pos,
+end struct Arg
+
+struct TypeExpr
+  name: String,
+  args: List<TypeExpr>,
+  refine: Option<Expr>,
+  pos: Pos,
+end struct TypeExpr
+
+struct Param
+  name: String,
+  is_inout: Bool,
+  ty: TypeExpr,
+  pos: Pos,
+end struct Param
+
+struct Effect
+  name: String,
+  pos: Pos,
+end struct Effect
+
+struct FnDecl
+  name: String,
+  params: List<Param>,
+  ret: Option<TypeExpr>,
+  effects: List<Effect>,
+  pre: List<Expr>,
+  post: List<Expr>,
+  body: List<Stmt>,
+  pos: Pos,
+end struct FnDecl
+
+struct StructDecl
+  name: String,
+  fields: List<Param>,
+  pos: Pos,
+end struct StructDecl
+
+struct VariantDecl
+  name: String,
+  fields: List<Param>,
+  pos: Pos,
+end struct VariantDecl
+
+struct EnumDecl
+  name: String,
+  variants: List<VariantDecl>,
+  pos: Pos,
+end struct EnumDecl
+
+struct AliasDecl
+  name: String,
+  ty: TypeExpr,
+  pos: Pos,
+end struct AliasDecl
+
+enum Item
+  FnItem(decl: FnDecl),
+  StructItem(decl: StructDecl),
+  EnumItem(decl: EnumDecl),
+  AliasItem(decl: AliasDecl),
+end enum Item
+
+struct Stmt
+  pos: Pos,
+  kind: SK,
+end struct Stmt
+
+struct Arm
+  cond: Expr,
+  body: List<Stmt>,
+end struct Arm
+
+struct Bind
+  field: String,
+  binder: String,
+end struct Bind
+
+enum Pat
+  PInt(value: Int),
+  PStr(value: String),
+  PVariant(name: String, binds: List<Bind>),
+end enum Pat
+
+struct Case
+  pat: Pat,
+  body: List<Stmt>,
+  pos: Pos,
+end struct Case
+
+enum SK
+  Let(name: String, ty: Option<TypeExpr>, value: Expr, mutable: Bool),
+  Set(name: String, value: Expr),
+  Return(value: Option<Expr>),
+  If(arms: List<Arm>, els: Option<List<Stmt>>),
+  While(cond: Expr, invs: List<Expr>, body: List<Stmt>),
+  ForRange(name: String, lo: Expr, hi: Expr, invs: List<Expr>, body: List<Stmt>),
+  ForEach(name: String, list: Expr, invs: List<Expr>, body: List<Stmt>),
+  Match(scrut: Expr, cases: List<Case>, els: Option<List<Stmt>>),
+  Assert(e: Expr),
+  Check(e: Expr),
+  Break,
+  Continue,
+  ExprStmt(e: Expr),
+end enum SK
+
+fn item_name(item: Item) -> String do
+  match item
+  case FnItem(decl: d) then
+    return d.name
+  case StructItem(decl: d) then
+    return d.name
+  case EnumItem(decl: d) then
+    return d.name
+  case AliasItem(decl: d) then
+    return d.name
+  end match
+end fn item_name
+
+fn item_pos(item: Item) -> Pos do
+  match item
+  case FnItem(decl: d) then
+    return d.pos
+  case StructItem(decl: d) then
+    return d.pos
+  case EnumItem(decl: d) then
+    return d.pos
+  case AliasItem(decl: d) then
+    return d.pos
+  end match
+end fn item_pos

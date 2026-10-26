@@ -34,32 +34,66 @@ pub struct Source {
     pub items: Vec<Item>,
 }
 
-fn load(root: &str) -> Result<Source, (Vec<String>, Vec<Diag>)> {
-    let mut files: Vec<String> = Vec::new();
-    let mut canon: Vec<PathBuf> = Vec::new();
-    let mut items = Vec::new();
-    let mut next_id = 0usize;
-    let mut queue: Vec<(PathBuf, Pos)> = vec![(PathBuf::from(root), Pos::default())];
-    let mut errs = Vec::new();
-    while let Some((path, from)) = queue.pop() {
-        let c = match std::fs::canonicalize(&path) {
-            Ok(c) => c,
-            Err(_) => {
-                files.push(path.display().to_string());
-                errs.push(Diag::new(from, &format!("cannot open '{}'", path.display())));
-                continue;
-            }
-        };
-        if canon.contains(&c) {
+/// Lexical path normalisation: "a/./b/../c" -> "a/c". Used instead of canonicalize so
+/// that both compilers (this one and the self-hosted one) name files identically.
+pub fn normalize(path: &str) -> String {
+    let absolute = path.starts_with('/');
+    let mut parts: Vec<&str> = Vec::new();
+    for p in path.split('/') {
+        if p.is_empty() || p == "." {
             continue;
         }
-        canon.push(c.clone());
+        if p == ".." && !parts.is_empty() && *parts.last().unwrap() != ".." {
+            parts.pop();
+            continue;
+        }
+        if p == ".." && absolute {
+            continue;
+        }
+        parts.push(p);
+    }
+    let j = parts.join("/");
+    if absolute {
+        format!("/{}", j)
+    } else if j.is_empty() {
+        ".".to_string()
+    } else {
+        j
+    }
+}
+
+fn dirname(path: &str) -> String {
+    match path.rfind('/') {
+        Some(0) => "/".to_string(),
+        Some(i) => path[..i].to_string(),
+        None => String::new(),
+    }
+}
+
+fn join_path(dir: &str, rel: &str) -> String {
+    if rel.starts_with('/') || dir.is_empty() {
+        normalize(rel)
+    } else {
+        normalize(&format!("{}/{}", dir, rel))
+    }
+}
+
+fn load(root: &str) -> Result<Source, (Vec<String>, Vec<Diag>)> {
+    let mut files: Vec<String> = Vec::new();
+    let mut items = Vec::new();
+    let mut next_id = 0usize;
+    let mut queue: Vec<(String, Pos)> = vec![(normalize(root), Pos::default())];
+    let mut errs = Vec::new();
+    while let Some((path, from)) = queue.pop() {
+        if files.contains(&path) {
+            continue;
+        }
         let file_id = files.len() as u32;
-        files.push(path.display().to_string());
-        let src = match std::fs::read_to_string(&c) {
-            Ok(s) => s,
+        files.push(path.clone());
+        let src = match std::fs::read(&path) {
+            Ok(b) => String::from_utf8_lossy(&b).into_owned(),
             Err(_) => {
-                errs.push(Diag::new(from, &format!("cannot read '{}'", path.display())));
+                errs.push(Diag::new(from, &format!("cannot open '{}'", path)));
                 continue;
             }
         };
@@ -74,10 +108,10 @@ fn load(root: &str) -> Result<Source, (Vec<String>, Vec<Diag>)> {
         match p.parse_file() {
             Ok(parsed) => {
                 next_id = p.next_id;
-                let dir = c.parent().map(|d| d.to_path_buf()).unwrap_or_default();
+                let dir = dirname(&path);
                 // Push in reverse so imports are processed in source order.
                 for (imp, pos) in parsed.imports.iter().rev() {
-                    queue.push((dir.join(imp), *pos));
+                    queue.push((join_path(&dir, imp), *pos));
                 }
                 items.extend(parsed.items);
             }
@@ -138,6 +172,12 @@ fn main() {
             exit(1);
         }
     };
+    if cmd == "pretty" {
+        for it in &src.items {
+            println!("{}\n", pretty::item(it));
+        }
+        return;
+    }
     let (info, errs) = check::check_program(&src.items);
     if !errs.is_empty() {
         report(&errs, &src.files, json);

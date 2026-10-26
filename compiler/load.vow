@@ -1,0 +1,120 @@
+// Loading source files and their imports.
+
+import "parser.vow"
+
+// Lexical path normalisation, identical to the bootstrap compiler's.
+fn normalize(path: String) -> String do
+  let absolute = starts_with(s: path, p: "/")
+  var parts: List<String> = []
+  for p in split(s: path, sep: '/') do
+    if (len(p) == 0) or (p == ".") then
+      continue
+    end if
+    let n = len(parts)
+    if (p == "..") and (n > 0) and (parts[n - 1] != "..") then
+      set parts = slice(of: parts, from: 0, to: n - 1)
+      continue
+    end if
+    if (p == "..") and absolute then
+      continue
+    end if
+    set parts = push(list: parts, item: p)
+  end for
+  let j = join(parts: parts, sep: "/")
+  if absolute then
+    return "/" ++ j
+  end if
+  if len(j) == 0 then
+    return "."
+  end if
+  return j
+end fn normalize
+
+fn dirname(path: String) -> String do
+  let i = find_last_byte(s: path, c: '/')
+  if i == 0 then
+    return "/"
+  end if
+  if i < 0 then
+    return ""
+  end if
+  return slice(of: path, from: 0, to: i)
+end fn dirname
+
+fn join_path(dir: String, rel: String) -> String do
+  if starts_with(s: rel, p: "/") or (len(dir) == 0) then
+    return normalize(rel)
+  end if
+  return normalize(dir ++ "/" ++ rel)
+end fn join_path
+
+struct Source
+  files: List<String>,
+  items: List<Item>,
+  errs: List<Diag>,
+end struct Source
+
+struct Pending
+  path: String,
+  from: Pos,
+end struct Pending
+
+fn load(root: String) -> Source uses fs do
+  var files: List<String> = []
+  var items: List<Item> = []
+  var errs: List<Diag> = []
+  var next_id = 0
+  var queue: List<Pending> = [Pending(path: normalize(root), from: no_pos())]
+  while len(queue) > 0 do
+    let top = queue[len(queue) - 1]
+    set queue = slice(of: queue, from: 0, to: len(queue) - 1)
+    if contains_str(xs: files, x: top.path) then
+      continue
+    end if
+    let file_id = len(files)
+    set files = push(list: files, item: top.path)
+    match read_file(top.path)
+    case None then
+      set errs = push(list: errs, item: diag(pos: top.from, msg: "cannot open '" ++ top.path ++ "'"))
+    case Some(value: src) then
+      let lx = lex(src: src, file: file_id)
+      match lx.err
+      case Some(value: d) then
+        set errs = push(list: errs, item: d)
+      case None then
+        if len(lx.toks) > 0 then
+          var p = new_parser(toks: lx.toks, first_id: next_id)
+          let parsed = parse_file(inout p)
+          match p.err
+          case Some(value: d) then
+            set errs = push(list: errs, item: d)
+          case None then
+            set next_id = p.next_id
+            let dir = dirname(top.path)
+            // Push in reverse so imports are processed in source order.
+            var k = len(parsed.imports) - 1
+            while k >= 0 invariant k < len(parsed.imports) do
+              let imp = parsed.imports[k]
+              set queue = push(list: queue, item: Pending(path: join_path(dir: dir, rel: imp.path), from: imp.pos))
+              set k = k - 1
+            end while
+            set items = items ++ parsed.items
+          end match
+        end if
+      end match
+    end match
+  end while
+  return Source(files: files, items: items, errs: errs)
+end fn load
+
+fn render_diag(d: Diag, files: List<String>) -> String do
+  var file = "?"
+  if (d.pos.file >= 0) and (d.pos.file < len(files)) then
+    set file = files[d.pos.file]
+  end if
+  var s = file ++ ":" ++ int_to_str(d.pos.line) ++ ":" ++ int_to_str(d.pos.col) ++ ": " ++ d.kind ++ ": " ++ d.msg ++ "\n"
+  for n in d.notes do
+    set s = s ++ "    " ++ n ++ "\n"
+  end for
+  return s
+end fn render_diag

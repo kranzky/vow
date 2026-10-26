@@ -1,0 +1,218 @@
+// Lexer: source text to tokens. Token kinds are strings: "ident", "keyword", "int",
+// "str", "hole", "sym", "eof".
+
+import "util.vow"
+
+struct Token
+  kind: String,
+  text: String,
+  num: Int,
+  pos: Pos,
+end struct Token
+
+struct Lexed
+  toks: List<Token>,
+  err: Option<Diag>,
+end struct Lexed
+
+fn keywords() -> List<String> do
+  return ["fn", "end", "struct", "enum", "type", "let", "var", "set", "return", "if", "then",
+    "elif", "else", "while", "for", "in", "do", "match", "case", "invariant", "requires",
+    "ensures", "uses", "assert", "check", "break", "continue", "and", "or", "not", "implies",
+    "true", "false", "with", "import", "it", "result", "where", "inout"]
+end fn keywords
+
+// Longest symbols first so that maximal munch works by prefix testing.
+fn symbols() -> List<String> do
+  return ["->", "..", "==", "!=", "<=", ">=", "++", "(", ")", "[", "]", "{", "}", ",", ":", ".",
+    "=", "<", ">", "+", "-", "*", "/", "%"]
+end fn symbols
+
+fn lex_fail(toks: List<Token>, d: Diag) -> Lexed do
+  return Lexed(toks: toks, err: Option.Some(value: d))
+end fn lex_fail
+
+fn lex(src: String, file: Int) -> Lexed do
+  let kws = keywords()
+  let syms = symbols()
+  var toks: List<Token> = []
+  var i = 0
+  var line = 1
+  var col = 1
+  let n = len(src)
+  while i < n invariant i >= 0 do
+    let c = src[i]
+    let pos = Pos(file: file, line: line, col: col)
+    if c == '\n' then
+      set i = i + 1
+      set line = line + 1
+      set col = 1
+      continue
+    end if
+    if (c == ' ') or (c == '\t') or (c == '\r') then
+      set i = i + 1
+      set col = col + 1
+      continue
+    end if
+    if (c == '/') and ((i + 1) < n) and (src[i + 1] == '/') then
+      while (i < n) and (src[i] != '\n') invariant i >= 0 do
+        set i = i + 1
+      end while
+      continue
+    end if
+    if is_alpha(c) then
+      let start = i
+      while (i < n) and is_alnum(src[i]) invariant start <= i invariant i <= n do
+        set i = i + 1
+      end while
+      let text = slice(of: src, from: start, to: i)
+      set col = col + (i - start)
+      var kind = "ident"
+      if contains_str(xs: kws, x: text) then
+        set kind = "keyword"
+      end if
+      set toks = push(list: toks, item: Token(kind: kind, text: text, num: 0, pos: pos))
+      continue
+    end if
+    if c == '?' then
+      let start = i + 1
+      set i = i + 1
+      while (i < n) and is_alnum(src[i]) invariant start <= i invariant i <= n do
+        set i = i + 1
+      end while
+      if i == start then
+        return lex_fail(toks: toks, d: diag(pos: pos, msg: "expected a name after '?' for a typed hole"))
+      end if
+      set col = col + ((i - start) + 1)
+      let name = slice(of: src, from: start, to: i)
+      set toks = push(list: toks, item: Token(kind: "hole", text: name, num: 0, pos: pos))
+      continue
+    end if
+    if is_digit(c) then
+      let start = i
+      var v = 0
+      while (i < n) and (is_digit(src[i]) or (src[i] == '_')) invariant start <= i invariant i <= n do
+        if src[i] != '_' then
+          let d = src[i] - '0'
+          if v > ((9223372036854775807 - d) / 10) then
+            return lex_fail(toks: toks, d: diag(pos: pos, msg: "integer literal does not fit in 64 bits"))
+          end if
+          set v = (v * 10) + d
+        end if
+        set i = i + 1
+      end while
+      set col = col + (i - start)
+      let text = slice(of: src, from: start, to: i)
+      set toks = push(list: toks, item: Token(kind: "int", text: text, num: v, pos: pos))
+      continue
+    end if
+    if c == '\'' then
+      var v = 0
+      var k = 0
+      if ((i + 2) < n) and (src[i + 1] == '\\') then
+        let e = src[i + 2]
+        match e
+        case 'n' then
+          set v = '\n'
+        case 't' then
+          set v = '\t'
+        case 'r' then
+          set v = '\r'
+        case '0' then
+          set v = 0
+        case '\\' then
+          set v = '\\'
+        case '\'' then
+          set v = '\''
+        case '"' then
+          set v = '"'
+        else
+          return lex_fail(toks: toks, d: diag(pos: pos, msg: "unknown escape '\\" ++ char(e) ++ "'"))
+        end match
+        set k = 4
+      elif (i + 1) < n then
+        set v = src[i + 1]
+        set k = 3
+      else
+        return lex_fail(toks: toks, d: diag(pos: pos, msg: "unterminated character literal"))
+      end if
+      let last = (i + k) - 1
+      if (last >= n) or (src[last] != '\'') then
+        return lex_fail(toks: toks, d: diag(pos: pos, msg: "a character literal holds exactly one byte, like 'a' or '\\n'"))
+      end if
+      let text = slice(of: src, from: i, to: i + k)
+      set toks = push(list: toks, item: Token(kind: "int", text: text, num: v, pos: pos))
+      set i = i + k
+      set col = col + k
+      continue
+    end if
+    if c == '"' then
+      set i = i + 1
+      set col = col + 1
+      var parts: List<String> = []
+      var closed = false
+      while i < n invariant i >= 0 do
+        let d = src[i]
+        if d == '\n' then
+          break
+        end if
+        if d == '"' then
+          set i = i + 1
+          set col = col + 1
+          set closed = true
+          break
+        end if
+        if d == '\\' then
+          if (i + 1) >= n then
+            break
+          end if
+          let e = src[i + 1]
+          var r = 0
+          match e
+          case 'n' then
+            set r = '\n'
+          case 't' then
+            set r = '\t'
+          case 'r' then
+            set r = '\r'
+          case '0' then
+            set r = 0
+          case '\\' then
+            set r = '\\'
+          case '"' then
+            set r = '"'
+          else
+            let p = Pos(file: file, line: line, col: col)
+            return lex_fail(toks: toks, d: diag(pos: p, msg: "unknown escape '\\" ++ char(e) ++ "'"))
+          end match
+          set parts = push(list: parts, item: char(r))
+          set i = i + 2
+          set col = col + 2
+          continue
+        end if
+        set parts = push(list: parts, item: char(d))
+        set i = i + 1
+        set col = col + 1
+      end while
+      if not closed then
+        return lex_fail(toks: toks, d: diag(pos: pos, msg: "unterminated string literal"))
+      end if
+      set toks = push(list: toks, item: Token(kind: "str", text: join(parts: parts, sep: ""), num: 0, pos: pos))
+      continue
+    end if
+    var matched = ""
+    for s in syms do
+      if (len(matched) == 0) and starts_at(s: src, at: i, p: s) then
+        set matched = s
+      end if
+    end for
+    if len(matched) == 0 then
+      return lex_fail(toks: toks, d: diag(pos: pos, msg: "unexpected character '" ++ char(c) ++ "'"))
+    end if
+    set i = i + len(matched)
+    set col = col + len(matched)
+    set toks = push(list: toks, item: Token(kind: "sym", text: matched, num: 0, pos: pos))
+  end while
+  let eof = Token(kind: "eof", text: "", num: 0, pos: Pos(file: file, line: line, col: col))
+  return Lexed(toks: push(list: toks, item: eof), err: Option.None)
+end fn lex
