@@ -1,0 +1,10 @@
+// error: '==' works on Int, Bool and String, not T
+// language: 0.4
+
+fn same<T>(a: T, b: T) -> Bool do
+  return a == b
+end fn same
+
+fn main() do
+  let _ = same(a: 1, b: 2)
+end fn main

@@ -56,8 +56,10 @@ struct Effect
   pos: Pos,
 end struct Effect
 
+// tparams lists a generic declaration's type parameters; it is empty otherwise.
 struct FnDecl
   name: String,
+  tparams: List<String>,
   params: List<Param>,
   ret: Option<TypeExpr>,
   effects: List<Effect>,
@@ -70,6 +72,7 @@ end struct FnDecl
 
 struct StructDecl
   name: String,
+  tparams: List<String>,
   fields: List<Param>,
   pos: Pos,
 end struct StructDecl
@@ -82,6 +85,7 @@ end struct VariantDecl
 
 struct EnumDecl
   name: String,
+  tparams: List<String>,
   variants: List<VariantDecl>,
   pos: Pos,
 end struct EnumDecl
@@ -167,3 +171,167 @@ fn item_pos(item: Item) -> Pos do
     return d.pos
   end match
 end fn item_pos
+
+// ---- copying with fresh ids ----
+// Each instance of a generic function gets its own copy of the body, so that the
+// checker can record different types for the same source expression.
+
+fn copy_expr(e: Expr, next: inout Int) -> Expr do
+  let id = next
+  set next = next + 1
+  match e.kind
+  case Call(callee: c, args: args) then
+    let c2 = copy_expr(e: c, next: inout next)
+    return Expr(id: id, pos: e.pos, kind: EK.Call(callee: c2, args: copy_args(args: args, next: inout next)))
+  case ListLit(items: items) then
+    var out: List<Expr> = []
+    for x in items do
+      set out = push(list: out, item: copy_expr(e: x, next: inout next))
+    end for
+    return Expr(id: id, pos: e.pos, kind: EK.ListLit(items: out))
+  case Index(obj: o, idx: i) then
+    let o2 = copy_expr(e: o, next: inout next)
+    return Expr(id: id, pos: e.pos, kind: EK.Index(obj: o2, idx: copy_expr(e: i, next: inout next)))
+  case Field(obj: o, name: n) then
+    return Expr(id: id, pos: e.pos, kind: EK.Field(obj: copy_expr(e: o, next: inout next), name: n))
+  case With(obj: o, args: args) then
+    let o2 = copy_expr(e: o, next: inout next)
+    return Expr(id: id, pos: e.pos, kind: EK.With(obj: o2, args: copy_args(args: args, next: inout next)))
+  case Unary(op: op, x: x) then
+    return Expr(id: id, pos: e.pos, kind: EK.Unary(op: op, x: copy_expr(e: x, next: inout next)))
+  case Binary(op: op, l: l, r: r) then
+    let l2 = copy_expr(e: l, next: inout next)
+    return Expr(id: id, pos: e.pos, kind: EK.Binary(op: op, l: l2, r: copy_expr(e: r, next: inout next)))
+  case Quant(q: q, name: n, lo: lo, hi: hi, body: b) then
+    let lo2 = copy_expr(e: lo, next: inout next)
+    let hi2 = copy_expr(e: hi, next: inout next)
+    return Expr(id: id, pos: e.pos, kind: EK.Quant(q: q, name: n, lo: lo2, hi: hi2, body: copy_expr(e: b, next: inout next)))
+  else
+    return e with (id: id)
+  end match
+end fn copy_expr
+
+fn copy_args(args: List<Arg>, next: inout Int) -> List<Arg> do
+  var out: List<Arg> = []
+  for a in args do
+    set out = push(list: out, item: a with (value: copy_expr(e: a.value, next: inout next)))
+  end for
+  return out
+end fn copy_args
+
+fn copy_exprs(es: List<Expr>, next: inout Int) -> List<Expr> do
+  var out: List<Expr> = []
+  for e in es do
+    set out = push(list: out, item: copy_expr(e: e, next: inout next))
+  end for
+  return out
+end fn copy_exprs
+
+fn copy_opt_expr(e: Option<Expr>, next: inout Int) -> Option<Expr> do
+  match e
+  case Some(value: x) then
+    return Option.Some(value: copy_expr(e: x, next: inout next))
+  case None then
+    return Option.None
+  end match
+end fn copy_opt_expr
+
+fn copy_type(t: TypeExpr, next: inout Int) -> TypeExpr do
+  var args: List<TypeExpr> = []
+  for a in t.args do
+    set args = push(list: args, item: copy_type(t: a, next: inout next))
+  end for
+  return t with (args: args, refine: copy_opt_expr(e: t.refine, next: inout next))
+end fn copy_type
+
+fn copy_params(ps: List<Param>, next: inout Int) -> List<Param> do
+  var out: List<Param> = []
+  for p in ps do
+    set out = push(list: out, item: p with (ty: copy_type(t: p.ty, next: inout next)))
+  end for
+  return out
+end fn copy_params
+
+fn copy_opt_block(b: Option<List<Stmt>>, next: inout Int) -> Option<List<Stmt>> do
+  match b
+  case Some(value: s) then
+    return Option.Some(value: copy_block(stmts: s, next: inout next))
+  case None then
+    return Option.None
+  end match
+end fn copy_opt_block
+
+fn copy_block(stmts: List<Stmt>, next: inout Int) -> List<Stmt> do
+  var out: List<Stmt> = []
+  for s in stmts do
+    set out = push(list: out, item: s with (kind: copy_sk(k: s.kind, next: inout next)))
+  end for
+  return out
+end fn copy_block
+
+fn copy_sk(k: SK, next: inout Int) -> SK do
+  match k
+  case Let(name: n, ty: ty, value: v, mutable: m) then
+    var t2: Option<TypeExpr> = Option.None
+    match ty
+    case Some(value: t) then
+      set t2 = Option.Some(value: copy_type(t: t, next: inout next))
+    case None then
+    end match
+    return SK.Let(name: n, ty: t2, value: copy_expr(e: v, next: inout next), mutable: m)
+  case Set(name: n, value: v) then
+    return SK.Set(name: n, value: copy_expr(e: v, next: inout next))
+  case Return(value: v) then
+    return SK.Return(value: copy_opt_expr(e: v, next: inout next))
+  case If(arms: arms, els: els) then
+    var out: List<Arm> = []
+    for a in arms do
+      let c = copy_expr(e: a.cond, next: inout next)
+      set out = push(list: out, item: Arm(cond: c, body: copy_block(stmts: a.body, next: inout next)))
+    end for
+    return SK.If(arms: out, els: copy_opt_block(b: els, next: inout next))
+  case While(cond: c, invs: invs, dec: d, body: b) then
+    let c2 = copy_expr(e: c, next: inout next)
+    let i2 = copy_exprs(es: invs, next: inout next)
+    let d2 = copy_opt_expr(e: d, next: inout next)
+    return SK.While(cond: c2, invs: i2, dec: d2, body: copy_block(stmts: b, next: inout next))
+  case ForRange(name: n, lo: lo, hi: hi, invs: invs, body: b) then
+    let lo2 = copy_expr(e: lo, next: inout next)
+    let hi2 = copy_expr(e: hi, next: inout next)
+    let i2 = copy_exprs(es: invs, next: inout next)
+    return SK.ForRange(name: n, lo: lo2, hi: hi2, invs: i2, body: copy_block(stmts: b, next: inout next))
+  case ForEach(name: n, list: l, invs: invs, body: b) then
+    let l2 = copy_expr(e: l, next: inout next)
+    let i2 = copy_exprs(es: invs, next: inout next)
+    return SK.ForEach(name: n, list: l2, invs: i2, body: copy_block(stmts: b, next: inout next))
+  case Match(scrut: s, cases: cases, els: els) then
+    let s2 = copy_expr(e: s, next: inout next)
+    var out: List<Case> = []
+    for c in cases do
+      set out = push(list: out, item: c with (body: copy_block(stmts: c.body, next: inout next)))
+    end for
+    return SK.Match(scrut: s2, cases: out, els: copy_opt_block(b: els, next: inout next))
+  case Assert(e: e) then
+    return SK.Assert(e: copy_expr(e: e, next: inout next))
+  case Check(e: e) then
+    return SK.Check(e: copy_expr(e: e, next: inout next))
+  case ExprStmt(e: e) then
+    return SK.ExprStmt(e: copy_expr(e: e, next: inout next))
+  else
+    return k
+  end match
+end fn copy_sk
+
+fn copy_fn(f: FnDecl, next: inout Int) -> FnDecl do
+  let params = copy_params(ps: f.params, next: inout next)
+  var ret: Option<TypeExpr> = Option.None
+  match f.ret
+  case Some(value: t) then
+    set ret = Option.Some(value: copy_type(t: t, next: inout next))
+  case None then
+  end match
+  let pre = copy_exprs(es: f.pre, next: inout next)
+  let post = copy_exprs(es: f.post, next: inout next)
+  let dec = copy_opt_expr(e: f.dec, next: inout next)
+  return f with (params: params, ret: ret, pre: pre, post: post, dec: dec, body: copy_block(stmts: f.body, next: inout next))
+end fn copy_fn

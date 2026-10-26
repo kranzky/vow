@@ -288,12 +288,18 @@ fn global_fn(v: inout Verifier, name: String, args: String, sort: String) -> Str
 end fn global_fn
 
 fn field_fn(v: inout Verifier, sname: String, field: String, t: Ty) -> String do
+  if is_instance_name(sname) then
+    return global_fn(v: inout v, name: "gfld_" ++ mangle(sname) ++ "_" ++ field, args: "Val", sort: sort_of(t))
+  end if
   return global_fn(v: inout v, name: "fld_" ++ sname ++ "_" ++ field, args: "Val", sort: sort_of(t))
 end fn field_fn
 
 fn vfield_fn(v: inout Verifier, ename: String, vname: String, field: String, t: Ty) -> String do
   if ename == "Option" then
     return global_fn(v: inout v, name: "opt_value_" ++ sort_of(t), args: "Val", sort: sort_of(t))
+  end if
+  if is_instance_name(ename) then
+    return global_fn(v: inout v, name: "gvf_" ++ mangle(ename) ++ "_" ++ vname ++ "_" ++ field, args: "Val", sort: sort_of(t))
   end if
   return global_fn(v: inout v, name: "vf_" ++ ename ++ "_" ++ vname ++ "_" ++ field, args: "Val", sort: sort_of(t))
 end fn vfield_fn
@@ -369,7 +375,11 @@ end fn str_const
 
 fn verify_fn(v: inout Verifier, f: FnDecl) -> FnVc do
   let empty_loops: List<LoopCtx> = []
-  set v = v with (n: 0, decls: [], defs: [], qdefs: [], obs: [], strs: {}, loops: empty_loops, fname: f.name, params: {})
+  // A generic function is verified once, with its type parameters as unknown types
+  // (values of the uninterpreted sort Val), which covers every instance.
+  let info = v.info
+  set v = v with (n: 0, decls: [], defs: [], qdefs: [], obs: [], strs: {}, loops: empty_loops, fname: f.name, params: {},
+    info: info with (tenv: identity_env(f.tparams)))
   var fi = FnInfo(name: f.name, params: [], io: [], ret: plain(Ty.TUnit), effects: [], pre: [], post: [],
     dec: Option.None, inline: Option.None, pos: f.pos)
   match get_fn(info: v.info, name: f.name)

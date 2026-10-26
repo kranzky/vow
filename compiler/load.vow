@@ -65,7 +65,14 @@ struct Source
   files: List<String>,
   items: List<Item>,
   errs: List<Diag>,
+  // The first expression id not used by any loaded file.
+  next_id: Int,
 end struct Source
+
+// Declarations every program gets, unless it declares a type of the same name.
+fn prelude_source() -> String do
+  return "enum Result<T, E>\n  Ok(value: T),\n  Err(error: E),\nend enum Result\n"
+end fn prelude_source
 
 struct Pending
   path: String,
@@ -126,7 +133,23 @@ fn load(root: String) -> Source uses fs do
       end match
     end match
   end while
-  return Source(files: files, items: items, errs: errs)
+  var declared = false
+  for item in items do
+    if item_name(item) == "Result" then
+      set declared = true
+    end if
+  end for
+  if (len(errs) == 0) and not declared then
+    let lx = lex(src: prelude_source(), file: len(files))
+    if len(lx.toks) > 0 then
+      var p = new_parser(toks: lx.toks, first_id: next_id)
+      let parsed = parse_file(inout p)
+      set files = push(list: files, item: "<std>/prelude.vow")
+      set items = items ++ parsed.items
+      set next_id = p.next_id
+    end if
+  end if
+  return Source(files: files, items: items, errs: errs, next_id: next_id)
 end fn load
 
 fn render_diag(d: Diag, files: List<String>) -> String do

@@ -1,10 +1,17 @@
 # Building Vow.
 #
 #   make            build build/vowc from the C seed (needs only a C compiler)
-#   make test       run the test suite with both compilers, the reference-counting
-#                   checks (debug runtime) and the differential verifier check
-#   make bootstrap  rebuild from the Rust bootstrap, check the self-hosting fixpoint
-#                   (stage 2 and stage 3 emit identical C) and refresh the seed
+#   make test       run the test suite with the compiler and, for programs in the
+#                   v0.3 language, the frozen Rust bootstrap compiler; the
+#                   reference-counting checks (debug runtime) and the differential
+#                   verifier check
+#   make bootstrap  rebuild the compiler with itself (starting from the seed), check
+#                   the self-hosting fixpoint (stage 2 and stage 3 emit identical C)
+#                   and refresh the seed
+#
+# The Rust bootstrap compiler (bootstrap/) is frozen at the v0.3 language. Programs
+# that use later features say so in a "// language: 0.4" line, and only the
+# self-hosted compiler runs them.
 #   make site       build vowsite (tools/vowsite) and generate public/ from site/
 #
 # Verification needs Z3 on the PATH (or VOW_Z3=/path/to/z3).
@@ -23,8 +30,8 @@ $(RUST_VOWC): $(wildcard bootstrap/src/*.rs) runtime/vow_rt.h
 	cd bootstrap && cargo build --release -q
 
 test: build/vowc $(RUST_VOWC) test-site test-rc differential
-	@echo "== bootstrap compiler (Rust)"
-	@VOWC=$(CURDIR)/$(RUST_VOWC) tests/run.sh
+	@echo "== bootstrap compiler (Rust, frozen at the v0.3 language)"
+	@VOW_FROZEN=1 VOWC=$(CURDIR)/$(RUST_VOWC) tests/run.sh
 	@echo "== self-hosted compiler"
 	@VOWC=$(CURDIR)/build/vowc tests/run.sh
 
@@ -41,10 +48,10 @@ test-site: build/vowsite
 	@echo "== vowsite"
 	@VOWSITE=$(CURDIR)/build/vowsite tools/vowsite/tests/run.sh
 
-bootstrap: $(RUST_VOWC) compiler/runtime_h.vow compiler/std_text.vow
+bootstrap: build/vowc compiler/runtime_h.vow compiler/std_text.vow
 	@mkdir -p build
-	@echo "== stage 1: the Rust bootstrap verifies and builds the self-hosted compiler"
-	$(RUST_VOWC) build compiler/vowc.vow -o build/stage1 --no-cache
+	@echo "== stage 1: the seed compiler verifies and builds the current source"
+	build/vowc build compiler/vowc.vow -o build/stage1 --no-cache
 	@echo "== stage 2: stage 1 verifies and builds itself"
 	build/stage1 build compiler/vowc.vow -o build/stage2 --no-cache
 	@echo "== fixpoint: stage 2 and stage 3 must emit identical C"
@@ -55,11 +62,13 @@ bootstrap: $(RUST_VOWC) compiler/runtime_h.vow compiler/std_text.vow
 	cp build/stage2 build/vowc
 	@echo "fixpoint reached; seed/vowc.c updated"
 
-compiler/runtime_h.vow: runtime/vow_rt.h tools/embed.vow $(RUST_VOWC)
-	$(RUST_VOWC) run tools/embed.vow -- runtime/vow_rt.h runtime_header > $@
+compiler/runtime_h.vow: runtime/vow_rt.h tools/embed.vow
+	$(MAKE) build/vowc
+	build/vowc run tools/embed.vow -- runtime/vow_rt.h runtime_header > $@
 
-compiler/std_text.vow: std/text.vow tools/embed.vow $(RUST_VOWC)
-	$(RUST_VOWC) run tools/embed.vow -- std/text.vow std_text > $@
+compiler/std_text.vow: std/text.vow tools/embed.vow
+	$(MAKE) build/vowc
+	build/vowc run tools/embed.vow -- std/text.vow std_text > $@
 
 clean:
 	rm -rf build bootstrap/target

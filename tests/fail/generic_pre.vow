@@ -1,0 +1,11 @@
+// error: cannot prove argument 'xs' of 'first<Int>' satisfies len(it) > 0
+// language: 0.4
+
+fn first<T>(xs: List<T> where len(it) > 0) -> T do
+  return xs[0]
+end fn first
+
+fn main() do
+  let empty: List<Int> = []
+  let _ = first(empty)
+end fn main

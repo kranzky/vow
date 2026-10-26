@@ -41,11 +41,13 @@ Must-have, language and proofs:
 - [ ] `old(x)` for inout postconditions; recursive spec functions (needs termination)
 - [x] Termination measures (`decreases`) for while loops and direct recursion (opt-in)
 - [ ] Termination for mutual recursion; report which functions are proved total
-- [ ] Generics (monomorphised functions and types)
+- [x] Generics: functions, structs and enums; type arguments inferred; each generic
+      function verified once for all types and compiled per type
 - [ ] Float, with documented verification semantics
 - [x] Keywords as labels (fields, argument labels, field access, pattern fields)
 - [x] `let _ =` discards; `value_or`, `is_some`, `is_none`
-- [ ] Structural `==` for structs/enums; `Result` with error propagation
+- [x] `Result<T, E>` and `try` (also for `Option`)
+- [ ] Structural `==` for structs/enums (and then `==` on type parameters that allow it)
 - [ ] Modules with visibility, then packages
 
 Must-have, runtime and portability:
@@ -61,5 +63,16 @@ Must-have, runtime and portability:
 Must-have, tooling:
 - [ ] `vowc fmt`, `vowc test`, LSP (hover shows type and known facts)
 - [ ] Verifier performance (incremental solving), pinned Z3 version
+
+Release criteria:
+- [ ] Agent benchmark for 1.0: Astra builds the same project in Python, Rust and Vow,
+      each judged by one shared test suite and profiled the same way; compare
+      correctness (tests passed, defects found later), effort (turns, tokens, wall
+      time, failed compiles and proofs) and performance (time and memory)
+
+Process:
+- [x] The Rust bootstrap compiler is frozen at the v0.3 language. It still runs every
+      v0.3 program in the test suite, and its verifier must emit the same SMT as the
+      self-hosted one for each; new features are built only in Vow
 
 Post-V1: closures, concurrency, Unicode strings, bitwise/fixed-width ints, Wasm/native backends.

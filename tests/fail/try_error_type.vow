@@ -1,0 +1,15 @@
+// error: the error passed on by 'try' (the function's error type) must be String, but this is Int
+// language: 0.4
+
+fn code(s: String) -> Result<Int, Int> do
+  return Result.Err(error: 1)
+end fn code
+
+fn parse(s: String) -> Result<Int, String> do
+  let n = try code(s)
+  return Result.Ok(value: n)
+end fn parse
+
+fn main() do
+  let _ = parse("1")
+end fn main

@@ -56,10 +56,12 @@ Check your code against this list before running the compiler.
    binder may not. The keywords are:
    `fn end struct enum type let var set return if then elif else while for in do
    match case invariant requires ensures uses assert check break continue and or not
-   implies true false with import it result where inout forall exists decreases`.
+   implies true false with import it result where inout forall exists decreases try`.
 7. **`==` and `!=` work on `Int`, `Bool` and `String` only.** For enums, use `match`.
-8. **Empty literals need a type.** `[]`, `{}` and `Option.None` need an annotation
-   or an expected type: `var xs: List<Int> = []`, `let none: Option<Ty> = Option.None`.
+8. **Empty literals need a type.** `[]`, `{}`, `Option.None` and variants of generic
+   enums that don't fix every type parameter (`Result.Err(error: e)`, `Tree.Leaf`)
+   need an annotation or an expected type: `var xs: List<Int> = []`,
+   `let none: Option<Ty> = Option.None`. A `return` or an argument supplies one.
 9. **Construction is explicit.** Structs: `Point(x: 1, y: 2)`. Variants:
    `Shape.Rect(w: 1, h: 2)`, `Shape.Empty`, `Option.Some(value: 3)`. Patterns use
    the bare variant name: `case Rect(w: w, h: h) then`.
@@ -68,8 +70,11 @@ Check your code against this list before running the compiler.
     `case None then` followed by the next `case`.
 11. **One global namespace.** `import "file.vow"` merges files. Function and type names
     must be unique across all imported files.
-12. **No generics in user code.** Only `List`, `Map`, `HashMap` and `Option` are generic. Write
-    monomorphic helpers (`contains_str`, `int_list_contains`).
+12. **Generic type arguments are inferred, never written at calls.** Declare
+    `fn last<T>(xs: List<T>) -> T` and call `last(xs)`; write types in full
+    (`Pair<Int, String>`). Inside a generic function, a `T` can be stored, passed,
+    returned and put in lists and maps, but not compared with `==`, indexed or given
+    fields, and generic functions cannot be called in specifications.
 13. **No floats yet.** `/` and `%` are integer division with Euclidean semantics: the
     remainder is never negative (`-7 / 2 == -4`, `-7 % 2 == 1`).
 14. **Statements start with a keyword or a call.** `x = 1` is not a statement; use
@@ -415,6 +420,45 @@ case None then
 end match
 ```
 
+**Errors: `Result` and `try`.** Every program has
+`enum Result<T, E> Ok(value: T), Err(error: E) end enum Result`. In a function that
+returns a `Result`, `let x = try f(...)` binds the `Ok` value, or returns the `Err`
+from the enclosing function unchanged (so the error types must match). In a function
+that returns an `Option`, `try` does the same with `Some` and `None`. `try` may only be
+the whole value of `let`, `var` or `set`, or a call statement. From
+`examples/results.vow`:
+
+```
+fn parse_line(text: String, line: Int) -> Result<Setting, String> do
+  let eq = find_byte(s: text, c: '=', from: 0)
+  if eq < 0 then
+    return Result.Err(error: "line " ++ int_to_str(line) ++ ": expected 'name = value'")
+  end if
+  let name = trim(slice(of: text, from: 0, to: eq))
+  let count = try parse_count(text: slice(of: text, from: eq + 1, to: len(text)), line: line)
+  return Result.Ok(value: Setting(name: name, value: count.value))
+end fn parse_line
+```
+
+Contracts cannot look inside a `Result` (or an `Option`). When callers need a fact
+about the `Ok` value, return a struct with a refined field (`Result<Count, String>`
+where `Count` has `value: Int where it >= 0`): reading `count.value` gives the
+verifier the refinement.
+
+**Generic helpers.** Write a helper once for every element type:
+
+```
+fn last_or<T>(xs: List<T>, default: T) -> T do
+  if len(xs) == 0 then
+    return default
+  end if
+  return xs[len(xs) - 1]
+end fn last_or
+```
+
+A generic function is verified once, for all types, and compiled separately for each
+type it is used with, so it costs nothing at runtime.
+
 **Building strings.** Collect parts in a `List<String>` and `join` once at the end.
 Repeated `++` copies the whole string every time.
 
@@ -525,4 +569,5 @@ fn main() uses fs, console do
 - `examples/cursor.vow`: refined struct fields with `inout`
 - `examples/wordfreq.vow`: string scanning, maps and options
 - `examples/shapes.vow`: enums, refinement aliases, exhaustive `match`
+- `examples/results.vow`: errors with `Result` and `try`, and a generic helper
 - `compiler/`: the self-hosted compiler, about 6,000 lines of verified Vow

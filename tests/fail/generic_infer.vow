@@ -1,0 +1,6 @@
+// error: cannot infer the type parameter E of Result
+// language: 0.4
+
+fn main() do
+  let r = Result.Ok(value: 1)
+end fn main

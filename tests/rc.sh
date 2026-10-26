@@ -24,7 +24,7 @@ build() { VOW_CFLAGS=-DVOW_RC_DEBUG "$VOWC" build "$1" -o "$2" >/dev/null 2>"$tm
 for f in tests/run/*.vow; do
   build "$f" "$tmp/prog" && check "$f" "$tmp/prog" "${f%.vow}.out"
 done
-for f in examples/bsearch.vow examples/isort.vow examples/escape.vow examples/calc.vow examples/config.vow examples/cursor.vow examples/wordfreq.vow examples/shapes.vow; do
+for f in examples/bsearch.vow examples/isort.vow examples/escape.vow examples/calc.vow examples/config.vow examples/cursor.vow examples/wordfreq.vow examples/shapes.vow examples/results.vow; do
   build "$f" "$tmp/prog" && check "$f" "$tmp/prog" ""
 done
 cc -O2 -o "$tmp/fasta" bench/fasta.c && "$tmp/fasta" 2000 > "$tmp/input.fa"

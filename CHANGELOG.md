@@ -1,5 +1,24 @@
 # Changelog
 
+## v0.4.0 (unreleased)
+
+Generics and errors as values.
+
+- Generic functions, structs and enums: `fn last<T>(xs: List<T>) -> T`,
+  `struct Pair<A, B>`, `enum Tree<T>`. Type arguments are inferred from arguments and
+  from the expected type; they are never written at calls.
+- Each generic function is type-checked and verified once, with its type parameters as
+  unknown types, so its contracts hold for every type it is used with. Each use with
+  concrete types is compiled to its own copy of the code.
+- `Result<T, E>` (`Ok(value: T)`, `Err(error: E)`) is declared in every program.
+- `try`: `let x = try f(...)` returns an `Err` (or `None`) from the enclosing function,
+  or binds the value. It is shorthand for a `match`, which is what the verifier sees.
+- `try` is a keyword.
+- The Rust bootstrap compiler is frozen at the v0.3 language. `make bootstrap` now
+  starts from the C seed; the Rust compiler still runs every v0.3 program in the test
+  suite, and both verifiers must still emit identical SMT for each of them.
+- New example: `examples/results.vow`.
+
 ## v0.3.0
 
 Faster maps.

@@ -74,9 +74,12 @@ holds the target, `-1` means the target is absent, and the loop terminates.
 
 The compiler is written in Vow (`compiler/`, about 6,000 lines) and verified by itself:
 every index, slice and refinement in it is proved, with no runtime-checked escape
-hatches. It was bootstrapped with a Rust compiler (`bootstrap/`), and `make bootstrap`
-checks the fixpoint: the Rust compiler, the self-hosted compiler and the self-hosted
-compiler built by itself all emit byte-identical C.
+hatches. `make bootstrap` rebuilds it with itself, starting from the C seed, and checks
+the fixpoint: the compiler built by itself emits byte-identical C.
+
+It was bootstrapped with a Rust compiler (`bootstrap/`), which is now frozen at the
+v0.3 language. The test suite still runs it on every program written in that
+language, and both compilers' verifiers must emit identical SMT for each of them.
 
 ## Getting started
 
@@ -110,7 +113,7 @@ To build from source instead, you need only a C compiler and Z3:
 ```
 make                                  # builds build/vowc from seed/vowc.c
 build/vowc run examples/bsearch.vow
-make test                             # test suite (also needs Rust for the bootstrap compiler)
+make test                             # test suite (also needs Rust for the frozen bootstrap compiler)
 ```
 
 ## Documents
@@ -123,9 +126,10 @@ make test                             # test suite (also needs Rust for the boot
 
 ## Status
 
-The current release is **v0.2.0** (see the [changelog](CHANGELOG.md)). Vow is an
-experiment, not yet a V1. Notable gaps: no floats, generics or modules;
-termination is proved only where measures are given; Unix only. See the roadmap.
+The current release is **v0.3.0**; the main branch adds generics, `Result` and `try`
+(see the [changelog](CHANGELOG.md)). Vow is an experiment, not yet a V1. Notable gaps:
+no floats or modules; termination is proved only where measures are given; Unix only.
+See the roadmap.
 
 ## License
 

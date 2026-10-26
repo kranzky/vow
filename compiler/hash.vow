@@ -13,7 +13,13 @@ fn calls_in_expr(e: Expr, info: Info, out: inout List<String>) do
   match call_info(info: info, e: e)
   case Some(value: ci) then
     if ci.kind == "user" then
-      add_name(out: inout out, n: ci.name)
+      // A call to an instance of a generic function relies on the generic contract.
+      match lookup(map: info.origins, key: ci.name)
+      case Some(value: g) then
+        add_name(out: inout out, n: g)
+      case None then
+        add_name(out: inout out, n: ci.name)
+      end match
     end if
   case None then
   end match

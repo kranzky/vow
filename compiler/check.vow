@@ -14,6 +14,9 @@ enum Ty
   TOpt(inner: Ty),
   TStruct(name: String),
   TEnum(name: String),
+  // A type parameter, inside the generic declaration that declares it: a type about
+  // which nothing is known.
+  TParam(name: String),
   TUnknown,
 end enum Ty
 
@@ -38,6 +41,8 @@ fn ty_show(t: Ty) -> String do
   case TStruct(name: n) then
     return n
   case TEnum(name: n) then
+    return n
+  case TParam(name: n) then
     return n
   case TUnknown then
     return "?"
@@ -113,6 +118,9 @@ struct HoleInfo
   locals: List<NamedTy>,
 end struct HoleInfo
 
+// Generic declarations are kept as written (gfns, gstructs, genums). Each use with
+// particular type arguments creates an instance, named like "Pair<Int, String>", whose
+// fields or signature are entered in structs, enums or fns like any other.
 struct Info
   structs: Map<String, List<FieldInfo>>,
   enums: Map<String, List<VariantInfo>>,
@@ -121,6 +129,20 @@ struct Info
   types: Map<Int, Ty>,
   calls: Map<Int, CallInfo>,
   holes: List<HoleInfo>,
+  gfns: Map<String, FnDecl>,
+  gstructs: Map<String, StructDecl>,
+  genums: Map<String, EnumDecl>,
+  // The type parameters in scope while resolving types.
+  tenv: Map<String, Ty>,
+  // The type arguments of each instance of a generic type.
+  inst_args: Map<String, List<Ty>>,
+  // The generic function each function instance was made from.
+  origins: Map<String, String>,
+  // Instances of generic types whose field refinements have not been checked yet.
+  pending: List<String>,
+  // Instances of generic functions with concrete types: checked, and compiled.
+  instances: List<FnDecl>,
+  next_id: Int,
 end struct Info
 
 // ---- built-in functions ----
@@ -285,11 +307,22 @@ end fn call_info
 
 // ---- type resolution ----
 
-fn resolve_type(info: Info, te: TypeExpr, errs: inout List<Diag>) -> RTy do
+fn resolve_type(info: inout Info, te: TypeExpr, errs: inout List<Diag>) -> RTy do
   var base = plain(Ty.TUnknown)
   let n = len(te.args)
   let msg = "'" ++ te.name ++ "' takes "
-  if (te.name == "Int") or (te.name == "Bool") or (te.name == "String") or (te.name == "Unit") or (te.name == "Output") then
+  var is_param = false
+  match lookup(map: info.tenv, key: te.name)
+  case Some(value: pt) then
+    set is_param = true
+    if n != 0 then
+      set errs = push(list: errs, item: diag(pos: te.pos, msg: "type parameter " ++ msg ++ "no type arguments"))
+    end if
+    set base = plain(pt)
+  case None then
+  end match
+  if is_param then
+  elif (te.name == "Int") or (te.name == "Bool") or (te.name == "String") or (te.name == "Unit") or (te.name == "Output") then
     if n != 0 then
       set errs = push(list: errs, item: diag(pos: te.pos, msg: msg ++ "0 type argument(s), got " ++ int_to_str(n)))
     end if
@@ -309,7 +342,7 @@ fn resolve_type(info: Info, te: TypeExpr, errs: inout List<Diag>) -> RTy do
     if n != 1 then
       set errs = push(list: errs, item: diag(pos: te.pos, msg: msg ++ "1 type argument(s), got " ++ int_to_str(n)))
     else
-      let a = resolve_arg(info: info, te: te.args[0], errs: inout errs)
+      let a = resolve_arg(info: inout info, te: te.args[0], errs: inout errs)
       if te.name == "List" then
         set base = plain(Ty.TList(elem: a))
       else
@@ -320,10 +353,11 @@ fn resolve_type(info: Info, te: TypeExpr, errs: inout List<Diag>) -> RTy do
     if n != 2 then
       set errs = push(list: errs, item: diag(pos: te.pos, msg: msg ++ "2 type argument(s), got " ++ int_to_str(n)))
     else
-      let k = resolve_arg(info: info, te: te.args[0], errs: inout errs)
-      let v = resolve_arg(info: info, te: te.args[1], errs: inout errs)
+      let k = resolve_arg(info: inout info, te: te.args[0], errs: inout errs)
+      let v = resolve_arg(info: inout info, te: te.args[1], errs: inout errs)
       let ks = ty_show(k)
-      if (ks != "Int") and (ks != "String") and (ks != "?") then
+      // A type parameter may be a key; each instance checks its own key type.
+      if (ks != "Int") and (ks != "String") and (ks != "?") and not is_tparam(k) then
         set errs = push(list: errs, item: diag(pos: te.args[0].pos, msg: "map keys must be Int or String"))
       end if
       if te.name == "Map" then
@@ -331,6 +365,17 @@ fn resolve_type(info: Info, te: TypeExpr, errs: inout List<Diag>) -> RTy do
       else
         set base = plain(Ty.THashMap(key: k, val: v))
       end if
+    end if
+  elif has(map: info.gstructs, key: te.name) or has(map: info.genums, key: te.name) then
+    let want = len(generic_tparams(info: info, name: te.name))
+    if n != want then
+      set errs = push(list: errs, item: diag(pos: te.pos, msg: msg ++ int_to_str(want) ++ " type argument(s), got " ++ int_to_str(n)))
+    else
+      var targs: List<Ty> = []
+      for a in te.args do
+        set targs = push(list: targs, item: resolve_arg(info: inout info, te: a, errs: inout errs))
+      end for
+      set base = plain(instantiate_type(info: inout info, name: te.name, args: targs, pos: te.pos, errs: inout errs))
     end if
   elif has(map: info.structs, key: te.name) then
     if n != 0 then
@@ -361,8 +406,8 @@ fn resolve_type(info: Info, te: TypeExpr, errs: inout List<Diag>) -> RTy do
   return base
 end fn resolve_type
 
-fn resolve_arg(info: Info, te: TypeExpr, errs: inout List<Diag>) -> Ty do
-  let r = resolve_type(info: info, te: te, errs: inout errs)
+fn resolve_arg(info: inout Info, te: TypeExpr, errs: inout List<Diag>) -> Ty do
+  let r = resolve_type(info: inout info, te: te, errs: inout errs)
   if len(r.preds) > 0 then
     let d = diag(pos: te.pos, msg: "refined types are not allowed inside type arguments")
     set errs = push(list: errs, item: with_note(d: d, note: "wrap the element in a struct with a refined field instead"))
@@ -372,8 +417,261 @@ end fn resolve_arg
 
 fn resolve_quiet(info: Info, te: TypeExpr) -> RTy do
   var errs: List<Diag> = []
-  return resolve_type(info: info, te: te, errs: inout errs)
+  var scratch = info
+  return resolve_type(info: inout scratch, te: te, errs: inout errs)
 end fn resolve_quiet
+
+// ---- generic types ----
+
+fn is_tparam(t: Ty) -> Bool do
+  match t
+  case TParam(name: n) then
+    return true
+  else
+    return false
+  end match
+end fn is_tparam
+
+// True if a type mentions a type parameter anywhere.
+fn has_tparam(info: Info, t: Ty) -> Bool do
+  match t
+  case TParam(name: n) then
+    return true
+  case TList(elem: x) then
+    return has_tparam(info: info, t: x)
+  case TOpt(inner: x) then
+    return has_tparam(info: info, t: x)
+  case TMap(key: k, val: v) then
+    return has_tparam(info: info, t: k) or has_tparam(info: info, t: v)
+  case THashMap(key: k, val: v) then
+    return has_tparam(info: info, t: k) or has_tparam(info: info, t: v)
+  case TStruct(name: n) then
+    return args_have_tparam(info: info, name: n)
+  case TEnum(name: n) then
+    return args_have_tparam(info: info, name: n)
+  else
+    return false
+  end match
+end fn has_tparam
+
+fn args_have_tparam(info: Info, name: String) -> Bool do
+  match lookup(map: info.inst_args, key: name)
+  case Some(value: args) then
+    for a in args do
+      if has_tparam(info: info, t: a) then
+        return true
+      end if
+    end for
+    return false
+  case None then
+    return false
+  end match
+end fn args_have_tparam
+
+fn generic_tparams(info: Info, name: String) -> List<String> do
+  match lookup(map: info.gstructs, key: name)
+  case Some(value: s) then
+    return s.tparams
+  case None then
+  end match
+  match lookup(map: info.genums, key: name)
+  case Some(value: e) then
+    return e.tparams
+  case None then
+  end match
+  let none: List<String> = []
+  return none
+end fn generic_tparams
+
+fn inst_name(base: String, args: List<Ty>) -> String do
+  var shown: List<String> = []
+  for a in args do
+    set shown = push(list: shown, item: ty_show(a))
+  end for
+  return base ++ "<" ++ join(parts: shown, sep: ", ") ++ ">"
+end fn inst_name
+
+// The name a generic instance was made from: "Pair" for "Pair<Int, String>".
+fn generic_base(name: String) -> String do
+  for i in 0..len(name) do
+    if name[i] == '<' then
+      return slice(of: name, from: 0, to: i)
+    end if
+  end for
+  return name
+end fn generic_base
+
+fn is_instance_name(name: String) -> Bool do
+  return len(generic_base(name)) < len(name)
+end fn is_instance_name
+
+// A form of an instance name that is a valid C and SMT identifier fragment. Distinct
+// names give distinct results ('_' is doubled), and the result is only ever used with
+// a prefix that no plain name gets.
+fn mangle(name: String) -> String do
+  var parts: List<String> = []
+  for i in 0..len(name) do
+    let ch = name[i]
+    if ch == '_' then
+      set parts = push(list: parts, item: "__")
+    elif ch == '<' then
+      set parts = push(list: parts, item: "_L")
+    elif ch == '>' then
+      set parts = push(list: parts, item: "_R")
+    elif ch == ',' then
+      set parts = push(list: parts, item: "_C")
+    elif ch != ' ' then
+      set parts = push(list: parts, item: char(ch))
+    end if
+  end for
+  return join(parts: parts, sep: "")
+end fn mangle
+
+fn tparam_env(tps: List<String>, args: List<Ty>) -> Map<String, Ty> do
+  var env: Map<String, Ty> = {}
+  for i in 0..len(tps) do
+    if i < len(args) then
+      set env = insert(map: env, key: tps[i], value: args[i])
+    end if
+  end for
+  return env
+end fn tparam_env
+
+fn identity_env(tps: List<String>) -> Map<String, Ty> do
+  var env: Map<String, Ty> = {}
+  for t in tps do
+    set env = insert(map: env, key: t, value: Ty.TParam(name: t))
+  end for
+  return env
+end fn identity_env
+
+// Enters the instance of a generic struct or enum for these type arguments, if it is
+// new, and returns its type.
+fn instantiate_type(info: inout Info, name: String, args: List<Ty>, pos: Pos, errs: inout List<Diag>) -> Ty do
+  let inst = inst_name(base: name, args: args)
+  var t = Ty.TEnum(name: inst)
+  if has(map: info.gstructs, key: name) then
+    set t = Ty.TStruct(name: inst)
+  end if
+  if has(map: info.inst_args, key: inst) then
+    return t
+  end if
+  if len(inst) > 300 then
+    set errs = push(list: errs, item: diag(pos: pos, msg: "the generic type '" ++ name ++ "' is instantiated with ever larger types"))
+    return Ty.TUnknown
+  end if
+  let saved = info.tenv
+  set info = info with (inst_args: insert(map: info.inst_args, key: inst, value: args))
+  match lookup(map: info.gstructs, key: name)
+  case Some(value: s) then
+    let empty: List<FieldInfo> = []
+    set info = info with (structs: insert(map: info.structs, key: inst, value: empty), tenv: tparam_env(tps: s.tparams, args: args))
+    let fields = inst_fields(info: inout info, ps: s.fields, errs: inout errs)
+    set info = info with (structs: insert(map: info.structs, key: inst, value: fields))
+  case None then
+    match lookup(map: info.genums, key: name)
+    case Some(value: e) then
+      let empty: List<VariantInfo> = []
+      set info = info with (enums: insert(map: info.enums, key: inst, value: empty), tenv: tparam_env(tps: e.tparams, args: args))
+      var vs: List<VariantInfo> = []
+      for v in e.variants do
+        set vs = push(list: vs, item: VariantInfo(name: v.name, fields: inst_fields(info: inout info, ps: v.fields, errs: inout errs)))
+      end for
+      set info = info with (enums: insert(map: info.enums, key: inst, value: vs))
+    case None then
+    end match
+  end match
+  set info = info with (tenv: saved, pending: push(list: info.pending, item: inst))
+  return t
+end fn instantiate_type
+
+// The fields of an instance. Each instance gets its own copy of every refinement, so
+// that the checker can record the instance's types for it.
+fn inst_fields(info: inout Info, ps: List<Param>, errs: inout List<Diag>) -> List<FieldInfo> do
+  var fields: List<FieldInfo> = []
+  for p in ps do
+    var next = info.next_id
+    let te = copy_type(t: p.ty, next: inout next)
+    set info = info with (next_id: next)
+    let r = resolve_type(info: inout info, te: te, errs: inout errs)
+    set fields = push(list: fields, item: FieldInfo(name: p.name, rty: r))
+  end for
+  return fields
+end fn inst_fields
+
+// Binds type parameters by matching a declared type against an actual one. The first
+// binding wins; a conflicting one shows up later as a type mismatch.
+fn unify(info: Info, te: TypeExpr, t: Ty, tps: List<String>, subst: inout Map<String, Ty>) do
+  if contains_str(xs: tps, x: te.name) then
+    if (not has(map: subst, key: te.name)) and not is_unknown(t) then
+      set subst = insert(map: subst, key: te.name, value: t)
+    end if
+    return
+  end if
+  let n = len(te.args)
+  match t
+  case TList(elem: x) then
+    if (te.name == "List") and (n == 1) then
+      unify(info: info, te: te.args[0], t: x, tps: tps, subst: inout subst)
+    end if
+  case TOpt(inner: x) then
+    if (te.name == "Option") and (n == 1) then
+      unify(info: info, te: te.args[0], t: x, tps: tps, subst: inout subst)
+    end if
+  case TMap(key: k, val: v) then
+    if (te.name == "Map") and (n == 2) then
+      unify(info: info, te: te.args[0], t: k, tps: tps, subst: inout subst)
+      unify(info: info, te: te.args[1], t: v, tps: tps, subst: inout subst)
+    end if
+  case THashMap(key: k, val: v) then
+    if (te.name == "HashMap") and (n == 2) then
+      unify(info: info, te: te.args[0], t: k, tps: tps, subst: inout subst)
+      unify(info: info, te: te.args[1], t: v, tps: tps, subst: inout subst)
+    end if
+  case TStruct(name: sn) then
+    unify_inst(info: info, te: te, name: sn, tps: tps, subst: inout subst)
+  case TEnum(name: en) then
+    unify_inst(info: info, te: te, name: en, tps: tps, subst: inout subst)
+  else
+  end match
+end fn unify
+
+fn unify_inst(info: Info, te: TypeExpr, name: String, tps: List<String>, subst: inout Map<String, Ty>) do
+  if generic_base(name) != te.name then
+    return
+  end if
+  match lookup(map: info.inst_args, key: name)
+  case Some(value: args) then
+    for i in 0..len(te.args) do
+      if i < len(args) then
+        unify(info: info, te: te.args[i], t: args[i], tps: tps, subst: inout subst)
+      end if
+    end for
+  case None then
+  end match
+end fn unify_inst
+
+// True if every type parameter that te mentions is bound.
+fn bound_in(te: TypeExpr, tps: List<String>, subst: Map<String, Ty>) -> Bool do
+  if contains_str(xs: tps, x: te.name) and not has(map: subst, key: te.name) then
+    return false
+  end if
+  for a in te.args do
+    if not bound_in(te: a, tps: tps, subst: subst) then
+      return false
+    end if
+  end for
+  return true
+end fn bound_in
+
+// A type expression written with the declaration's own parameters: Pair<A, B>.
+fn self_type(name: String, tps: List<String>, pos: Pos) -> TypeExpr do
+  var args: List<TypeExpr> = []
+  for t in tps do
+    set args = push(list: args, item: TypeExpr(name: t, args: [], refine: Option.None, pos: pos))
+  end for
+  return TypeExpr(name: name, args: args, refine: Option.None, pos: pos)
+end fn self_type
 
 // ---- checker state ----
 
@@ -396,7 +694,14 @@ struct Checker
   result_ty: Option<Ty>,
   inout_ok: Bool,
   files: List<String>,
+  // Instances of generic functions whose bodies are still to be checked.
+  queue: List<Inst>,
 end struct Checker
+
+struct Inst
+  decl: FnDecl,
+  env: Map<String, Ty>,
+end struct Inst
 
 fn at(c: Checker, p: Pos) -> String do
   var f = "?"
@@ -416,10 +721,52 @@ end fn err_d
 
 fn resolve(c: inout Checker, te: TypeExpr) -> RTy do
   var errs = c.errs
-  let r = resolve_type(info: c.info, te: te, errs: inout errs)
-  set c = c with (errs: errs)
+  var info = c.info
+  let r = resolve_type(info: inout info, te: te, errs: inout errs)
+  set c = c with (info: info, errs: errs)
+  check_pending(inout c)
   return r
 end fn resolve
+
+// Checks the field refinements of new instances of generic types.
+fn check_pending(c: inout Checker) do
+  if len(c.info.pending) == 0 then
+    return
+  end if
+  let saved = c
+  while len(c.info.pending) > 0 do
+    let inst = c.info.pending[0]
+    let info = c.info
+    set c = c with (info: info with (pending: slice(of: info.pending, from: 1, to: len(info.pending))))
+    match lookup(map: c.info.structs, key: inst)
+    case Some(value: fields) then
+      check_info_preds(c: inout c, fields: fields)
+    case None then
+    end match
+    match lookup(map: c.info.enums, key: inst)
+    case Some(value: vs) then
+      for v in vs do
+        check_info_preds(c: inout c, fields: v.fields)
+      end for
+    case None then
+    end match
+  end while
+  set c = saved with (info: c.info, errs: c.errs, queue: c.queue)
+end fn check_pending
+
+fn check_info_preds(c: inout Checker, fields: List<FieldInfo>) do
+  for i in 0..len(fields) do
+    var others: List<NamedTy> = []
+    for j in 0..len(fields) do
+      if j != i then
+        set others = push(list: others, item: NamedTy(name: fields[j].name, ty: fields[j].rty.ty))
+      end if
+    end for
+    for p in fields[i].rty.preds do
+      check_pred(c: inout c, e: p, scope: others, subject: Option.Some(value: fields[i].rty.ty), res: Option.None)
+    end for
+  end for
+end fn check_info_preds
 
 fn find_local(c: Checker, name: String) -> Option<Local> do
   var i = len(c.locals) - 1
@@ -468,7 +815,10 @@ end fn leave
 fn visible(c: Checker) -> List<NamedTy> do
   var v: List<NamedTy> = []
   for l in c.locals do
-    set v = push(list: v, item: NamedTy(name: l.name, ty: l.ty))
+    // Names that start with a digit are made by 'try'.
+    if (len(l.name) > 0) and not is_digit(l.name[0]) then
+      set v = push(list: v, item: NamedTy(name: l.name, ty: l.ty))
+    end if
   end for
   return v
 end fn visible
@@ -496,7 +846,9 @@ fn new_info() -> Info do
   var structs: Map<String, List<FieldInfo>> = {}
   set structs = insert(map: structs, key: "Output",
     value: [FieldInfo(name: "code", rty: plain(Ty.TInt)), FieldInfo(name: "out", rty: plain(Ty.TStr))])
-  return Info(structs: structs, enums: {}, aliases: {}, fns: {}, types: {}, calls: {}, holes: [])
+  return Info(structs: structs, enums: {}, aliases: {}, fns: {}, types: {}, calls: {}, holes: [],
+    gfns: {}, gstructs: {}, genums: {}, tenv: {}, inst_args: {}, origins: {}, pending: [], instances: [],
+    next_id: 0)
 end fn new_info
 
 fn alias_ready(info: Info, te: TypeExpr, alias_names: List<String>) -> Bool do
@@ -515,10 +867,10 @@ fn primitive_types() -> List<String> do
   return ["Int", "Bool", "String", "Unit", "List", "Map", "HashMap", "Option", "Output"]
 end fn primitive_types
 
-fn check_program(items: List<Item>, files: List<String>) -> Checker do
+fn check_program(items: List<Item>, files: List<String>, next_id: Int) -> Checker do
   let none: Option<Ty> = Option.None
-  var c = Checker(info: new_info(), errs: [], locals: [], marks: [], effects: [], ret: Ty.TUnit,
-    loops: 0, spec: false, it_ty: none, result_ty: none, inout_ok: false, files: files)
+  var c = Checker(info: new_info() with (next_id: next_id), errs: [], locals: [], marks: [], effects: [], ret: Ty.TUnit,
+    loops: 0, spec: false, it_ty: none, result_ty: none, inout_ok: false, files: files, queue: [])
   // Phase 1: names.
   var seen_types: Map<String, Pos> = {}
   var seen_fns: Map<String, Pos> = {}
@@ -557,13 +909,32 @@ fn check_program(items: List<Item>, files: List<String>) -> Checker do
     let info = c.info
     match item
     case StructItem(decl: s) then
-      let empty: List<FieldInfo> = []
-      set c = c with (info: info with (structs: insert(map: info.structs, key: s.name, value: empty)))
+      if len(s.tparams) > 0 then
+        set c = c with (info: info with (gstructs: insert(map: info.gstructs, key: s.name, value: s)))
+      else
+        let empty: List<FieldInfo> = []
+        set c = c with (info: info with (structs: insert(map: info.structs, key: s.name, value: empty)))
+      end if
     case EnumItem(decl: e) then
-      let empty: List<VariantInfo> = []
-      set c = c with (info: info with (enums: insert(map: info.enums, key: e.name, value: empty)))
+      if len(e.tparams) > 0 then
+        set c = c with (info: info with (genums: insert(map: info.genums, key: e.name, value: e)))
+      else
+        let empty: List<VariantInfo> = []
+        set c = c with (info: info with (enums: insert(map: info.enums, key: e.name, value: empty)))
+      end if
+    case FnItem(decl: f) then
+      if len(f.tparams) > 0 then
+        set c = c with (info: info with (gfns: insert(map: info.gfns, key: f.name, value: f)))
+      end if
     else
     end match
+  end for
+  for item in items do
+    for tp in item_tparams(item) do
+      if contains_str(xs: primitive_types(), x: tp) or has(map: seen_types, key: tp) then
+        err(c: inout c, pos: item_pos(item), msg: "type parameter '" ++ tp ++ "' has the same name as a type")
+      end if
+    end for
   end for
   // Phase 2: aliases in dependency order, then fields and signatures.
   var alias_decls: List<AliasDecl> = []
@@ -599,6 +970,9 @@ fn check_program(items: List<Item>, files: List<String>) -> Checker do
     set c = c with (info: info with (aliases: insert(map: info.aliases, key: a.name, value: plain(Ty.TUnknown))))
   end for
   for item in items do
+    if len(item_tparams(item)) > 0 then
+      continue
+    end if
     match item
     case StructItem(decl: s) then
       let fields = collect_fields(c: inout c, ps: s.fields)
@@ -621,37 +995,33 @@ fn check_program(items: List<Item>, files: List<String>) -> Checker do
   for item in items do
     match item
     case FnItem(decl: f) then
-      var params: List<FieldInfo> = []
-      var io: List<Bool> = []
-      for p in f.params do
-        if find_field(fields: params, name: p.name) >= 0 then
-          err(c: inout c, pos: p.pos, msg: "duplicate parameter '" ++ p.name ++ "'")
-        end if
-        let r = resolve(c: inout c, te: p.ty)
-        set params = push(list: params, item: FieldInfo(name: p.name, rty: r))
-        set io = push(list: io, item: p.is_inout)
-      end for
-      var ret = plain(Ty.TUnit)
-      match f.ret
-      case Some(value: t) then
-        set ret = resolve(c: inout c, te: t)
-      case None then
-      end match
-      var effs: List<String> = []
-      for u in f.effects do
-        if not contains_str(xs: ["console", "fs", "proc"], x: u.name) then
-          err(c: inout c, pos: u.pos, msg: "unknown effect '" ++ u.name ++ "' (expected console, fs or proc)")
-        end if
-        set effs = push(list: effs, item: u.name)
-      end for
-      let fi = FnInfo(name: f.name, params: params, io: io, ret: ret, effects: effs, pre: f.pre,
-        post: f.post, dec: f.dec, inline: Option.None, pos: f.pos)
+      set_tenv(c: inout c, env: identity_env(f.tparams))
+      let fi = fn_signature(c: inout c, f: f)
       let info = c.info
       set c = c with (info: info with (fns: insert(map: info.fns, key: f.name, value: fi)))
+      set_tenv(c: inout c, env: {})
     else
     end match
   end for
   compute_inline(c: inout c, items: items)
+  // Generic types are checked through the instance with their own parameters.
+  for item in items do
+    match item
+    case StructItem(decl: s) then
+      if len(s.tparams) > 0 then
+        set_tenv(c: inout c, env: identity_env(s.tparams))
+        let _ = resolve(c: inout c, te: self_type(name: s.name, tps: s.tparams, pos: s.pos))
+        set_tenv(c: inout c, env: {})
+      end if
+    case EnumItem(decl: e) then
+      if len(e.tparams) > 0 then
+        set_tenv(c: inout c, env: identity_env(e.tparams))
+        let _ = resolve(c: inout c, te: self_type(name: e.name, tps: e.tparams, pos: e.pos))
+        set_tenv(c: inout c, env: {})
+      end if
+    else
+    end match
+  end for
   // Phase 3: refinement predicates and contracts.
   for item in items do
     match item
@@ -669,7 +1039,9 @@ fn check_program(items: List<Item>, files: List<String>) -> Checker do
       case None then
       end match
     case StructItem(decl: s) then
-      check_field_preds(c: inout c, ps: s.fields, fields: struct_fields(info: c.info, name: s.name))
+      if len(s.tparams) == 0 then
+        check_field_preds(c: inout c, ps: s.fields, fields: struct_fields(info: c.info, name: s.name))
+      end if
     case EnumItem(decl: e) then
       match lookup(map: c.info.enums, key: e.name)
       case Some(value: vs) then
@@ -681,54 +1053,33 @@ fn check_program(items: List<Item>, files: List<String>) -> Checker do
       case None then
       end match
     case FnItem(decl: f) then
-      match get_fn(info: c.info, name: f.name)
-      case Some(value: fi) then
-        var all: List<NamedTy> = []
-        for p in fi.params do
-          set all = push(list: all, item: NamedTy(name: p.name, ty: p.rty.ty))
-        end for
-        for i in 0..len(f.params) do
-          match f.params[i].ty.refine
-          case Some(value: r) then
-            if i < len(all) then
-              check_pred(c: inout c, e: r, scope: slice(of: all, from: 0, to: i),
-                subject: Option.Some(value: all[i].ty), res: Option.None)
-            end if
-          case None then
-          end match
-        end for
-        match f.ret
-        case Some(value: t) then
-          match t.refine
-          case Some(value: r) then
-            check_pred(c: inout c, e: r, scope: all, subject: Option.Some(value: fi.ret.ty), res: Option.None)
-          case None then
-          end match
-        case None then
-        end match
-        for r in f.pre do
-          check_pred(c: inout c, e: r, scope: all, subject: Option.None, res: Option.None)
-        end for
-        for e in f.post do
-          check_pred(c: inout c, e: e, scope: all, subject: Option.None, res: Option.Some(value: fi.ret.ty))
-        end for
-        match f.dec
-        case Some(value: d) then
-          check_measure(c: inout c, e: d, scope: all)
-        case None then
-        end match
-      case None then
-      end match
+      set_tenv(c: inout c, env: identity_env(f.tparams))
+      check_contracts(c: inout c, f: f)
+      set_tenv(c: inout c, env: {})
     end match
   end for
-  // Phase 4: bodies.
+  // Phase 4: bodies. A generic function's body is checked once, with its type
+  // parameters as types about which nothing is known; then the body of each instance
+  // with concrete types is checked, for the code generator.
   for item in items do
     match item
     case FnItem(decl: f) then
+      set_tenv(c: inout c, env: identity_env(f.tparams))
       check_fn(c: inout c, f: f)
+      set_tenv(c: inout c, env: {})
     else
     end match
   end for
+  while len(c.queue) > 0 do
+    let next = c.queue[0]
+    set c = c with (queue: slice(of: c.queue, from: 1, to: len(c.queue)))
+    set_tenv(c: inout c, env: next.env)
+    check_fn(c: inout c, f: next.decl)
+    set_tenv(c: inout c, env: {})
+    let info = c.info
+    set c = c with (info: info with (instances: push(list: info.instances, item: next.decl)))
+  end while
+  check_pending(inout c)
   match get_fn(info: c.info, name: "main")
   case None then
     err(c: inout c, pos: no_pos(), msg: "the program has no 'fn main()'")
@@ -737,8 +1088,154 @@ fn check_program(items: List<Item>, files: List<String>) -> Checker do
       err(c: inout c, pos: m.pos, msg: "'main' must take no parameters and return Unit")
     end if
   end match
-  return c
+  // An instance can repeat an error in its generic declaration.
+  var unique: List<Diag> = []
+  var seen: Map<String, Bool> = {}
+  for d in c.errs do
+    let k = int_to_str(d.pos.file) ++ ":" ++ int_to_str(d.pos.line) ++ ":" ++ int_to_str(d.pos.col) ++ ":" ++ d.msg
+    if not has(map: seen, key: k) then
+      set seen = insert(map: seen, key: k, value: true)
+      set unique = push(list: unique, item: d)
+    end if
+  end for
+  return c with (errs: unique)
 end fn check_program
+
+fn item_tparams(item: Item) -> List<String> do
+  match item
+  case FnItem(decl: f) then
+    return f.tparams
+  case StructItem(decl: s) then
+    return s.tparams
+  case EnumItem(decl: e) then
+    return e.tparams
+  case AliasItem(decl: a) then
+    let none: List<String> = []
+    return none
+  end match
+end fn item_tparams
+
+fn set_tenv(c: inout Checker, env: Map<String, Ty>) do
+  let info = c.info
+  set c = c with (info: info with (tenv: env))
+end fn set_tenv
+
+fn fn_signature(c: inout Checker, f: FnDecl) -> FnInfo do
+  var params: List<FieldInfo> = []
+  var io: List<Bool> = []
+  for p in f.params do
+    if find_field(fields: params, name: p.name) >= 0 then
+      err(c: inout c, pos: p.pos, msg: "duplicate parameter '" ++ p.name ++ "'")
+    end if
+    let r = resolve(c: inout c, te: p.ty)
+    set params = push(list: params, item: FieldInfo(name: p.name, rty: r))
+    set io = push(list: io, item: p.is_inout)
+  end for
+  var ret = plain(Ty.TUnit)
+  match f.ret
+  case Some(value: t) then
+    set ret = resolve(c: inout c, te: t)
+  case None then
+  end match
+  var effs: List<String> = []
+  for u in f.effects do
+    if not contains_str(xs: ["console", "fs", "proc"], x: u.name) then
+      err(c: inout c, pos: u.pos, msg: "unknown effect '" ++ u.name ++ "' (expected console, fs or proc)")
+    end if
+    set effs = push(list: effs, item: u.name)
+  end for
+  return FnInfo(name: f.name, params: params, io: io, ret: ret, effects: effs, pre: f.pre,
+    post: f.post, dec: f.dec, inline: Option.None, pos: f.pos)
+end fn fn_signature
+
+fn check_contracts(c: inout Checker, f: FnDecl) do
+  match get_fn(info: c.info, name: f.name)
+  case Some(value: fi) then
+    var all: List<NamedTy> = []
+    for p in fi.params do
+      set all = push(list: all, item: NamedTy(name: p.name, ty: p.rty.ty))
+    end for
+    for i in 0..len(f.params) do
+      match f.params[i].ty.refine
+      case Some(value: r) then
+        if i < len(all) then
+          check_pred(c: inout c, e: r, scope: slice(of: all, from: 0, to: i),
+            subject: Option.Some(value: all[i].ty), res: Option.None)
+        end if
+      case None then
+      end match
+    end for
+    match f.ret
+    case Some(value: t) then
+      match t.refine
+      case Some(value: r) then
+        check_pred(c: inout c, e: r, scope: all, subject: Option.Some(value: fi.ret.ty), res: Option.None)
+      case None then
+      end match
+    case None then
+    end match
+    for r in f.pre do
+      check_pred(c: inout c, e: r, scope: all, subject: Option.None, res: Option.None)
+    end for
+    for e in f.post do
+      check_pred(c: inout c, e: e, scope: all, subject: Option.None, res: Option.Some(value: fi.ret.ty))
+    end for
+    match f.dec
+    case Some(value: d) then
+      check_measure(c: inout c, e: d, scope: all)
+    case None then
+    end match
+  case None then
+  end match
+end fn check_contracts
+
+// The instance of a generic function for these type arguments: its name, after
+// entering its signature and checking its contracts if it is new. An instance with
+// concrete types is queued for its body to be checked and compiled. With the
+// function's own parameters as arguments, the instance is the function itself.
+fn instantiate_fn(c: inout Checker, g: FnDecl, args: List<Ty>, pos: Pos) -> String do
+  var identity = len(args) == len(g.tparams)
+  for i in 0..len(args) do
+    if (i >= len(g.tparams)) or (ty_show(args[i]) != g.tparams[i]) or not is_tparam(args[i]) then
+      set identity = false
+    end if
+  end for
+  if identity then
+    return g.name
+  end if
+  let inst = inst_name(base: g.name, args: args)
+  if has(map: c.info.fns, key: inst) then
+    return inst
+  end if
+  if len(inst) > 300 then
+    err(c: inout c, pos: pos, msg: "'" ++ g.name ++ "' is instantiated with ever larger types")
+    return ""
+  end if
+  var next = c.info.next_id
+  let copy = copy_fn(f: g, next: inout next) with (name: inst, tparams: [])
+  let env = tparam_env(tps: g.tparams, args: args)
+  let saved = c
+  let info0 = c.info
+  set c = c with (info: info0 with (next_id: next, tenv: env))
+  let fi = fn_signature(c: inout c, f: copy)
+  let info1 = c.info
+  set c = c with (info: info1 with (fns: insert(map: info1.fns, key: inst, value: fi),
+    origins: insert(map: info1.origins, key: inst, value: g.name)))
+  check_contracts(c: inout c, f: copy)
+  var concrete = true
+  for a in args do
+    if has_tparam(info: c.info, t: a) then
+      set concrete = false
+    end if
+  end for
+  var queue = c.queue
+  if concrete then
+    set queue = push(list: queue, item: Inst(decl: copy, env: env))
+  end if
+  let info2 = c.info
+  set c = saved with (info: info2 with (tenv: saved.info.tenv), errs: c.errs, queue: queue)
+  return inst
+end fn instantiate_fn
 
 fn collect_fields(c: inout Checker, ps: List<Param>) -> List<FieldInfo> do
   var fields: List<FieldInfo> = []
@@ -824,7 +1321,7 @@ fn compute_inline(c: inout Checker, items: List<Item>) do
             set pure = false
           end if
         end for
-        if pure and (len(f.body) == 1) then
+        if pure and (len(f.body) == 1) and (len(f.tparams) == 0) then
           match f.body[0].kind
           case Return(value: rv) then
             match rv
@@ -1200,13 +1697,22 @@ fn check_match(c: inout Checker, pos: Pos, scrut: Expr, cases: List<Case>, els: 
     return
   end if
   var variants: List<VariantInfo> = []
+  let tried = try_kind(scrut: scrut, cases: cases)
   match variants_of(info: c.info, t: st)
   case Some(value: vs) then
     set variants = vs
   case None then
-    err(c: inout c, pos: scrut.pos, msg: "cannot match on a value of type " ++ sts)
+    if len(tried) > 0 then
+      err(c: inout c, pos: scrut.pos, msg: try_msg(kind: tried, got: sts))
+    else
+      err(c: inout c, pos: scrut.pos, msg: "cannot match on a value of type " ++ sts)
+    end if
     return
   end match
+  if (len(tried) > 0) and (find_variant(vs: variants, name: tried_variant(tried)) < 0) then
+    err(c: inout c, pos: scrut.pos, msg: try_msg(kind: tried, got: sts))
+    return
+  end if
   var covered: List<Int> = []
   for cs in cases do
     match cs.pat
@@ -1261,6 +1767,38 @@ fn check_match(c: inout Checker, pos: Pos, scrut: Expr, cases: List<Case>, els: 
     end if
   end match
 end fn check_match
+
+// "Result" or "Option" if this match was made from 'try', otherwise "".
+fn try_kind(scrut: Expr, cases: List<Case>) -> String do
+  match scrut.kind
+  case Var(name: n) then
+    if (len(n) == 0) or not is_digit(n[0]) or (len(cases) == 0) then
+      return ""
+    end if
+    match cases[0].pat
+    case PVariant(name: v, binds: b) then
+      if v == "Err" then
+        return "Result"
+      end if
+      return "Option"
+    else
+      return ""
+    end match
+  else
+    return ""
+  end match
+end fn try_kind
+
+fn tried_variant(kind: String) -> String do
+  if kind == "Result" then
+    return "Err"
+  end if
+  return "None"
+end fn tried_variant
+
+fn try_msg(kind: String, got: String) -> String do
+  return "'try' in a function that returns " ++ kind ++ " needs " ++ kind ++ ", but this is " ++ got
+end fn try_msg
 
 // Rust's {:?} rendering of a string, used only to detect duplicate cases.
 fn quote_key(s: String) -> String do
@@ -1537,7 +2075,7 @@ fn check_expr(c: inout Checker, e: Expr, expected: Option<Ty>) -> Ty do
 end fn check_expr
 
 fn is_enum_name(c: Checker, n: String) -> Bool do
-  return (not is_local(c: c, name: n)) and (has(map: c.info.enums, key: n) or (n == "Option"))
+  return (not is_local(c: c, name: n)) and (has(map: c.info.enums, key: n) or has(map: c.info.genums, key: n) or (n == "Option"))
 end fn is_enum_name
 
 fn check_expr_inner(c: inout Checker, e: Expr, expected: Option<Ty>) -> Ty do
@@ -1801,6 +2339,11 @@ end fn check_binary
 
 fn variant_ctor(c: inout Checker, e: Expr, tn: String, vn: String, args: List<Arg>, expected: Option<Ty>,
     called: Bool) -> Ty do
+  match lookup(map: c.info.genums, key: tn)
+  case Some(value: ge) then
+    return generic_variant(c: inout c, e: e, ge: ge, vn: vn, args: args, expected: expected, called: called)
+  case None then
+  end match
   var ty = Ty.TEnum(name: tn)
   var inferred = false
   if tn == "Option" then
@@ -1941,6 +2484,19 @@ fn check_call(c: inout Checker, e: Expr, callee: Expr, args: List<Arg>, expected
     end match
   case None then
   end match
+  match lookup(map: c.info.gfns, key: name)
+  case Some(value: g) then
+    return generic_call(c: inout c, e: e, g: g, args: args, expected: expected)
+  case None then
+  end match
+  match lookup(map: c.info.gstructs, key: name)
+  case Some(value: s) then
+    if spec_forbid(c: inout c, e: e, what: "constructing a value") then
+      return Ty.TUnknown
+    end if
+    return generic_struct(c: inout c, e: e, s: s, args: args, expected: expected)
+  case None then
+  end match
   match get_fn(info: c.info, name: name)
   case Some(value: fi) then
     if c.spec and not is_some(fi.inline) then
@@ -1992,6 +2548,258 @@ fn check_call(c: inout Checker, e: Expr, callee: Expr, args: List<Arg>, expected
   end for
   return Ty.TUnknown
 end fn check_call
+
+// ---- generic calls and constructors ----
+
+// Values whose type comes from where they are used: [], {} and variants without
+// fields, such as Option.None.
+fn needs_context(c: Checker, e: Expr) -> Bool do
+  match e.kind
+  case ListLit(items: items) then
+    return len(items) == 0
+  case EmptyMap then
+    return true
+  case Field(obj: o, name: n) then
+    match o.kind
+    case Var(name: tn) then
+      return is_enum_name(c: c, n: tn)
+    else
+      return false
+    end match
+  else
+    return false
+  end match
+end fn needs_context
+
+// Checks the arguments of a call to something generic, binding type parameters as
+// their types become known: first the arguments that have a type of their own, then
+// those that take it from the parameter. Returns each argument's type, by position.
+fn infer_args(c: inout Checker, args: List<Arg>, order: List<Int>, params: List<Param>, tps: List<String>,
+    subst: inout Map<String, Ty>) -> List<Ty> do
+  var got: List<Ty> = []
+  for a in args do
+    set got = push(list: got, item: Ty.TUnknown)
+  end for
+  for ai in 0..len(args) do
+    if not needs_context(c: c, e: args[ai].value) then
+      let t = infer_arg(c: inout c, args: args, ai: ai, order: order, params: params, tps: tps, subst: inout subst)
+      if ai < len(got) then
+        set got = set_at(list: got, at: ai, value: t)
+      end if
+    end if
+  end for
+  for ai in 0..len(args) do
+    if needs_context(c: c, e: args[ai].value) then
+      let t = infer_arg(c: inout c, args: args, ai: ai, order: order, params: params, tps: tps, subst: inout subst)
+      if ai < len(got) then
+        set got = set_at(list: got, at: ai, value: t)
+      end if
+    end if
+  end for
+  return got
+end fn infer_args
+
+fn infer_arg(c: inout Checker, args: List<Arg>, ai: Int where (0 <= it) and (it < len(args)), order: List<Int>,
+    params: List<Param>, tps: List<String>, subst: inout Map<String, Ty>) -> Ty do
+  var pi = -1
+  for k in 0..len(order) do
+    if order[k] == ai then
+      set pi = k
+    end if
+  end for
+  var exp: Option<Ty> = Option.None
+  if (pi >= 0) and (pi < len(params)) then
+    let te = params[pi].ty
+    if bound_in(te: te, tps: tps, subst: subst) then
+      let saved = c.info.tenv
+      set_tenv(c: inout c, env: subst)
+      var errs: List<Diag> = []
+      var info = c.info
+      let r = resolve_type(info: inout info, te: te, errs: inout errs)
+      set c = c with (info: info with (tenv: saved))
+      set exp = Option.Some(value: r.ty)
+    end if
+  end if
+  let t = check_expr(c: inout c, e: args[ai].value, expected: exp)
+  if (pi >= 0) and (pi < len(params)) then
+    unify(info: c.info, te: params[pi].ty, t: t, tps: tps, subst: inout subst)
+  end if
+  return t
+end fn infer_arg
+
+// The type arguments, in declaration order, or None after reporting the first that
+// could not be inferred.
+fn type_args(c: inout Checker, pos: Pos, tps: List<String>, subst: Map<String, Ty>, what: String) -> Option<List<Ty>> do
+  var out: List<Ty> = []
+  for t in tps do
+    match lookup(map: subst, key: t)
+    case Some(value: x) then
+      set out = push(list: out, item: x)
+    case None then
+      let d = diag(pos: pos, msg: "cannot infer the type parameter " ++ t ++ " of " ++ what)
+      err_d(c: inout c, d: with_note(d: d, note: "add a type annotation to the variable this value is bound to"))
+      return Option.None
+    end match
+  end for
+  return Option.Some(value: out)
+end fn type_args
+
+fn expect_args(c: inout Checker, args: List<Arg>, order: List<Int>, got: List<Ty>, params: List<FieldInfo>, what: String) do
+  for pi in 0..len(order) do
+    let ai = order[pi]
+    if (ai >= 0) and (ai < len(args)) and (ai < len(got)) and (pi < len(params)) then
+      let a = args[ai]
+      var msg = what ++ " '" ++ params[pi].name ++ "'"
+      match a.value.kind
+      case Var(name: n) then
+        if (len(n) > 0) and is_digit(n[0]) then
+          set msg = "the error passed on by 'try' (the function's error type)"
+        end if
+      else
+      end match
+      expect_ty(c: inout c, pos: a.value.pos, got: got[ai], want: params[pi].rty.ty, what: msg)
+    end if
+  end for
+end fn expect_args
+
+fn generic_call(c: inout Checker, e: Expr, g: FnDecl, args: List<Arg>, expected: Option<Ty>) -> Ty do
+  if c.spec then
+    err(c: inout c, pos: e.pos, msg: "'" ++ g.name ++ "' is generic and cannot be used in a specification")
+    return Ty.TUnknown
+  end if
+  for u in g.effects do
+    need_effect(c: inout c, pos: e.pos, eff: u.name, what: "'" ++ g.name ++ "'")
+  end for
+  var names: List<String> = []
+  for p in g.params do
+    set names = push(list: names, item: p.name)
+  end for
+  set c = c with (inout_ok: true)
+  match match_args(c: inout c, pos: e.pos, what: "'" ++ g.name ++ "'", params: names, args: args)
+  case None then
+    return Ty.TUnknown
+  case Some(value: order) then
+    var subst: Map<String, Ty> = {}
+    match expected
+    case Some(value: t) then
+      match g.ret
+      case Some(value: rt) then
+        unify(info: c.info, te: rt, t: t, tps: g.tparams, subst: inout subst)
+      case None then
+      end match
+    case None then
+    end match
+    let got = infer_args(c: inout c, args: args, order: order, params: g.params, tps: g.tparams, subst: inout subst)
+    match type_args(c: inout c, pos: e.pos, tps: g.tparams, subst: subst, what: "'" ++ g.name ++ "'")
+    case None then
+      return Ty.TUnknown
+    case Some(value: targs) then
+      let inst = instantiate_fn(c: inout c, g: g, args: targs, pos: e.pos)
+      match get_fn(info: c.info, name: inst)
+      case Some(value: fi) then
+        expect_args(c: inout c, args: args, order: order, got: got, params: fi.params, what: "argument")
+        check_inout(c: inout c, fname: g.name, args: args, order: order, io: fi.io)
+        add_call(c: inout c, e: e, ci: CallInfo(kind: "user", name: inst, variant: 0, order: order))
+        return fi.ret.ty
+      case None then
+        return Ty.TUnknown
+      end match
+    end match
+  end match
+end fn generic_call
+
+fn generic_struct(c: inout Checker, e: Expr, s: StructDecl, args: List<Arg>, expected: Option<Ty>) -> Ty do
+  var names: List<String> = []
+  for f in s.fields do
+    set names = push(list: names, item: f.name)
+  end for
+  match match_args(c: inout c, pos: e.pos, what: "struct '" ++ s.name ++ "'", params: names, args: args)
+  case None then
+    return Ty.TUnknown
+  case Some(value: order) then
+    var subst: Map<String, Ty> = {}
+    match expected
+    case Some(value: t) then
+      unify(info: c.info, te: self_type(name: s.name, tps: s.tparams, pos: e.pos), t: t, tps: s.tparams, subst: inout subst)
+    case None then
+    end match
+    let got = infer_args(c: inout c, args: args, order: order, params: s.fields, tps: s.tparams, subst: inout subst)
+    match type_args(c: inout c, pos: e.pos, tps: s.tparams, subst: subst, what: "struct '" ++ s.name ++ "'")
+    case None then
+      return Ty.TUnknown
+    case Some(value: targs) then
+      let t = instantiate(c: inout c, name: s.name, args: targs, pos: e.pos)
+      let inst = ty_show(t)
+      expect_args(c: inout c, args: args, order: order, got: got, params: struct_fields(info: c.info, name: inst), what: "field")
+      add_call(c: inout c, e: e, ci: CallInfo(kind: "struct", name: inst, variant: 0, order: order))
+      return t
+    end match
+  end match
+end fn generic_struct
+
+fn instantiate(c: inout Checker, name: String, args: List<Ty>, pos: Pos) -> Ty do
+  var info = c.info
+  var errs = c.errs
+  let t = instantiate_type(info: inout info, name: name, args: args, pos: pos, errs: inout errs)
+  set c = c with (info: info, errs: errs)
+  check_pending(inout c)
+  return t
+end fn instantiate
+
+fn generic_variant(c: inout Checker, e: Expr, ge: EnumDecl, vn: String, args: List<Arg>, expected: Option<Ty>,
+    called: Bool) -> Ty do
+  var vi = -1
+  for i in 0..len(ge.variants) do
+    if ge.variants[i].name == vn then
+      set vi = i
+    end if
+  end for
+  if (vi < 0) or (vi >= len(ge.variants)) then
+    err(c: inout c, pos: e.pos, msg: ge.name ++ " has no variant '" ++ vn ++ "'")
+    return Ty.TUnknown
+  end if
+  let vd = ge.variants[vi]
+  if (not called) and (len(vd.fields) > 0) then
+    err(c: inout c, pos: e.pos, msg: "variant '" ++ vn ++ "' has fields; construct it with " ++ ge.name ++ "." ++ vn ++ "(...)")
+    return Ty.TUnknown
+  end if
+  if called and (len(vd.fields) == 0) then
+    err(c: inout c, pos: e.pos, msg: "variant '" ++ vn ++ "' has no fields; write " ++ ge.name ++ "." ++ vn ++ " without parentheses")
+    return Ty.TUnknown
+  end if
+  var names: List<String> = []
+  for f in vd.fields do
+    set names = push(list: names, item: f.name)
+  end for
+  match match_args(c: inout c, pos: e.pos, what: "variant '" ++ vn ++ "'", params: names, args: args)
+  case None then
+    return Ty.TUnknown
+  case Some(value: order) then
+    var subst: Map<String, Ty> = {}
+    match expected
+    case Some(value: t) then
+      unify(info: c.info, te: self_type(name: ge.name, tps: ge.tparams, pos: e.pos), t: t, tps: ge.tparams, subst: inout subst)
+    case None then
+    end match
+    let got = infer_args(c: inout c, args: args, order: order, params: vd.fields, tps: ge.tparams, subst: inout subst)
+    match type_args(c: inout c, pos: e.pos, tps: ge.tparams, subst: subst, what: ge.name)
+    case None then
+      return Ty.TUnknown
+    case Some(value: targs) then
+      let t = instantiate(c: inout c, name: ge.name, args: targs, pos: e.pos)
+      let inst = ty_show(t)
+      match lookup(map: c.info.enums, key: inst)
+      case Some(value: vs) then
+        if vi < len(vs) then
+          expect_args(c: inout c, args: args, order: order, got: got, params: vs[vi].fields, what: "field")
+        end if
+      case None then
+      end match
+      add_call(c: inout c, e: e, ci: CallInfo(kind: "variant", name: inst, variant: vi, order: order))
+      return t
+    end match
+  end match
+end fn generic_variant
 
 fn want(c: inout Checker, x: Expr, t: Ty, what: String) do
   let got = check_expr(c: inout c, e: x, expected: Option.Some(value: t))

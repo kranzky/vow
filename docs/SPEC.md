@@ -35,7 +35,7 @@ SMT solver, and nothing depends on counting or on context far away.
 Keywords:
 `fn end struct enum type let var set return if then elif else while for in do match case
 invariant requires ensures uses assert check break continue and or not implies true false
-with import it result where inout forall exists decreases`
+with import it result where inout forall exists decreases try`
 
 A keyword may be used as a **label**: a struct or variant field name, a named-argument
 label, a field access (`d.type`), a `with` field or a pattern field. Keywords may not
@@ -91,9 +91,10 @@ Every program has `fn main()` that takes no parameters and returns `Unit`.
 | `Map<K, V>` | immutable ordered map (a balanced tree); `K` is `Int` or `String` |
 | `HashMap<K, V>` | the same values as `Map`, stored in a hash table; `K` is `Int` or `String` |
 | `Option<T>` | built-in enum: `Some(value: T)` and `None` |
+| `Result<T, E>` | predeclared generic enum: `Ok(value: T)` and `Err(error: E)` (see Generics) |
 | `Output` | built-in struct: `code: Int, out: String` (result of `run`) |
 | `T where P` | refinement: values of `T` satisfying predicate `P` over `it` |
-| user `struct` / `enum` | nominal; enums may be recursive |
+| user `struct` / `enum` | nominal; enums may be recursive; may be generic |
 
 All values are immutable. Local `var` bindings may be reassigned with `set`, and a
 function may take `inout` parameters, which gives mutable-value semantics without
@@ -113,8 +114,7 @@ modify it (for example by passing it `inout` to a nested call). Semantically the
 value and the caller's var receives the callee's final value when the call returns.
 In `ensures`, an `inout` parameter names its final value; in `requires`, its initial
 value. The parameter's refinement must hold whenever it is assigned and is assumed by
-the caller afterwards. User code is monomorphic; only the built-in
-types are generic.
+the caller afterwards.
 
 Refinements may appear on parameter types, return types, `let`/`var` annotations, struct
 and variant fields, and type aliases. A parameter refinement may refer to earlier
@@ -154,6 +154,59 @@ fn search(xs: List<Int>, target: Int) -> Int requires is_sorted(xs) ...
 `struct` and `enum` are shown above. Fields and variants are comma-separated, with an
 optional trailing comma. `type Name = T` declares an alias.
 
+## Generics
+
+Functions, structs and enums may have type parameters:
+
+```
+struct Pair<A, B>
+  first: A,
+  second: B,
+end struct Pair
+
+enum Tree<T>
+  Leaf,
+  Node(left: Tree<T>, value: T, right: Tree<T>),
+end enum Tree
+
+fn reversed<T>(xs: List<T>) -> List<T>
+  ensures len(result) == len(xs)
+do
+  ...
+end fn reversed
+```
+
+- A generic type is written with its arguments: `Pair<Int, String>`, `Tree<T>`.
+- Type arguments of calls and constructors are never written; they are inferred from
+  the expected type (an annotation, the parameter being filled, the function's return
+  type) and from the arguments. `reversed([1, 2])` is `reversed` at `Int`;
+  `Pair(first: 1, second: "a")` is a `Pair<Int, String>`; `Tree.Leaf` and
+  `Result.Err(error: e)` need an expected type. When a parameter cannot be inferred,
+  the error asks for an annotation.
+- Inside the declaration, a type parameter is a type about which nothing is known:
+  values of type `T` can be stored, passed, returned and put in lists, options, maps
+  and other generic types, but not compared, indexed, or given fields. A type
+  parameter may be a map key; each use checks that its key type is `Int` or `String`.
+- Type parameters may not have the name of a type, and type arguments may not be
+  refined (wrap the element in a struct with a refined field instead).
+- Generic functions cannot be used in specifications.
+- Each generic declaration is type-checked and verified once, with its type
+  parameters as unknown types (in the logic, values of the uninterpreted sort `Val`).
+  A proof that holds for every interpretation of `Val` holds for every type argument,
+  so the contracts of a generic function hold for every use. Each use with concrete
+  types is compiled to its own copy of the code (monomorphisation).
+- A generic function that calls itself must do so with the same type arguments.
+
+`Result<T, E>` is declared in every program (unless the program declares its own type
+named `Result`):
+
+```
+enum Result<T, E>
+  Ok(value: T),
+  Err(error: E),
+end enum Result
+```
+
 ## Statements
 
 ```
@@ -175,6 +228,7 @@ else ...                   // required unless enum cases are exhaustive
 end match
 assert P                   // proved statically, no runtime cost
 check P                    // runtime check; the verifier assumes P afterwards
+let x = try e              // also var x = try e, set x = try e, and try f(...)
 break
 continue
 f(...)                     // a call as a statement
@@ -182,6 +236,14 @@ f(...)                     // a call as a statement
 
 A name may not be re-declared while it is in scope (no shadowing). A function whose
 return type is not `Unit` must return on every path.
+
+**`try`** propagates failure. It may only be used in a function that returns a
+`Result` or an `Option`, and only as the whole value of `let`, `var` or `set`, or as a
+call statement. In a function returning `Result<U, E>`, `let x = try e` requires `e`
+to be a `Result<T, E>` with the same error type: if `e` is `Err(error: x)` the function
+returns `Result.Err(error: x)`; otherwise `x` is bound to the `Ok` value. In a function
+returning `Option<U>`, `e` must be an `Option<T>`, and `None` is returned. `try` is
+shorthand for the `match` it expands to, and the verifier sees that `match`.
 
 ## Expressions
 
@@ -278,6 +340,9 @@ Specification expressions (`requires`, `ensures`, `where`, `invariant`, `decreas
 variables, `it`, `result`, arithmetic, comparisons, boolean operators, quantifiers,
 field access, indexing, the built-ins `len`, `value_or`, `is_some` and `is_none`, and
 calls to expression functions.
+
+Generic functions are verified once for all type arguments (see Generics); calls to
+them are checked against their contracts with the type arguments of the call.
 
 ## Effects
 

@@ -1,0 +1,84 @@
+// language: 0.4
+// Errors as values: Result, try, and a small generic helper.
+// Parses "name = number" settings, one per line, and reports the first bad line.
+
+import "std/text.vow"
+
+struct Setting
+  name: String,
+  value: Int where it >= 0,
+end struct Setting
+
+// Contracts cannot look inside a Result, so a fact about the Ok value travels in a
+// struct with a refined field: reading count.value gives the verifier value >= 0.
+struct Count
+  value: Int where it >= 0,
+end struct Count
+
+// Generic: works for a list of anything. The contract holds for every element type.
+fn last_or<T>(xs: List<T>, default: T) -> T do
+  if len(xs) == 0 then
+    return default
+  end if
+  return xs[len(xs) - 1]
+end fn last_or
+
+fn parse_count(text: String, line: Int) -> Result<Count, String> do
+  match str_to_int(trim(text))
+  case Some(value: n) then
+    if n < 0 then
+      return Result.Err(error: "line " ++ int_to_str(line) ++ ": negative value")
+    end if
+    return Result.Ok(value: Count(value: n))
+  case None then
+    return Result.Err(error: "line " ++ int_to_str(line) ++ ": '" ++ trim(text) ++ "' is not a number")
+  end match
+end fn parse_count
+
+fn parse_line(text: String, line: Int) -> Result<Setting, String> do
+  let eq = find_byte(s: text, c: '=', from: 0)
+  if eq < 0 then
+    return Result.Err(error: "line " ++ int_to_str(line) ++ ": expected 'name = value'")
+  end if
+  let name = trim(slice(of: text, from: 0, to: eq))
+  // try returns the Err from parse_line, unchanged, if parse_count fails.
+  let count = try parse_count(text: slice(of: text, from: eq + 1, to: len(text)), line: line)
+  return Result.Ok(value: Setting(name: name, value: count.value))
+end fn parse_line
+
+fn parse_all(text: String) -> Result<List<Setting>, String> do
+  var out: List<Setting> = []
+  let ls = lines(text)
+  for i in 0..len(ls) do
+    if len(trim(ls[i])) == 0 then
+      continue
+    end if
+    let s = try parse_line(text: ls[i], line: i + 1)
+    set out = push(list: out, item: s)
+  end for
+  return Result.Ok(value: out)
+end fn parse_all
+
+fn report(text: String) uses console do
+  match parse_all(text)
+  case Ok(value: settings) then
+    let names = last_or(xs: ["(none)"] ++ names_of(settings), default: "")
+    print(int_to_str(len(settings)) ++ " settings, last: " ++ names ++ "\n")
+  case Err(error: e) then
+    print("error: " ++ e ++ "\n")
+  end match
+end fn report
+
+fn names_of(ss: List<Setting>) -> List<String> do
+  var out: List<String> = []
+  for s in ss do
+    set out = push(list: out, item: s.name)
+  end for
+  return out
+end fn names_of
+
+fn main() uses console do
+  report("width = 80\nheight = 24\n")
+  report("width = 80\nheight = tall\n")
+  report("width\n")
+end fn main

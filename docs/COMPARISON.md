@@ -22,7 +22,7 @@ unusual is the combination, and the reason for it.
 | Argument passing | **named**, except one-parameter calls | positional or keyword | positional | positional | positional | positional | mostly positional |
 | Mutation | values are immutable; `var` and `inout`, no aliasing | shared references | shared references | shared references | ownership and borrowing | raw pointers | heap with `modifies` clauses |
 | Memory management | reference counting, in-place updates when unshared | reference counting and GC | GC | GC | ownership | manual | GC |
-| Generics | no (v0) | duck typing | yes | yes | yes | no | yes |
+| Generics | yes; **verified once for all types**, compiled per type | duck typing | yes | yes | yes | no | yes |
 | Compiles to | C | bytecode | JavaScript | native | native | native | C#, Java, JS, Go, Python, ... |
 | Maturity | experimental | very mature | very mature | mature | mature | very mature | mature, used in industry |
 
@@ -161,7 +161,7 @@ copy-on-write. Before them (Vow 0.1, which never freed memory), fannkuch-redux t
 
 Today, for most things. Vow v0 is an experiment:
 
-- no floating-point numbers, generics, modules, closures or concurrency;
+- no floating-point numbers, modules, closures or concurrency;
 - macOS and Linux only;
 - no package ecosystem;
 - termination and overflow are not proved unless you ask for them (`decreases`) or

@@ -1,0 +1,11 @@
+// error: 'try' in a function that returns Result needs Result, but this is Option<Int>
+// language: 0.4
+
+fn parse(s: String) -> Result<Int, String> do
+  let n = try str_to_int(s)
+  return Result.Ok(value: n)
+end fn parse
+
+fn main() do
+  let _ = parse("1")
+end fn main

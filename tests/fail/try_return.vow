@@ -1,0 +1,11 @@
+// error: 'try' can only be used in a function that returns a Result or an Option
+// language: 0.4
+
+fn parse(s: String) -> Int do
+  let n = try str_to_int(s)
+  return n
+end fn parse
+
+fn main() do
+  let _ = parse("1")
+end fn main

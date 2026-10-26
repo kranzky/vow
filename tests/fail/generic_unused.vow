@@ -1,0 +1,9 @@
+// error: T has no fields
+// language: 0.4
+
+fn name_of<T>(x: T) -> String do
+  return x.name
+end fn name_of
+
+fn main() do
+end fn main

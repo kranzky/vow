@@ -1,0 +1,10 @@
+// error: cannot prove index in bounds
+// language: 0.4
+
+fn second<T>(xs: List<T> where len(it) > 0) -> T do
+  return xs[1]
+end fn second
+
+fn main() do
+  let _ = second([1, 2])
+end fn main

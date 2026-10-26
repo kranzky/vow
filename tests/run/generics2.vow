@@ -1,0 +1,154 @@
+// language: 0.4
+// Generic code calling generic code, nested type arguments, inout, HashMap keys,
+// try inside generic functions and loops, and contracts used across instances.
+
+struct Labelled<T>
+  label: String,
+  values: List<T>,
+  count: Int where it == len(values),
+end struct Labelled
+
+enum Shape<T>
+  Empty,
+  Many(items: List<T> where len(it) > 0),
+end enum Shape
+
+fn reversed<T>(xs: List<T>) -> List<T>
+  ensures len(result) == len(xs)
+do
+  var out: List<T> = []
+  for i in 0..len(xs) invariant len(out) == i do
+    set out = push(list: out, item: xs[(len(xs) - 1) - i])
+  end for
+  return out
+end fn reversed
+
+// The precondition of xs[0] follows from reversed's postcondition.
+fn last<T>(xs: List<T> where len(it) > 0) -> T do
+  let r = reversed(xs)
+  return r[0]
+end fn last
+
+fn add<T>(l: Labelled<T>, x: T) -> Labelled<T> do
+  return l with (values: push(list: l.values, item: x), count: l.count + 1)
+end fn add
+
+fn append_all<T>(xs: inout List<T>, ys: List<T>) do
+  for y in ys do
+    set xs = push(list: xs, item: y)
+  end for
+end fn append_all
+
+fn shape_of<T>(xs: List<T>) -> Shape<T> do
+  if len(xs) == 0 then
+    return Shape.Empty
+  end if
+  return Shape.Many(items: xs)
+end fn shape_of
+
+fn head<T>(s: Shape<T>) -> Option<T> do
+  match s
+  case Empty then
+    return Option.None
+  case Many(items: xs) then
+    return Option.Some(value: xs[0])
+  end match
+end fn head
+
+fn counts<K>(keys: List<K>, m: HashMap<K, Int>) -> HashMap<K, Int> do
+  var out = m
+  for k in keys do
+    set out = insert(map: out, key: k, value: value_or(opt: lookup(map: out, key: k), default: 0) + 1)
+  end for
+  return out
+end fn counts
+
+fn first_some<T>(xs: List<Option<T>>) -> Option<T> do
+  for x in xs do
+    if is_some(x) then
+      return x
+    end if
+  end for
+  return Option.None
+end fn first_some
+
+fn both<A, B>(a: Option<A>, b: Option<B>) -> Option<Pair<A, B>> do
+  let x = try a
+  let y = try b
+  return Option.Some(value: Pair(first: x, second: y))
+end fn both
+
+struct Pair<A, B>
+  first: A,
+  second: B,
+end struct Pair
+
+fn check_all(xs: List<String>) -> Result<Int, String> do
+  var total = 0
+  for x in xs do
+    let n = try parse(x)
+    if n == 0 then
+      break
+    end if
+    set total = total + n
+  end for
+  return Result.Ok(value: total)
+end fn check_all
+
+fn parse(s: String) -> Result<Int, String> do
+  match str_to_int(s)
+  case Some(value: n) then
+    return Result.Ok(value: n)
+  case None then
+    return Result.Err(error: "bad number '" ++ s ++ "'")
+  end match
+end fn parse
+
+fn show(r: Result<Int, String>) -> String do
+  match r
+  case Ok(value: v) then
+    return int_to_str(v)
+  case Err(error: e) then
+    return e
+  end match
+end fn show
+
+fn main() uses console do
+  print(int_to_str(last([1, 2, 3])) ++ last(["p", "q"]) ++ "\n")
+  var l = Labelled(label: "nums", values: [1], count: 1)
+  set l = add(l: l, x: 2)
+  set l = add(l: l, x: 3)
+  print(l.label ++ " " ++ int_to_str(l.count) ++ "\n")
+  var xs = [1, 2]
+  append_all(xs: inout xs, ys: [3, 4])
+  var ws = ["a"]
+  append_all(xs: inout ws, ys: ["b"])
+  print(int_to_str(len(xs)) ++ " " ++ join(parts: ws, sep: "") ++ "\n")
+  print(int_to_str(value_or(opt: head(shape_of(xs)), default: -1)) ++ "\n")
+  let none: List<Int> = []
+  print(int_to_str(value_or(opt: head(shape_of(none)), default: -1)) ++ "\n")
+  let nested: List<List<String>> = [["x"], []]
+  match head(shape_of(nested))
+  case Some(value: inner) then
+    print(int_to_str(len(inner)) ++ "\n")
+  case None then
+  end match
+  let c = counts(keys: ["a", "b", "a"], m: {})
+  print(int_to_str(value_or(opt: lookup(map: c, key: "a"), default: 0)) ++ "\n")
+  let ci = counts(keys: [7, 7, 7], m: {})
+  print(int_to_str(value_or(opt: lookup(map: ci, key: 7), default: 0)) ++ "\n")
+  let opts: List<Option<String>> = [Option.None, Option.Some(value: "found"), Option.None]
+  print(value_or(opt: first_some(opts), default: "none") ++ "\n")
+  match both(a: Option.Some(value: 1), b: Option.Some(value: "one"))
+  case Some(value: p) then
+    print(int_to_str(p.first) ++ p.second ++ "\n")
+  case None then
+  end match
+  let missing: Option<Int> = Option.None
+  print(int_to_str(len(keys(c))) ++ " " ++ int_to_str(value_or(opt: missing, default: 9)) ++ "\n")
+  if is_none(both(a: missing, b: Option.Some(value: 2))) then
+    print("none\n")
+  end if
+  print(show(check_all(["1", "2", "0", "x"])) ++ "\n")
+  print(show(check_all(["1", "y"])) ++ "\n")
+end fn main

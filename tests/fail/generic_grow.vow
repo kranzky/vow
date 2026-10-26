@@ -1,0 +1,13 @@
+// error: is instantiated with ever larger types
+// language: 0.4
+
+fn deep<T>(x: T, n: Int) -> Int do
+  if n <= 0 then
+    return 0
+  end if
+  return deep(x: [x], n: n - 1)
+end fn deep
+
+fn main() do
+  let _ = deep(x: 1, n: 3)
+end fn main

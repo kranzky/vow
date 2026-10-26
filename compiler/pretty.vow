@@ -249,8 +249,15 @@ fn pretty_stmt(out: inout List<String>, s: Stmt, ind: Int) do
   end match
 end fn pretty_stmt
 
+fn pretty_tparams(ts: List<String>) -> String do
+  if len(ts) == 0 then
+    return ""
+  end if
+  return "<" ++ join(parts: ts, sep: ", ") ++ ">"
+end fn pretty_tparams
+
 fn fn_contract(f: FnDecl) -> String do
-  var s = "fn " ++ f.name ++ "(" ++ pretty_fields(f.params) ++ ")"
+  var s = "fn " ++ f.name ++ pretty_tparams(f.tparams) ++ "(" ++ pretty_fields(f.params) ++ ")"
   match f.ret
   case Some(value: r) then
     set s = s ++ " -> " ++ pretty_type(r)
@@ -285,13 +292,13 @@ fn pretty_item(item: Item) -> String do
     pretty_block(out: inout out, stmts: f.body, ind: 1)
     set out = push(list: out, item: "end fn " ++ f.name)
   case StructItem(decl: s) then
-    set out = push(list: out, item: "struct " ++ s.name)
+    set out = push(list: out, item: "struct " ++ s.name ++ pretty_tparams(s.tparams))
     for f in s.fields do
       set out = push(list: out, item: "  " ++ f.name ++ ": " ++ pretty_type(f.ty) ++ ",")
     end for
     set out = push(list: out, item: "end struct " ++ s.name)
   case EnumItem(decl: e) then
-    set out = push(list: out, item: "enum " ++ e.name)
+    set out = push(list: out, item: "enum " ++ e.name ++ pretty_tparams(e.tparams))
     for v in e.variants do
       if len(v.fields) == 0 then
         set out = push(list: out, item: "  " ++ v.name ++ ",")
