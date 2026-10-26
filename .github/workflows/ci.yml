@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Z3
+        run: |
+          if [ "$RUNNER_OS" = "Linux" ]; then
+            sudo apt-get update && sudo apt-get install -y z3
+          else
+            brew install z3
+          fi
+          z3 --version
+      - name: Build vowc from the C seed
+        run: make
+      - name: Test with both compilers
+        run: make test
+      - name: Self-hosting fixpoint
+        run: make bootstrap && git diff --exit-code seed/vowc.c
