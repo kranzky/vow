@@ -1,0 +1,169 @@
+// Content addressing. A function's body hash covers its canonical text. Its
+// verification key also covers the contracts of everything it calls and all type
+// declarations, which is exactly what its proof depends on.
+
+import "check.vow"
+import "pretty.vow"
+
+fn verifier_version() -> String do
+  return "vow-verifier-1"
+end fn verifier_version
+
+fn calls_in_expr(e: Expr, info: Info, out: inout List<String>) do
+  match call_info(info: info, e: e)
+  case Some(value: ci) then
+    if ci.kind == "user" then
+      add_name(out: inout out, n: ci.name)
+    end if
+  case None then
+  end match
+  match e.kind
+  case Call(callee: c, args: args) then
+    calls_in_expr(e: c, info: info, out: inout out)
+    for a in args do
+      calls_in_expr(e: a.value, info: info, out: inout out)
+    end for
+  case With(obj: c, args: args) then
+    calls_in_expr(e: c, info: info, out: inout out)
+    for a in args do
+      calls_in_expr(e: a.value, info: info, out: inout out)
+    end for
+  case ListLit(items: items) then
+    for x in items do
+      calls_in_expr(e: x, info: info, out: inout out)
+    end for
+  case Index(obj: a, idx: b) then
+    calls_in_expr(e: a, info: info, out: inout out)
+    calls_in_expr(e: b, info: info, out: inout out)
+  case Binary(op: op, l: a, r: b) then
+    calls_in_expr(e: a, info: info, out: inout out)
+    calls_in_expr(e: b, info: info, out: inout out)
+  case Field(obj: a, name: n) then
+    calls_in_expr(e: a, info: info, out: inout out)
+  case Unary(op: op, x: a) then
+    calls_in_expr(e: a, info: info, out: inout out)
+  else
+  end match
+end fn calls_in_expr
+
+fn add_name(out: inout List<String>, n: String) do
+  if not contains_str(xs: out, x: n) then
+    set out = push(list: out, item: n)
+  end if
+end fn add_name
+
+fn calls_in_opt(b: Option<List<Stmt>>, info: Info, out: inout List<String>) do
+  match b
+  case Some(value: s) then
+    calls_in_block(stmts: s, info: info, out: inout out)
+  case None then
+  end match
+end fn calls_in_opt
+
+fn calls_in_block(stmts: List<Stmt>, info: Info, out: inout List<String>) do
+  for s in stmts do
+    match s.kind
+    case Let(name: n, ty: t, value: value, mutable: m) then
+      calls_in_expr(e: value, info: info, out: inout out)
+    case Set(name: n, value: value) then
+      calls_in_expr(e: value, info: info, out: inout out)
+    case Return(value: v) then
+      match v
+      case Some(value: e) then
+        calls_in_expr(e: e, info: info, out: inout out)
+      case None then
+      end match
+    case Assert(e: e) then
+      calls_in_expr(e: e, info: info, out: inout out)
+    case Check(e: e) then
+      calls_in_expr(e: e, info: info, out: inout out)
+    case ExprStmt(e: e) then
+      calls_in_expr(e: e, info: info, out: inout out)
+    case If(arms: arms, els: els) then
+      for a in arms do
+        calls_in_expr(e: a.cond, info: info, out: inout out)
+        calls_in_block(stmts: a.body, info: info, out: inout out)
+      end for
+      calls_in_opt(b: els, info: info, out: inout out)
+    case While(cond: c, invs: invs, body: body) then
+      calls_in_expr(e: c, info: info, out: inout out)
+      calls_in_block(stmts: body, info: info, out: inout out)
+    case ForRange(name: v, lo: lo, hi: hi, invs: invs, body: body) then
+      calls_in_expr(e: lo, info: info, out: inout out)
+      calls_in_expr(e: hi, info: info, out: inout out)
+      calls_in_block(stmts: body, info: info, out: inout out)
+    case ForEach(name: v, list: l, invs: invs, body: body) then
+      calls_in_expr(e: l, info: info, out: inout out)
+      calls_in_block(stmts: body, info: info, out: inout out)
+    case Match(scrut: sc, cases: cases, els: els) then
+      calls_in_expr(e: sc, info: info, out: inout out)
+      for cs in cases do
+        calls_in_block(stmts: cs.body, info: info, out: inout out)
+      end for
+      calls_in_opt(b: els, info: info, out: inout out)
+    else
+    end match
+  end for
+end fn calls_in_block
+
+struct FnHash
+  name: String,
+  body: String,
+  contract: String,
+  key: String,
+end struct FnHash
+
+fn hash_program(items: List<Item>, info: Info) -> List<FnHash> do
+  var types: List<String> = []
+  for item in items do
+    match item
+    case FnItem(decl: f) then
+    else
+      set types = push(list: types, item: pretty_item(item) ++ "\n")
+    end match
+  end for
+  let types_hash = hash(join(parts: types, sep: ""))
+  var contracts: Map<String, String> = {}
+  for item in items do
+    match item
+    case FnItem(decl: f) then
+      set contracts = insert(map: contracts, key: f.name, value: hash(fn_contract(f)))
+    else
+    end match
+  end for
+  var out: List<FnHash> = []
+  for item in items do
+    match item
+    case FnItem(decl: f) then
+      let body = hash(pretty_item(item))
+      var callees: List<String> = []
+      calls_in_block(stmts: f.body, info: info, out: inout callees)
+      // Sorted, like the bootstrap compiler's BTreeSet.
+      var sorted: Map<String, String> = {}
+      for c in callees do
+        match lookup(map: contracts, key: c)
+        case Some(value: h) then
+          set sorted = insert(map: sorted, key: c, value: h)
+        case None then
+        end match
+      end for
+      var material = verifier_version() ++ "\n" ++ body ++ "\n" ++ types_hash ++ "\n"
+      for c in keys(sorted) do
+        match lookup(map: sorted, key: c)
+        case Some(value: h) then
+          set material = material ++ c ++ "=" ++ h ++ "\n"
+        case None then
+        end match
+      end for
+      var contract = ""
+      match lookup(map: contracts, key: f.name)
+      case Some(value: h) then
+        set contract = h
+      case None then
+      end match
+      set out = push(list: out, item: FnHash(name: f.name, body: body, contract: contract, key: hash(material)))
+    else
+    end match
+  end for
+  return out
+end fn hash_program

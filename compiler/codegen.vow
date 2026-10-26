@@ -101,13 +101,13 @@ fn line(g: inout Gen, s: String) do
   set g = g with (out: push(list: g.out, item: repeat(s: "    ", n: g.ind) ++ s))
 end fn line
 
-fn fresh(g: inout Gen) -> String do
+fn fresh_tmp(g: inout Gen) -> String do
   set g = g with (tmp: g.tmp + 1)
   return "t" ++ int_to_str(g.tmp)
-end fn fresh
+end fn fresh_tmp
 
 fn bind(g: inout Gen, rhs: String) -> String do
-  let t = fresh(inout g)
+  let t = fresh_tmp(inout g)
   line(g: inout g, s: "V " ++ t ++ " = " ++ rhs ++ ";")
   return t
 end fn bind
@@ -212,7 +212,7 @@ fn gen_stmt(g: inout Gen, s: Stmt) do
     line(g: inout g, s: "}")
   case ForEach(name: v, list: l, invs: invs, body: body) then
     let lv = gen_expr(g: inout g, e: l)
-    let k = fresh(inout g)
+    let k = fresh_tmp(inout g)
     line(g: inout g, s: "for (int64_t " ++ k ++ " = 0; " ++ k ++ " < VL(" ++ lv ++ ")->len; " ++ k ++ "++) {")
     indent(inout g)
     line(g: inout g, s: "V l_" ++ v ++ " = VL(" ++ lv ++ ")->buf->items[" ++ k ++ "];")

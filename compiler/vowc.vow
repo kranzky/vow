@@ -1,0 +1,321 @@
+// vowc: the self-hosted Vow compiler.
+
+import "load.vow"
+import "check.vow"
+import "verify.vow"
+import "codegen.vow"
+import "hash.vow"
+import "runtime_h.vow"
+
+fn usage() -> String do
+  return "usage: vowc <command> <file.vow> [options]\n\n" ++
+    "commands:\n" ++
+    "  check   type-check and verify\n" ++
+    "  build   check, verify and compile to an executable (-o <path>)\n" ++
+    "  run     build and run (remaining arguments after -- go to the program)\n" ++
+    "  emit-c  print the generated C\n" ++
+    "  hash    print each function's body hash and verification key\n\n" ++
+    "options:\n" ++
+    "  --json        machine-readable diagnostics (one JSON object per line)\n" ++
+    "  --no-verify   skip the Z3 verifier (unsafe: contracts are not checked)\n" ++
+    "  --no-cache    ignore and do not update the verification cache\n" ++
+    "  -o <path>     output executable for build\n"
+end fn usage
+
+fn json_str(s: String) -> String do
+  var parts: List<String> = ["\""]
+  for i in 0..len(s) do
+    let c = s[i]
+    if c == '"' then
+      set parts = push(list: parts, item: "\\\"")
+    elif c == '\\' then
+      set parts = push(list: parts, item: "\\\\")
+    elif c == '\n' then
+      set parts = push(list: parts, item: "\\n")
+    elif c == '\t' then
+      set parts = push(list: parts, item: "\\t")
+    elif c < 32 then
+      set parts = push(list: parts, item: "\\u00" ++ hex_digit(c / 16) ++ hex_digit(c % 16))
+    else
+      set parts = push(list: parts, item: char(c))
+    end if
+  end for
+  set parts = push(list: parts, item: "\"")
+  return join(parts: parts, sep: "")
+end fn json_str
+
+fn render(d: Diag, files: List<String>, json: Bool) -> String do
+  if not json then
+    return render_diag(d: d, files: files)
+  end if
+  var file = "?"
+  if (d.pos.file >= 0) and (d.pos.file < len(files)) then
+    set file = files[d.pos.file]
+  end if
+  var notes: List<String> = []
+  for n in d.notes do
+    set notes = push(list: notes, item: json_str(n))
+  end for
+  return "{\"kind\":" ++ json_str(d.kind) ++ ",\"file\":" ++ json_str(file) ++ ",\"line\":" ++
+    int_to_str(d.pos.line) ++ ",\"col\":" ++ int_to_str(d.pos.col) ++ ",\"message\":" ++
+    json_str(d.msg) ++ ",\"notes\":[" ++ join(parts: notes, sep: ",") ++ "]}\n"
+end fn render
+
+fn report(diags: List<Diag>, files: List<String>, json: Bool) uses console do
+  for d in diags do
+    eprint(render(d: d, files: files, json: json))
+  end for
+end fn report
+
+fn basename_stem(path: String) -> String do
+  var base = path
+  let slash = find_last_byte(s: path, c: '/')
+  if (slash >= 0) and ((slash + 1) <= len(path)) then
+    set base = slice(of: path, from: slash + 1, to: len(path))
+  end if
+  let dot = find_last_byte(s: base, c: '.')
+  if dot > 0 then
+    return slice(of: base, from: 0, to: dot)
+  end if
+  return base
+end fn basename_stem
+
+fn make_temp_dir() -> String uses proc do
+  let o = run(argv: ["mktemp", "-d"], input: "")
+  if o.code != 0 then
+    return ""
+  end if
+  return trim(o.out)
+end fn make_temp_dir
+
+// Returns an error message, or "" on success.
+fn compile_c(c: String, exe: String) -> String uses fs, proc do
+  let dir = make_temp_dir()
+  if len(dir) == 0 then
+    return "cannot create a temporary directory"
+  end if
+  if not write_file(path: dir ++ "/vow_rt.h", contents: runtime_header()) then
+    return "cannot write " ++ dir ++ "/vow_rt.h"
+  end if
+  let cfile = dir ++ "/program.c"
+  if not write_file(path: cfile, contents: c) then
+    return "cannot write " ++ cfile
+  end if
+  var cc = "cc"
+  match getenv("CC")
+  case Some(value: x) then
+    set cc = x
+  case None then
+  end match
+  let r = run(argv: [cc, "-O2", "-std=c11", "-w", "-o", exe, cfile], input: "")
+  let rm = run(argv: ["rm", "-rf", dir], input: "")
+  if r.code != 0 then
+    return "C compiler '" ++ cc ++ "' failed"
+  end if
+  return ""
+end fn compile_c
+
+// The sort declaration must come first; declarations before assertions.
+fn order_preamble(pre: Map<String, Bool>) -> List<String> do
+  var sorts: List<String> = []
+  var decls: List<String> = []
+  var rest: List<String> = []
+  for k in keys(pre) do
+    if starts_with(s: k, p: "(declare-sort") then
+      set sorts = push(list: sorts, item: k)
+    elif starts_with(s: k, p: "(declare") then
+      set decls = push(list: decls, item: k)
+    else
+      set rest = push(list: rest, item: k)
+    end if
+  end for
+  return sorts ++ decls ++ rest
+end fn order_preamble
+
+fn hole_diags(c: Checker, v: Verifier) -> List<Diag> do
+  var out: List<Diag> = []
+  for h in c.info.holes do
+    var d = diag(pos: h.pos, msg: "?" ++ h.name ++ " needs a value of type " ++ ty_show(h.expected))
+    set d = d with (kind: "hole")
+    var locals: List<String> = []
+    for l in h.locals do
+      set locals = push(list: locals, item: l.name ++ ": " ++ ty_show(l.ty))
+    end for
+    if len(locals) == 0 then
+      set d = with_note(d: d, note: "in scope: (nothing)")
+    else
+      set d = with_note(d: d, note: "in scope: " ++ join(parts: locals, sep: ", "))
+    end if
+    match lookup(map: v.hole_facts, key: h.id)
+    case Some(value: facts) then
+      if len(facts) > 0 then
+        set d = with_note(d: d, note: "known facts: " ++ join(parts: facts, sep: "; "))
+      end if
+    case None then
+    end match
+    set out = push(list: out, item: d)
+  end for
+  return out
+end fn hole_diags
+
+fn main() uses console, fs, proc do
+  let argv = args()
+  if len(argv) < 2 then
+    eprint(usage())
+    exit(2)
+  end if
+  let cmd = argv[0]
+  let file = argv[1]
+  var json = false
+  var no_verify = false
+  var no_cache = false
+  var out = ""
+  var run_args: List<String> = []
+  var i = 2
+  while i < len(argv) invariant i >= 2 do
+    let a = argv[i]
+    if a == "--json" then
+      set json = true
+    elif a == "--no-verify" then
+      set no_verify = true
+    elif a == "--no-cache" then
+      set no_cache = true
+    elif (a == "-o") and ((i + 1) < len(argv)) then
+      set out = argv[i + 1]
+      set i = i + 1
+    elif a == "--" then
+      set run_args = slice(of: argv, from: i + 1, to: len(argv))
+      break
+    else
+      eprint("unknown option '" ++ a ++ "'\n\n" ++ usage())
+      exit(2)
+    end if
+    set i = i + 1
+  end while
+  let src = load(file)
+  if len(src.errs) > 0 then
+    report(diags: src.errs, files: src.files, json: json)
+    exit(1)
+  end if
+  if cmd == "pretty" then
+    for item in src.items do
+      print(pretty_item(item) ++ "\n\n")
+    end for
+    return
+  end if
+  let c = check_program(src.items)
+  if len(c.errs) > 0 then
+    report(diags: c.errs, files: src.files, json: json)
+    exit(1)
+  end if
+  if cmd == "hash" then
+    for h in hash_program(items: src.items, info: c.info) do
+      print(h.name ++ "  body=" ++ h.body ++ " contract=" ++ h.contract ++ " key=" ++ h.key ++ "\n")
+    end for
+    return
+  end if
+  // Holes are reported with the facts the verifier knows at that point, so the
+  // verifier runs even when there are holes.
+  var verified = false
+  if (not no_verify) or (len(c.info.holes) > 0) then
+    let hashes = hash_program(items: src.items, info: c.info)
+    let cache_path = file ++ ".vowcache"
+    var cached: List<String> = []
+    if not no_cache then
+      match read_file(cache_path)
+      case Some(value: text) then
+        for l in split(s: text, sep: '\n') do
+          let parts = split(s: l, sep: ' ')
+          if (len(parts) > 0) and (len(parts[0]) > 0) then
+            set cached = push(list: cached, item: parts[0])
+          end if
+        end for
+      case None then
+      end match
+    end if
+    var v = new_verifier(c.info)
+    var vcs: List<FnVc> = []
+    for item in src.items do
+      match item
+      case FnItem(decl: f) then
+        var key = ""
+        for h in hashes do
+          if h.name == f.name then
+            set key = h.key
+          end if
+        end for
+        if contains_str(xs: cached, x: key) and (len(c.info.holes) == 0) then
+          continue
+        end if
+        set vcs = push(list: vcs, item: verify_fn(v: inout v, f: f))
+      else
+      end match
+    end for
+    if len(c.info.holes) > 0 then
+      report(diags: hole_diags(c: c, v: v), files: src.files, json: json)
+      exit(1)
+    end if
+    let r = discharge(pre: order_preamble(v.preamble), vcs: vcs)
+    if len(r.error) > 0 then
+      eprint("vowc: " ++ r.error ++ "\n")
+      exit(1)
+    end if
+    if not no_cache then
+      var lines: List<String> = []
+      for h in hashes do
+        var failed = false
+        for f in r.failures do
+          if f.fn_name == h.name then
+            set failed = true
+          end if
+        end for
+        if not failed then
+          set lines = push(list: lines, item: h.key ++ " " ++ h.name ++ "\n")
+        end if
+      end for
+      let ok = write_file(path: cache_path, contents: join(parts: lines, sep: ""))
+    end if
+    if len(r.failures) > 0 then
+      var diags: List<Diag> = []
+      for f in r.failures do
+        set diags = push(list: diags, item: failure_diag(f))
+      end for
+      report(diags: diags, files: src.files, json: json)
+      exit(1)
+    end if
+    set verified = not no_verify
+  end if
+  let code = generate(items: src.items, info: c.info, files: src.files, verified: verified)
+  if cmd == "check" then
+    print("ok\n")
+  elif cmd == "emit-c" then
+    print(code)
+  elif (cmd == "build") or (cmd == "run") then
+    var exe = out
+    var tmp = ""
+    if len(exe) == 0 then
+      if cmd == "build" then
+        set exe = basename_stem(file)
+      else
+        set tmp = make_temp_dir()
+        set exe = tmp ++ "/program"
+      end if
+    end if
+    let e = compile_c(c: code, exe: exe)
+    if len(e) > 0 then
+      eprint("vowc: " ++ e ++ "\n")
+      exit(1)
+    end if
+    if cmd == "run" then
+      let o = run(argv: [exe] ++ run_args, input: "")
+      print(o.out)
+      if len(tmp) > 0 then
+        let rm = run(argv: ["rm", "-rf", tmp], input: "")
+      end if
+      exit(o.code)
+    end if
+  else
+    eprint("unknown command '" ++ cmd ++ "'\n\n" ++ usage())
+    exit(2)
+  end if
+end fn main

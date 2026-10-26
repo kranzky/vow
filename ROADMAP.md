@@ -5,8 +5,8 @@
 - [x] M2: C code generation and runtime; example programs run
 - [x] M3: Z3 verifier: refinements, contracts, invariants, holes, counterexamples
 - [x] M4: Content-addressed hashing and verification cache
-- [ ] M5: Self-hosted compiler written in Vow, verified by the bootstrap compiler
-- [ ] M6: Fixpoint: the self-hosted compiler compiles itself to identical C
+- [x] M5: Self-hosted compiler written in Vow, verified by the bootstrap compiler
+- [x] M6: Fixpoint: the self-hosted compiler compiles itself to identical C
 - [ ] M7: `docs/VOW_FOR_LLMS.md`: a guide for other LLMs using Vow in their projects
       (syntax, gotchas, proof workflow, reading verifier output, idioms); every example
       in it is a compiled, verified file under `examples/`
@@ -29,3 +29,27 @@
       builds vow.kranzky.com from a defined Markdown subset. `uses fs` only; proofs
       for bounds, HTML escaping and balanced tags. Runner-up once floats exist: a JSON
       toolkit tested against JSONTestSuite
+
+## V1 scope (after the milestones above)
+
+Must-have, language and proofs:
+- [ ] Soundness hardening: written soundness argument, large must-fail suite, differential
+      fuzzing of the two verifiers
+- [ ] Quantified specs (`forall i in 0..n: ...`), pure user spec functions, `old(x)`
+- [ ] Termination: `decreases` measures for loops and recursion
+- [ ] Generics (monomorphised functions and types)
+- [ ] Float, with documented verification semantics
+- [ ] Contextual keywords (allow `it`, `inout`, `var`, `uses`, ... as field/param names)
+- [ ] Structural `==` for structs/enums; `Result` with error propagation
+- [ ] Modules with visibility, then packages
+
+Must-have, runtime and portability:
+- [ ] Memory reclamation (reference counting or GC)
+- [ ] Windows `run()`, `#line` mapping, readable panics
+- [ ] Standard library and C FFI; `net`/`time`/`random` effects
+
+Must-have, tooling:
+- [ ] `vowc fmt`, `vowc test`, LSP (hover shows type and known facts)
+- [ ] Verifier performance (incremental solving), pinned Z3 version
+
+Post-V1: closures, concurrency, Unicode strings, bitwise/fixed-width ints, Wasm/native backends.

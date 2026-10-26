@@ -1,0 +1,1543 @@
+// Verification condition generation by symbolic execution, discharged with Z3.
+//
+// Every value gets an SMT term. Definitions of fresh constants are asserted
+// unconditionally: a fresh constant can always be defined, so they cannot make
+// anything inconsistent. A constraint on a fresh constant's properties is only global
+// when it is satisfiable regardless of the path. Everything that is only true on some
+// paths lives in the path's facts, and each obligation is checked as
+// "facts and not goal".
+
+import "check.vow"
+import "pretty.vow"
+
+struct Shown
+  name: String,
+  term: String,
+end struct Shown
+
+struct Ob
+  pos: Pos,
+  what: String,
+  facts: List<String>,
+  goal: String,
+  show: List<Shown>,
+end struct Ob
+
+struct FnVc
+  name: String,
+  decls: List<String>,
+  defs: List<String>,
+  obs: List<Ob>,
+end struct FnVc
+
+struct VVar
+  term: String,
+  ty: Ty,
+  preds: List<Expr>,
+end struct VVar
+
+struct St
+  env: Map<String, VVar>,
+  facts: List<String>,
+  src: List<String>,
+  dead: Bool,
+end struct St
+
+// subj and res are "" when absent.
+struct Spec
+  binds: Map<String, String>,
+  subj: String,
+  res: String,
+end struct Spec
+
+struct Verifier
+  info: Info,
+  n: Int,
+  decls: List<String>,
+  defs: List<String>,
+  obs: List<Ob>,
+  preamble: Map<String, Bool>,
+  strs: Map<String, String>,
+  loops: List<List<Expr>>,
+  fname: String,
+  ret: RTy,
+  post: List<Expr>,
+  params: Map<String, String>,
+  hole_facts: Map<Int, List<String>>,
+end struct Verifier
+
+fn prelude() -> List<String> do
+  return ["(declare-sort Val 0)",
+    "(declare-fun len (Val) Int)",
+    "(declare-fun byte (Val Int) Int)",
+    "(declare-fun tag (Val) Int)",
+    "(declare-fun elem_Int (Val Int) Int)",
+    "(declare-fun elem_Bool (Val Int) Bool)",
+    "(declare-fun elem_Val (Val Int) Val)",
+    "(assert (forall ((x Val)) (! (>= (len x) 0) :pattern ((len x)))))",
+    "(assert (forall ((s Val) (i Int)) (! (and (>= (byte s i) 0) (< (byte s i) 256)) :pattern ((byte s i)))))"]
+end fn prelude
+
+fn new_verifier(info: Info) -> Verifier do
+  var pre: Map<String, Bool> = {}
+  for p in prelude() do
+    set pre = insert(map: pre, key: p, value: true)
+  end for
+  return Verifier(info: info, n: 0, decls: [], defs: [], obs: [], preamble: pre, strs: {}, loops: [],
+    fname: "", ret: plain(Ty.TUnit), post: [], params: {}, hole_facts: {})
+end fn new_verifier
+
+fn sort_of(t: Ty) -> String do
+  match t
+  case TInt then
+    return "Int"
+  case TUnit then
+    return "Int"
+  case TBool then
+    return "Bool"
+  else
+    return "Val"
+  end match
+end fn sort_of
+
+fn and_all(v: List<String>) -> String do
+  if len(v) == 0 then
+    return "true"
+  end if
+  if len(v) == 1 then
+    return v[0]
+  end if
+  return "(and " ++ join(parts: v, sep: " ") ++ ")"
+end fn and_all
+
+fn int_lit(n: Int) -> String do
+  if n < 0 then
+    if n == (-9223372036854775807 - 1) then
+      return "(- 9223372036854775808)"
+    end if
+    return "(- " ++ int_to_str(-n) ++ ")"
+  end if
+  return int_to_str(n)
+end fn int_lit
+
+fn binop_term(op: String, a: String, b: String) -> String do
+  var o = op
+  match op
+  case "/" then
+    set o = "div"
+  case "%" then
+    set o = "mod"
+  case "==" then
+    set o = "="
+  case "implies" then
+    set o = "=>"
+  case "!=" then
+    return "(not (= " ++ a ++ " " ++ b ++ "))"
+  else
+  end match
+  return "(" ++ o ++ " " ++ a ++ " " ++ b ++ ")"
+end fn binop_term
+
+fn add_unique(out: inout List<String>, n: String) do
+  if not contains_str(xs: out, x: n) then
+    set out = push(list: out, item: n)
+  end if
+end fn add_unique
+
+fn assigned_expr(e: Expr, out: inout List<String>) do
+  match e.kind
+  case Call(callee: c, args: args) then
+    assigned_expr(e: c, out: inout out)
+    assigned_args(args: args, out: inout out)
+  case With(obj: c, args: args) then
+    assigned_expr(e: c, out: inout out)
+    assigned_args(args: args, out: inout out)
+  case ListLit(items: items) then
+    for x in items do
+      assigned_expr(e: x, out: inout out)
+    end for
+  case Index(obj: a, idx: b) then
+    assigned_expr(e: a, out: inout out)
+    assigned_expr(e: b, out: inout out)
+  case Binary(op: op, l: a, r: b) then
+    assigned_expr(e: a, out: inout out)
+    assigned_expr(e: b, out: inout out)
+  case Field(obj: a, name: n) then
+    assigned_expr(e: a, out: inout out)
+  case Unary(op: op, x: a) then
+    assigned_expr(e: a, out: inout out)
+  else
+  end match
+end fn assigned_expr
+
+fn assigned_args(args: List<Arg>, out: inout List<String>) do
+  for a in args do
+    if a.is_inout then
+      match a.value.kind
+      case Var(name: n) then
+        add_unique(out: inout out, n: n)
+      else
+      end match
+    end if
+    assigned_expr(e: a.value, out: inout out)
+  end for
+end fn assigned_args
+
+fn assigned_opt(b: Option<List<Stmt>>, out: inout List<String>) do
+  match b
+  case Some(value: s) then
+    assigned(stmts: s, out: inout out)
+  case None then
+  end match
+end fn assigned_opt
+
+// Variables assigned with 'set', or passed inout, anywhere in a block.
+fn assigned(stmts: List<Stmt>, out: inout List<String>) do
+  for s in stmts do
+    match s.kind
+    case Set(name: name, value: value) then
+      add_unique(out: inout out, n: name)
+      assigned_expr(e: value, out: inout out)
+    case Let(name: name, ty: ty, value: value, mutable: m) then
+      assigned_expr(e: value, out: inout out)
+    case Return(value: v) then
+      match v
+      case Some(value: e) then
+        assigned_expr(e: e, out: inout out)
+      case None then
+      end match
+    case ExprStmt(e: e) then
+      assigned_expr(e: e, out: inout out)
+    case Check(e: e) then
+      assigned_expr(e: e, out: inout out)
+    case If(arms: arms, els: els) then
+      for a in arms do
+        assigned_expr(e: a.cond, out: inout out)
+        assigned(stmts: a.body, out: inout out)
+      end for
+      assigned_opt(b: els, out: inout out)
+    case While(cond: c, invs: invs, body: body) then
+      assigned_expr(e: c, out: inout out)
+      assigned(stmts: body, out: inout out)
+    case ForRange(name: v, lo: lo, hi: hi, invs: invs, body: body) then
+      assigned_expr(e: lo, out: inout out)
+      assigned_expr(e: hi, out: inout out)
+      assigned(stmts: body, out: inout out)
+    case ForEach(name: v, list: l, invs: invs, body: body) then
+      assigned_expr(e: l, out: inout out)
+      assigned(stmts: body, out: inout out)
+    case Match(scrut: sc, cases: cases, els: els) then
+      assigned_expr(e: sc, out: inout out)
+      for cs in cases do
+        assigned(stmts: cs.body, out: inout out)
+      end for
+      assigned_opt(b: els, out: inout out)
+    else
+    end match
+  end for
+end fn assigned
+
+// ---- state helpers ----
+
+fn fresh(v: inout Verifier, sort: String) -> String do
+  set v = v with (n: v.n + 1)
+  let name = "v" ++ int_to_str(v.n)
+  set v = v with (decls: push(list: v.decls, item: "(declare-const " ++ name ++ " " ++ sort ++ ")"))
+  return name
+end fn fresh
+
+fn define(v: inout Verifier, sort: String, term: String) -> String do
+  let c = fresh(v: inout v, sort: sort)
+  add_def(v: inout v, d: "(assert (= " ++ c ++ " " ++ term ++ "))")
+  return c
+end fn define
+
+fn add_def(v: inout Verifier, d: String) do
+  set v = v with (defs: push(list: v.defs, item: d))
+end fn add_def
+
+fn global_fn(v: inout Verifier, name: String, args: String, sort: String) -> String do
+  set v = v with (preamble: insert(map: v.preamble, key: "(declare-fun " ++ name ++ " (" ++ args ++ ") " ++ sort ++ ")", value: true))
+  return name
+end fn global_fn
+
+fn field_fn(v: inout Verifier, sname: String, field: String, t: Ty) -> String do
+  return global_fn(v: inout v, name: "fld_" ++ sname ++ "_" ++ field, args: "Val", sort: sort_of(t))
+end fn field_fn
+
+fn vfield_fn(v: inout Verifier, ename: String, vname: String, field: String, t: Ty) -> String do
+  if ename == "Option" then
+    return global_fn(v: inout v, name: "opt_value_" ++ sort_of(t), args: "Val", sort: sort_of(t))
+  end if
+  return global_fn(v: inout v, name: "vf_" ++ ename ++ "_" ++ vname ++ "_" ++ field, args: "Val", sort: sort_of(t))
+end fn vfield_fn
+
+fn add_fact(st: inout St, f: String) do
+  set st = st with (facts: push(list: st.facts, item: f))
+end fn add_fact
+
+fn add_src(st: inout St, f: String) do
+  set st = st with (src: push(list: st.src, item: f))
+end fn add_src
+
+fn env_term(st: St, n: String) -> String do
+  match lookup(map: st.env, key: n)
+  case Some(value: x) then
+    return x.term
+  case None then
+    return "unbound_" ++ n
+  end match
+end fn env_term
+
+fn obligation(v: inout Verifier, st: St, pos: Pos, what: String, goal: String) do
+  if st.dead then
+    return
+  end if
+  var show: List<Shown> = []
+  for n in keys(st.env) do
+    match lookup(map: st.env, key: n)
+    case Some(value: x) then
+      match x.ty
+      case TInt then
+        set show = push(list: show, item: Shown(name: n, term: x.term))
+      case TBool then
+        set show = push(list: show, item: Shown(name: n, term: x.term))
+      case TList(elem: e) then
+        set show = push(list: show, item: Shown(name: "len(" ++ n ++ ")", term: "(len " ++ x.term ++ ")"))
+      case TStr then
+        set show = push(list: show, item: Shown(name: "len(" ++ n ++ ")", term: "(len " ++ x.term ++ ")"))
+      case TMap(key: k, val: vv) then
+        set show = push(list: show, item: Shown(name: "len(" ++ n ++ ")", term: "(len " ++ x.term ++ ")"))
+      else
+      end match
+    case None then
+    end match
+  end for
+  set v = v with (obs: push(list: v.obs, item: Ob(pos: pos, what: what, facts: st.facts, goal: goal, show: show)))
+end fn obligation
+
+fn str_const(v: inout Verifier, s: String) -> String do
+  match lookup(map: v.strs, key: s)
+  case Some(value: c) then
+    return c
+  case None then
+  end match
+  let c = fresh(v: inout v, sort: "Val")
+  add_def(v: inout v, d: "(assert (= (len " ++ c ++ ") " ++ int_to_str(len(s)) ++ "))")
+  var k = len(s)
+  if k > 64 then
+    set k = 64
+  end if
+  for i in 0..k do
+    if i < len(s) then
+      add_def(v: inout v, d: "(assert (= (byte " ++ c ++ " " ++ int_to_str(i) ++ ") " ++ int_to_str(s[i]) ++ "))")
+    end if
+  end for
+  set v = v with (strs: insert(map: v.strs, key: s, value: c))
+  return c
+end fn str_const
+
+// ---- functions ----
+
+fn verify_fn(v: inout Verifier, f: FnDecl) -> FnVc do
+  let empty_loops: List<List<Expr>> = []
+  set v = v with (n: 0, decls: [], defs: [], obs: [], strs: {}, loops: empty_loops, fname: f.name, params: {})
+  var fi = FnInfo(name: f.name, params: [], io: [], ret: plain(Ty.TUnit), effects: [], pre: [], post: [], pos: f.pos)
+  match get_fn(info: v.info, name: f.name)
+  case Some(value: x) then
+    set fi = x
+  case None then
+  end match
+  set v = v with (ret: fi.ret, post: fi.post)
+  var st = St(env: {}, facts: [], src: [], dead: false)
+  for i in 0..len(fi.params) do
+    let p = fi.params[i]
+    let t = fresh(v: inout v, sort: sort_of(p.rty.ty))
+    set v = v with (params: insert(map: v.params, key: p.name, value: t))
+    for pr in p.rty.preds do
+      let fact = spec_term(v: inout v, e: pr, st: st, subj: t, res: "")
+      add_fact(st: inout st, f: fact)
+      add_src(st: inout st, f: p.name ++ " where " ++ pretty_expr(pr))
+    end for
+    var preds: List<Expr> = []
+    if (i < len(fi.io)) and fi.io[i] then
+      set preds = p.rty.preds
+    end if
+    set st = st with (env: insert(map: st.env, key: p.name, value: VVar(term: t, ty: p.rty.ty, preds: preds)))
+  end for
+  for r in fi.pre do
+    let fact = spec_term(v: inout v, e: r, st: st, subj: "", res: "")
+    add_fact(st: inout st, f: fact)
+    add_src(st: inout st, f: pretty_expr(r))
+  end for
+  vblock(v: inout v, stmts: f.body, st: inout st)
+  if (not st.dead) and (ty_show(fi.ret.ty) == "Unit") then
+    check_post(v: inout v, st: st, pos: f.pos, val: "0")
+  end if
+  return FnVc(name: f.name, decls: v.decls, defs: v.defs, obs: v.obs)
+end fn verify_fn
+
+fn check_post(v: inout Verifier, st: St, pos: Pos, val: String) do
+  let ret = v.ret
+  for p in ret.preds do
+    let g = spec_term(v: inout v, e: p, st: st, subj: val, res: "")
+    obligation(v: inout v, st: st, pos: pos, what: "return value of '" ++ v.fname ++ "' satisfies " ++ pretty_expr(p), goal: g)
+  end for
+  let ens = v.post
+  for e in ens do
+    let g = spec_term(v: inout v, e: e, st: st, subj: "", res: val)
+    obligation(v: inout v, st: st, pos: pos, what: "postcondition of '" ++ v.fname ++ "': " ++ pretty_expr(e), goal: g)
+  end for
+end fn check_post
+
+// ---- specification terms ----
+
+// Names resolve through the current environment; parameters keep their entry values.
+fn spec_term(v: inout Verifier, e: Expr, st: St, subj: String, res: String) -> String do
+  var binds: Map<String, String> = {}
+  for k in keys(st.env) do
+    set binds = insert(map: binds, key: k, value: env_term(st: st, n: k))
+  end for
+  for k in keys(v.params) do
+    if not has(map: binds, key: k) then
+      match lookup(map: v.params, key: k)
+      case Some(value: t) then
+        set binds = insert(map: binds, key: k, value: t)
+      case None then
+      end match
+    end if
+  end for
+  return sexpr(v: inout v, e: e, sp: Spec(binds: binds, subj: subj, res: res))
+end fn spec_term
+
+fn spec_with(v: inout Verifier, e: Expr, binds: Map<String, String>, subj: String) -> String do
+  return sexpr(v: inout v, e: e, sp: Spec(binds: binds, subj: subj, res: ""))
+end fn spec_with
+
+fn sexpr(v: inout Verifier, e: Expr, sp: Spec) -> String do
+  match e.kind
+  case IntLit(value: n) then
+    return int_lit(n)
+  case BoolLit(value: b) then
+    if b then
+      return "true"
+    end if
+    return "false"
+  case StrLit(value: s) then
+    return str_const(v: inout v, s: s)
+  case Var(name: n) then
+    match lookup(map: sp.binds, key: n)
+    case Some(value: t) then
+      return t
+    case None then
+      return "unbound_" ++ n
+    end match
+  case It then
+    return sp.subj
+  case Result then
+    return sp.res
+  case Call(callee: c, args: args) then
+    // Only 'len' is allowed in specifications.
+    if len(args) == 0 then
+      return "0"
+    end if
+    return "(len " ++ sexpr(v: inout v, e: args[0].value, sp: sp) ++ ")"
+  case Field(obj: o, name: f) then
+    let ot = type_of(info: v.info, e: o)
+    let ft = type_of(info: v.info, e: e)
+    let ov = sexpr(v: inout v, e: o, sp: sp)
+    match ot
+    case TStruct(name: sn) then
+      let fnn = field_fn(v: inout v, sname: sn, field: f, t: ft)
+      return "(" ++ fnn ++ " " ++ ov ++ ")"
+    else
+      return ov
+    end match
+  case Index(obj: o, idx: i) then
+    let ot = type_of(info: v.info, e: o)
+    let ov = sexpr(v: inout v, e: o, sp: sp)
+    let iv = sexpr(v: inout v, e: i, sp: sp)
+    match ot
+    case TStr then
+      return "(byte " ++ ov ++ " " ++ iv ++ ")"
+    case TList(elem: t) then
+      return "(elem_" ++ sort_of(t) ++ " " ++ ov ++ " " ++ iv ++ ")"
+    else
+      return ov
+    end match
+  case Unary(op: op, x: x) then
+    let a = sexpr(v: inout v, e: x, sp: sp)
+    if op == "-" then
+      return "(- " ++ a ++ ")"
+    end if
+    return "(not " ++ a ++ ")"
+  case Binary(op: op, l: l, r: r) then
+    let a = sexpr(v: inout v, e: l, sp: sp)
+    let b = sexpr(v: inout v, e: r, sp: sp)
+    return binop_term(op: op, a: a, b: b)
+  else
+    return "false"
+  end match
+end fn sexpr
+
+// ---- statements ----
+
+fn vblock(v: inout Verifier, stmts: List<Stmt>, st: inout St) do
+  for s in stmts do
+    if st.dead then
+      return
+    end if
+    vstmt(v: inout v, s: s, st: inout st)
+  end for
+end fn vblock
+
+fn assume_preds(v: inout Verifier, st: inout St, name: String, preds: List<Expr>, term: String) do
+  for p in preds do
+    let t = spec_term(v: inout v, e: p, st: st, subj: term, res: "")
+    add_fact(st: inout st, f: t)
+    add_src(st: inout st, f: name ++ " where " ++ pretty_expr(p))
+  end for
+end fn assume_preds
+
+fn check_preds(v: inout Verifier, st: St, pos: Pos, name: String, preds: List<Expr>, term: String) do
+  for p in preds do
+    let g = spec_term(v: inout v, e: p, st: st, subj: term, res: "")
+    obligation(v: inout v, st: st, pos: pos, what: "'" ++ name ++ "' satisfies " ++ pretty_expr(p), goal: g)
+  end for
+end fn check_preds
+
+fn check_entry(v: inout Verifier, st: St, invs: List<Expr>) do
+  for i in invs do
+    let g = spec_term(v: inout v, e: i, st: st, subj: "", res: "")
+    obligation(v: inout v, st: st, pos: i.pos, what: "loop invariant holds on entry: " ++ pretty_expr(i), goal: g)
+  end for
+end fn check_entry
+
+fn check_invs(v: inout Verifier, st: St, invs: List<Expr>, what: String) do
+  for i in invs do
+    let g = spec_term(v: inout v, e: i, st: st, subj: "", res: "")
+    obligation(v: inout v, st: st, pos: i.pos, what: "loop invariant " ++ what ++ ": " ++ pretty_expr(i), goal: g)
+  end for
+end fn check_invs
+
+fn push_loop(v: inout Verifier, invs: List<Expr>) do
+  set v = v with (loops: push(list: v.loops, item: invs))
+end fn push_loop
+
+fn pop_loop(v: inout Verifier) do
+  let n = len(v.loops)
+  if n > 0 then
+    set v = v with (loops: slice(of: v.loops, from: 0, to: n - 1))
+  end if
+end fn pop_loop
+
+struct Branch
+  guard: String,
+  st: St,
+end struct Branch
+
+fn vstmt(v: inout Verifier, s: Stmt, st: inout St) do
+  match s.kind
+  case Let(name: name, ty: ty, value: value, mutable: m) then
+    let t = vexpr(v: inout v, e: value, st: inout st)
+    var r = plain(type_of(info: v.info, e: value))
+    match ty
+    case Some(value: te) then
+      set r = resolve_quiet(info: v.info, te: te)
+    case None then
+    end match
+    check_preds(v: inout v, st: st, pos: s.pos, name: name, preds: r.preds, term: t)
+    set st = st with (env: insert(map: st.env, key: name, value: VVar(term: t, ty: r.ty, preds: r.preds)))
+  case Set(name: name, value: value) then
+    let t = vexpr(v: inout v, e: value, st: inout st)
+    match lookup(map: st.env, key: name)
+    case Some(value: x) then
+      check_preds(v: inout v, st: st, pos: s.pos, name: name, preds: x.preds, term: t)
+      set st = st with (env: insert(map: st.env, key: name, value: x with (term: t)))
+    case None then
+    end match
+  case Return(value: rv) then
+    var t = "0"
+    match rv
+    case Some(value: e) then
+      set t = vexpr(v: inout v, e: e, st: inout st)
+    case None then
+    end match
+    check_post(v: inout v, st: st, pos: s.pos, val: t)
+    set st = st with (dead: true)
+  case If(arms: arms, els: els) then
+    let base = st
+    var cur = st
+    var results: List<Branch> = []
+    var negs: List<String> = []
+    for a in arms do
+      let ct = vexpr(v: inout v, e: a.cond, st: inout cur)
+      var arm = cur
+      add_fact(st: inout arm, f: ct)
+      add_src(st: inout arm, f: pretty_expr(a.cond))
+      vblock(v: inout v, stmts: a.body, st: inout arm)
+      set results = push(list: results, item: Branch(guard: and_all(push(list: negs, item: ct)), st: arm))
+      add_fact(st: inout cur, f: "(not " ++ ct ++ ")")
+      add_src(st: inout cur, f: "not (" ++ pretty_expr(a.cond) ++ ")")
+      set negs = push(list: negs, item: "(not " ++ ct ++ ")")
+    end for
+    match els
+    case Some(value: b) then
+      vblock(v: inout v, stmts: b, st: inout cur)
+    case None then
+    end match
+    set results = push(list: results, item: Branch(guard: and_all(negs), st: cur))
+    set st = merge(v: inout v, base: base, results: results)
+  case Match(scrut: scrut, cases: cases, els: els) then
+    vmatch(v: inout v, scrut: scrut, cases: cases, els: els, st: inout st)
+  case While(cond: cond, invs: invs, body: body) then
+    check_entry(v: inout v, st: st, invs: invs)
+    var head = havoc(v: inout v, body: body, st: st, invs: invs)
+    let c = vexpr(v: inout v, e: cond, st: inout head)
+    var inner = head
+    add_fact(st: inout inner, f: c)
+    add_src(st: inout inner, f: pretty_expr(cond))
+    push_loop(v: inout v, invs: invs)
+    vblock(v: inout v, stmts: body, st: inout inner)
+    pop_loop(inout v)
+    check_invs(v: inout v, st: inner, invs: invs, what: "is preserved")
+    var after = head
+    if not has_break(body) then
+      add_fact(st: inout after, f: "(not " ++ c ++ ")")
+      add_src(st: inout after, f: "not (" ++ pretty_expr(cond) ++ ")")
+    end if
+    set st = after
+  case ForRange(name: var_name, lo: lo, hi: hi, invs: invs, body: body) then
+    let a = vexpr(v: inout v, e: lo, st: inout st)
+    let b = vexpr(v: inout v, e: hi, st: inout st)
+    check_entry(v: inout v, st: st, invs: invs)
+    let head = havoc(v: inout v, body: body, st: st, invs: invs)
+    var inner = head
+    let iv = fresh(v: inout v, sort: "Int")
+    add_fact(st: inout inner, f: "(<= " ++ a ++ " " ++ iv ++ ")")
+    add_fact(st: inout inner, f: "(< " ++ iv ++ " " ++ b ++ ")")
+    add_src(st: inout inner, f: pretty_expr(lo) ++ " <= " ++ var_name)
+    add_src(st: inout inner, f: var_name ++ " < " ++ pretty_expr(hi))
+    set inner = inner with (env: insert(map: inner.env, key: var_name, value: VVar(term: iv, ty: Ty.TInt, preds: [])))
+    push_loop(v: inout v, invs: invs)
+    vblock(v: inout v, stmts: body, st: inout inner)
+    pop_loop(inout v)
+    check_invs(v: inout v, st: inner, invs: invs, what: "is preserved")
+    set st = head
+  case ForEach(name: var_name, list: l, invs: invs, body: body) then
+    let lt = vexpr(v: inout v, e: l, st: inout st)
+    var et = Ty.TUnknown
+    match type_of(info: v.info, e: l)
+    case TList(elem: t) then
+      set et = t
+    else
+    end match
+    check_entry(v: inout v, st: st, invs: invs)
+    let head = havoc(v: inout v, body: body, st: st, invs: invs)
+    var inner = head
+    let k = fresh(v: inout v, sort: "Int")
+    add_fact(st: inout inner, f: "(<= 0 " ++ k ++ ")")
+    add_fact(st: inout inner, f: "(< " ++ k ++ " (len " ++ lt ++ "))")
+    let x = define(v: inout v, sort: sort_of(et), term: "(elem_" ++ sort_of(et) ++ " " ++ lt ++ " " ++ k ++ ")")
+    set inner = inner with (env: insert(map: inner.env, key: var_name, value: VVar(term: x, ty: et, preds: [])))
+    add_src(st: inout inner, f: var_name ++ " is an element of " ++ pretty_expr(l))
+    push_loop(v: inout v, invs: invs)
+    vblock(v: inout v, stmts: body, st: inout inner)
+    pop_loop(inout v)
+    check_invs(v: inout v, st: inner, invs: invs, what: "is preserved")
+    set st = head
+  case Assert(e: e) then
+    let g = spec_term(v: inout v, e: e, st: st, subj: "", res: "")
+    obligation(v: inout v, st: st, pos: s.pos, what: "assertion: " ++ pretty_expr(e), goal: g)
+    add_fact(st: inout st, f: g)
+    add_src(st: inout st, f: pretty_expr(e))
+  case Check(e: e) then
+    let g = vexpr(v: inout v, e: e, st: inout st)
+    add_fact(st: inout st, f: g)
+    add_src(st: inout st, f: pretty_expr(e))
+  case Break then
+    var invs: List<Expr> = []
+    let n = len(v.loops)
+    if n > 0 then
+      set invs = v.loops[n - 1]
+    end if
+    check_invs(v: inout v, st: st, invs: invs, what: "holds at 'break'")
+    set st = st with (dead: true)
+  case Continue then
+    var invs: List<Expr> = []
+    let n = len(v.loops)
+    if n > 0 then
+      set invs = v.loops[n - 1]
+    end if
+    check_invs(v: inout v, st: st, invs: invs, what: "holds at 'continue'")
+    set st = st with (dead: true)
+  case ExprStmt(e: e) then
+    let t = vexpr(v: inout v, e: e, st: inout st)
+    if is_noreturn_call(e) then
+      set st = st with (dead: true)
+    end if
+  end match
+end fn vstmt
+
+fn vmatch(v: inout Verifier, scrut: Expr, cases: List<Case>, els: Option<List<Stmt>>, st: inout St) do
+  let sv = vexpr(v: inout v, e: scrut, st: inout st)
+  let stype = type_of(info: v.info, e: scrut)
+  let base = st
+  var variants: List<VariantInfo> = []
+  var is_enum = false
+  match variants_of(info: v.info, t: stype)
+  case Some(value: vs) then
+    set variants = vs
+    set is_enum = true
+  case None then
+  end match
+  var ename = ""
+  match stype
+  case TOpt(inner: x) then
+    set ename = "Option"
+  case TEnum(name: n) then
+    set ename = n
+  else
+  end match
+  var results: List<Branch> = []
+  var guards: List<String> = []
+  for cs in cases do
+    var arm = st
+    var g = "false"
+    match cs.pat
+    case PInt(value: n) then
+      set g = "(= " ++ sv ++ " " ++ int_lit(n) ++ ")"
+    case PStr(value: s) then
+      let k = str_const(v: inout v, s: s)
+      set g = "(= " ++ sv ++ " " ++ k ++ ")"
+    case PVariant(name: name, binds: binds) then
+      let vi = find_variant(vs: variants, name: name)
+      if vi >= 0 then
+        let vinfo = variants[vi]
+        var fbinds: Map<String, String> = {}
+        for fl in vinfo.fields do
+          let fnn = vfield_fn(v: inout v, ename: ename, vname: name, field: fl.name, t: fl.rty.ty)
+          set fbinds = insert(map: fbinds, key: fl.name, value: "(" ++ fnn ++ " " ++ sv ++ ")")
+        end for
+        add_src(st: inout arm, f: pretty_expr(scrut) ++ " is " ++ name)
+        for fl in vinfo.fields do
+          var ft = ""
+          match lookup(map: fbinds, key: fl.name)
+          case Some(value: x) then
+            set ft = x
+          case None then
+          end match
+          for p in fl.rty.preds do
+            let t = spec_with(v: inout v, e: p, binds: fbinds, subj: ft)
+            add_fact(st: inout arm, f: t)
+          end for
+          for b in binds do
+            if b.field == fl.name then
+              set arm = arm with (env: insert(map: arm.env, key: b.binder, value: VVar(term: ft, ty: fl.rty.ty, preds: [])))
+            end if
+          end for
+        end for
+        set g = "(= (tag " ++ sv ++ ") " ++ int_to_str(vi) ++ ")"
+      end if
+    end match
+    add_fact(st: inout arm, f: g)
+    vblock(v: inout v, stmts: cs.body, st: inout arm)
+    set guards = push(list: guards, item: g)
+    set results = push(list: results, item: Branch(guard: g, st: arm))
+  end for
+  var all_neg: List<String> = []
+  for g in guards do
+    set all_neg = push(list: all_neg, item: "(not " ++ g ++ ")")
+  end for
+  match els
+  case Some(value: b) then
+    var arm = st
+    for f in all_neg do
+      add_fact(st: inout arm, f: f)
+    end for
+    vblock(v: inout v, stmts: b, st: inout arm)
+    set results = push(list: results, item: Branch(guard: and_all(all_neg), st: arm))
+  case None then
+    if is_enum then
+      // Exhaustive: the tag is one of the variants.
+      let range = "(and (<= 0 (tag " ++ sv ++ ")) (< (tag " ++ sv ++ ") " ++ int_to_str(len(variants)) ++ "))"
+      var rs: List<Branch> = []
+      for r in results do
+        var x = r.st
+        add_fact(st: inout x, f: range)
+        set rs = push(list: rs, item: r with (st: x))
+      end for
+      var f = base
+      add_fact(st: inout f, f: range)
+      set st = merge(v: inout v, base: f, results: rs)
+      return
+    end if
+  end match
+  set st = merge(v: inout v, base: base, results: results)
+end fn vmatch
+
+fn mentions(text: String, name: String) -> Bool do
+  let n = len(name)
+  if n == 0 then
+    return false
+  end if
+  var i = 0
+  while (i + n) <= len(text) invariant i >= 0 do
+    if starts_at(s: text, at: i, p: name) then
+      let before = (i == 0) or not is_alnum(text[i - 1])
+      let after = ((i + n) >= len(text)) or not is_alnum(text[i + n])
+      if before and after then
+        return true
+      end if
+    end if
+    set i = i + 1
+  end while
+  return false
+end fn mentions
+
+// The state at a loop head: variables assigned in the body get fresh values
+// constrained only by their declared refinements and the loop invariants.
+fn havoc(v: inout Verifier, body: List<Stmt>, st: St, invs: List<Expr>) -> St do
+  var names: List<String> = []
+  assigned(stmts: body, out: inout names)
+  var h = st
+  for n in names do
+    match lookup(map: st.env, key: n)
+    case Some(value: x) then
+      let t = fresh(v: inout v, sort: sort_of(x.ty))
+      set h = h with (env: insert(map: h.env, key: n, value: x with (term: t)))
+      assume_preds(v: inout v, st: inout h, name: n, preds: x.preds, term: t)
+    case None then
+    end match
+  end for
+  var kept: List<String> = []
+  for f in h.src do
+    var stale = false
+    for n in names do
+      if mentions(text: f, name: n) then
+        set stale = true
+      end if
+    end for
+    if not stale then
+      set kept = push(list: kept, item: f)
+    end if
+  end for
+  set h = h with (src: kept)
+  for i in invs do
+    let t = spec_term(v: inout v, e: i, st: h, subj: "", res: "")
+    add_fact(st: inout h, f: t)
+    add_src(st: inout h, f: pretty_expr(i))
+  end for
+  return h
+end fn havoc
+
+fn merge(v: inout Verifier, base: St, results: List<Branch>) -> St do
+  var live: List<Branch> = []
+  for r in results do
+    if not r.st.dead then
+      set live = push(list: live, item: r)
+    end if
+  end for
+  var out = base
+  if len(live) == 0 then
+    return out with (dead: true)
+  end if
+  let k = len(base.facts)
+  var guards: List<String> = []
+  for r in live do
+    set guards = push(list: guards, item: r.guard)
+  end for
+  if len(guards) == 1 then
+    add_fact(st: inout out, f: guards[0])
+  else
+    add_fact(st: inout out, f: "(or " ++ join(parts: guards, sep: " ") ++ ")")
+  end if
+  for r in live do
+    let fs = r.st.facts
+    if k <= len(fs) then
+      let fresh_facts = slice(of: fs, from: k, to: len(fs))
+      if len(fresh_facts) > 0 then
+        add_fact(st: inout out, f: "(=> " ++ r.guard ++ " " ++ and_all(fresh_facts) ++ ")")
+      end if
+    end if
+  end for
+  if len(live) == 1 then
+    set out = out with (src: live[0].st.src)
+  end if
+  for n in keys(base.env) do
+    var terms: List<String> = []
+    for r in live do
+      set terms = push(list: terms, item: env_term(st: r.st, n: n))
+    end for
+    let m = len(terms)
+    if m == 0 then
+      continue
+    end if
+    var same = true
+    for t in terms do
+      if t != terms[0] then
+        set same = false
+      end if
+    end for
+    match lookup(map: base.env, key: n)
+    case Some(value: x) then
+      if same then
+        set out = out with (env: insert(map: out.env, key: n, value: x with (term: terms[0])))
+      else
+        var t = terms[m - 1]
+        var i = m - 2
+        while i >= 0 invariant i < (m - 1) do
+          if (i < len(live)) and (i < len(terms)) then
+            set t = "(ite " ++ live[i].guard ++ " " ++ terms[i] ++ " " ++ t ++ ")"
+          end if
+          set i = i - 1
+        end while
+        let d = define(v: inout v, sort: sort_of(x.ty), term: t)
+        set out = out with (env: insert(map: out.env, key: n, value: x with (term: d)))
+      end if
+    case None then
+    end match
+  end for
+  return out
+end fn merge
+
+// ---- expressions ----
+
+fn struct_binds(v: inout Verifier, sn: String, ov: String) -> Map<String, String> do
+  var binds: Map<String, String> = {}
+  for fl in struct_fields(info: v.info, name: sn) do
+    let fnn = field_fn(v: inout v, sname: sn, field: fl.name, t: fl.rty.ty)
+    set binds = insert(map: binds, key: fl.name, value: "(" ++ fnn ++ " " ++ ov ++ ")")
+  end for
+  return binds
+end fn struct_binds
+
+fn bind_of(binds: Map<String, String>, n: String) -> String do
+  match lookup(map: binds, key: n)
+  case Some(value: t) then
+    return t
+  case None then
+    return "unbound_" ++ n
+  end match
+end fn bind_of
+
+fn vexpr(v: inout Verifier, e: Expr, st: inout St) -> String do
+  match e.kind
+  case IntLit(value: n) then
+    return int_lit(n)
+  case BoolLit(value: b) then
+    if b then
+      return "true"
+    end if
+    return "false"
+  case StrLit(value: s) then
+    return str_const(v: inout v, s: s)
+  case Var(name: n) then
+    return env_term(st: st, n: n)
+  case It then
+    return "0"
+  case Result then
+    return "0"
+  case Hole(name: n) then
+    var facts: List<String> = []
+    for f in st.src do
+      let m = len(facts)
+      if (m == 0) or (facts[m - 1] != f) then
+        set facts = push(list: facts, item: f)
+      end if
+    end for
+    set v = v with (hole_facts: insert(map: v.hole_facts, key: e.id, value: facts))
+    return fresh(v: inout v, sort: sort_of(type_of(info: v.info, e: e)))
+  case Call(callee: c, args: args) then
+    return vcall(v: inout v, e: e, args: args, st: inout st)
+  case ListLit(items: items) then
+    var vals: List<String> = []
+    for x in items do
+      set vals = push(list: vals, item: vexpr(v: inout v, e: x, st: inout st))
+    end for
+    var et = Ty.TUnknown
+    match type_of(info: v.info, e: e)
+    case TList(elem: t) then
+      set et = t
+    else
+    end match
+    let r = fresh(v: inout v, sort: "Val")
+    add_def(v: inout v, d: "(assert (= (len " ++ r ++ ") " ++ int_to_str(len(vals)) ++ "))")
+    for i in 0..len(vals) do
+      add_def(v: inout v, d: "(assert (= (elem_" ++ sort_of(et) ++ " " ++ r ++ " " ++ int_to_str(i) ++ ") " ++ vals[i] ++ "))")
+    end for
+    return r
+  case EmptyMap then
+    let r = fresh(v: inout v, sort: "Val")
+    add_def(v: inout v, d: "(assert (= (len " ++ r ++ ") 0))")
+    return r
+  case Index(obj: o, idx: i) then
+    let ov = vexpr(v: inout v, e: o, st: inout st)
+    let iv = vexpr(v: inout v, e: i, st: inout st)
+    let goal = "(and (<= 0 " ++ iv ++ ") (< " ++ iv ++ " (len " ++ ov ++ ")))"
+    let what = "index in bounds: 0 <= " ++ pretty_expr(i) ++ " < len(" ++ pretty_expr(o) ++ ")"
+    obligation(v: inout v, st: st, pos: e.pos, what: what, goal: goal)
+    match type_of(info: v.info, e: o)
+    case TStr then
+      return "(byte " ++ ov ++ " " ++ iv ++ ")"
+    case TList(elem: t) then
+      return "(elem_" ++ sort_of(t) ++ " " ++ ov ++ " " ++ iv ++ ")"
+    else
+      return fresh(v: inout v, sort: "Val")
+    end match
+  case Field(obj: o, name: f) then
+    match call_info(info: v.info, e: e)
+    case Some(value: ci) then
+      if ci.kind == "variant" then
+        let r = fresh(v: inout v, sort: "Val")
+        add_def(v: inout v, d: "(assert (= (tag " ++ r ++ ") " ++ int_to_str(ci.variant) ++ "))")
+        return r
+      end if
+    case None then
+    end match
+    let ov = vexpr(v: inout v, e: o, st: inout st)
+    var sn = ""
+    match type_of(info: v.info, e: o)
+    case TStruct(name: n) then
+      set sn = n
+    else
+      return fresh(v: inout v, sort: "Val")
+    end match
+    let fields = struct_fields(info: v.info, name: sn)
+    let binds = struct_binds(v: inout v, sn: sn, ov: ov)
+    let term = bind_of(binds: binds, n: f)
+    let fi = find_field(fields: fields, name: f)
+    if fi >= 0 then
+      for p in fields[fi].rty.preds do
+        let t = spec_with(v: inout v, e: p, binds: binds, subj: term)
+        add_fact(st: inout st, f: t)
+      end for
+    end if
+    return term
+  case With(obj: o, args: args) then
+    let ov = vexpr(v: inout v, e: o, st: inout st)
+    var sn = ""
+    match type_of(info: v.info, e: o)
+    case TStruct(name: n) then
+      set sn = n
+    else
+    end match
+    let fields = struct_fields(info: v.info, name: sn)
+    if len(sn) > 0 then
+      // The original value satisfies its struct's field refinements, so the fields
+      // that 'with' leaves unchanged still satisfy them.
+      let obinds = struct_binds(v: inout v, sn: sn, ov: ov)
+      for fl in fields do
+        for p in fl.rty.preds do
+          let t = spec_with(v: inout v, e: p, binds: obinds, subj: bind_of(binds: obinds, n: fl.name))
+          add_fact(st: inout st, f: t)
+        end for
+      end for
+    end if
+    var vals: Map<String, String> = {}
+    for a in args do
+      let t = vexpr(v: inout v, e: a.value, st: inout st)
+      set vals = insert(map: vals, key: a.name, value: t)
+    end for
+    if len(sn) == 0 then
+      return fresh(v: inout v, sort: "Val")
+    end if
+    var binds: Map<String, String> = {}
+    for fl in fields do
+      match lookup(map: vals, key: fl.name)
+      case Some(value: t) then
+        set binds = insert(map: binds, key: fl.name, value: t)
+      case None then
+        let fnn = field_fn(v: inout v, sname: sn, field: fl.name, t: fl.rty.ty)
+        set binds = insert(map: binds, key: fl.name, value: "(" ++ fnn ++ " " ++ ov ++ ")")
+      end match
+    end for
+    return construct_struct(v: inout v, st: inout st, pos: e.pos, sn: sn, binds: binds)
+  case Unary(op: op, x: x) then
+    let a = vexpr(v: inout v, e: x, st: inout st)
+    if op == "-" then
+      return "(- " ++ a ++ ")"
+    end if
+    return "(not " ++ a ++ ")"
+  case Binary(op: op, l: l, r: r) then
+    if (op == "and") or (op == "or") or (op == "implies") then
+      let a = vexpr(v: inout v, e: l, st: inout st)
+      var guard = a
+      if op == "or" then
+        set guard = "(not " ++ a ++ ")"
+      end if
+      var sub = st
+      add_fact(st: inout sub, f: guard)
+      let b = vexpr(v: inout v, e: r, st: inout sub)
+      let k = len(st.facts) + 1
+      if k <= len(sub.facts) then
+        let fresh_facts = slice(of: sub.facts, from: k, to: len(sub.facts))
+        if len(fresh_facts) > 0 then
+          add_fact(st: inout st, f: "(=> " ++ guard ++ " " ++ and_all(fresh_facts) ++ ")")
+        end if
+      end if
+      return define(v: inout v, sort: "Bool", term: binop_term(op: op, a: a, b: b))
+    end if
+    let a = vexpr(v: inout v, e: l, st: inout st)
+    let b = vexpr(v: inout v, e: r, st: inout st)
+    if (op == "/") or (op == "%") then
+      obligation(v: inout v, st: st, pos: e.pos, what: "divisor is not zero: " ++ pretty_expr(r), goal: "(not (= " ++ b ++ " 0))")
+      return define(v: inout v, sort: "Int", term: binop_term(op: op, a: a, b: b))
+    end if
+    if op == "++" then
+      let res = fresh(v: inout v, sort: "Val")
+      add_def(v: inout v, d: "(assert (= (len " ++ res ++ ") (+ (len " ++ a ++ ") (len " ++ b ++ "))))")
+      return res
+    end if
+    if contains_str(xs: ["==", "!=", "<", "<=", ">", ">="], x: op) then
+      return define(v: inout v, sort: "Bool", term: binop_term(op: op, a: a, b: b))
+    end if
+    return define(v: inout v, sort: "Int", term: binop_term(op: op, a: a, b: b))
+  end match
+end fn vexpr
+
+fn construct_struct(v: inout Verifier, st: inout St, pos: Pos, sn: String, binds: Map<String, String>) -> String do
+  let fields = struct_fields(info: v.info, name: sn)
+  for fl in fields do
+    for p in fl.rty.preds do
+      let g = spec_with(v: inout v, e: p, binds: binds, subj: bind_of(binds: binds, n: fl.name))
+      let what = "field '" ++ fl.name ++ "' of " ++ sn ++ " satisfies " ++ pretty_expr(p)
+      obligation(v: inout v, st: st, pos: pos, what: what, goal: g)
+    end for
+  end for
+  let r = fresh(v: inout v, sort: "Val")
+  for fl in fields do
+    let fnn = field_fn(v: inout v, sname: sn, field: fl.name, t: fl.rty.ty)
+    add_def(v: inout v, d: "(assert (= (" ++ fnn ++ " " ++ r ++ ") " ++ bind_of(binds: binds, n: fl.name) ++ "))")
+  end for
+  return r
+end fn construct_struct
+
+fn vcall(v: inout Verifier, e: Expr, args: List<Arg>, st: inout St) -> String do
+  var ci = CallInfo(kind: "", name: "", variant: 0, order: [])
+  match call_info(info: v.info, e: e)
+  case Some(value: x) then
+    set ci = x
+  case None then
+  end match
+  var vals: List<String> = []
+  for a in args do
+    set vals = push(list: vals, item: vexpr(v: inout v, e: a.value, st: inout st))
+  end for
+  var p: List<String> = []
+  var pe: List<Expr> = []
+  for i in ci.order do
+    if (i >= 0) and (i < len(vals)) and (i < len(args)) then
+      set p = push(list: p, item: vals[i])
+      set pe = push(list: pe, item: args[i].value)
+    end if
+  end for
+  if ci.kind == "user" then
+    return vcall_user(v: inout v, e: e, name: ci.name, p: p, pe: pe, st: inout st)
+  end if
+  if ci.kind == "struct" then
+    let fields = struct_fields(info: v.info, name: ci.name)
+    var binds: Map<String, String> = {}
+    for i in 0..len(fields) do
+      if i < len(p) then
+        set binds = insert(map: binds, key: fields[i].name, value: p[i])
+      end if
+    end for
+    return construct_struct(v: inout v, st: inout st, pos: e.pos, sn: ci.name, binds: binds)
+  end if
+  if ci.kind == "variant" then
+    let ty = type_of(info: v.info, e: e)
+    var vinfo = VariantInfo(name: "", fields: [])
+    match variants_of(info: v.info, t: ty)
+    case Some(value: vs) then
+      if (ci.variant >= 0) and (ci.variant < len(vs)) then
+        set vinfo = vs[ci.variant]
+      end if
+    case None then
+    end match
+    var binds: Map<String, String> = {}
+    for i in 0..len(vinfo.fields) do
+      if i < len(p) then
+        set binds = insert(map: binds, key: vinfo.fields[i].name, value: p[i])
+      end if
+    end for
+    for fl in vinfo.fields do
+      for pr in fl.rty.preds do
+        let g = spec_with(v: inout v, e: pr, binds: binds, subj: bind_of(binds: binds, n: fl.name))
+        let what = "field '" ++ fl.name ++ "' of " ++ ci.name ++ "." ++ vinfo.name ++ " satisfies " ++ pretty_expr(pr)
+        obligation(v: inout v, st: st, pos: e.pos, what: what, goal: g)
+      end for
+    end for
+    let r = fresh(v: inout v, sort: "Val")
+    add_def(v: inout v, d: "(assert (= (tag " ++ r ++ ") " ++ int_to_str(ci.variant) ++ "))")
+    for fl in vinfo.fields do
+      let fnn = vfield_fn(v: inout v, ename: ci.name, vname: vinfo.name, field: fl.name, t: fl.rty.ty)
+      add_def(v: inout v, d: "(assert (= (" ++ fnn ++ " " ++ r ++ ") " ++ bind_of(binds: binds, n: fl.name) ++ "))")
+    end for
+    return r
+  end if
+  return vbuiltin(v: inout v, e: e, name: ci.name, p: p, pe: pe, st: inout st)
+end fn vcall
+
+struct Update
+  var_name: String,
+  term: String,
+end struct Update
+
+fn vcall_user(v: inout Verifier, e: Expr, name: String, p: List<String>, pe: List<Expr>, st: inout St) -> String do
+  var fi = FnInfo(name: name, params: [], io: [], ret: plain(Ty.TUnknown), effects: [], pre: [], post: [], pos: e.pos)
+  match get_fn(info: v.info, name: name)
+  case Some(value: x) then
+    set fi = x
+  case None then
+  end match
+  var binds: Map<String, String> = {}
+  for i in 0..len(fi.params) do
+    if (i < len(p)) and (i < len(pe)) then
+      let fp = fi.params[i]
+      for pr in fp.rty.preds do
+        let g = spec_with(v: inout v, e: pr, binds: binds, subj: p[i])
+        let what = "argument '" ++ fp.name ++ "' of '" ++ name ++ "' satisfies " ++ pretty_expr(pr)
+        obligation(v: inout v, st: st, pos: pe[i].pos, what: what, goal: g)
+      end for
+      set binds = insert(map: binds, key: fp.name, value: p[i])
+    end if
+  end for
+  for r in fi.pre do
+    let g = spec_with(v: inout v, e: r, binds: binds, subj: "")
+    obligation(v: inout v, st: st, pos: e.pos, what: "precondition of '" ++ name ++ "': " ++ pretty_expr(r), goal: g)
+  end for
+  // Each inout argument's var receives a new value.
+  var post = binds
+  var updated: List<Update> = []
+  for i in 0..len(fi.params) do
+    if (i < len(fi.io)) and fi.io[i] and (i < len(pe)) then
+      let fp = fi.params[i]
+      let nv = fresh(v: inout v, sort: sort_of(fp.rty.ty))
+      set post = insert(map: post, key: fp.name, value: nv)
+      match pe[i].kind
+      case Var(name: vn) then
+        set updated = push(list: updated, item: Update(var_name: vn, term: nv))
+      else
+      end match
+    end if
+  end for
+  for i in 0..len(fi.params) do
+    if (i < len(fi.io)) and fi.io[i] then
+      let fp = fi.params[i]
+      let nv = bind_of(binds: post, n: fp.name)
+      for pr in fp.rty.preds do
+        let t = spec_with(v: inout v, e: pr, binds: post, subj: nv)
+        add_fact(st: inout st, f: t)
+      end for
+    end if
+  end for
+  let res = fresh(v: inout v, sort: sort_of(fi.ret.ty))
+  for pr in fi.ret.preds do
+    let t = spec_with(v: inout v, e: pr, binds: post, subj: res)
+    add_fact(st: inout st, f: t)
+  end for
+  for en in fi.post do
+    let t = sexpr(v: inout v, e: en, sp: Spec(binds: post, subj: "", res: res))
+    add_fact(st: inout st, f: t)
+  end for
+  for u in updated do
+    match lookup(map: st.env, key: u.var_name)
+    case Some(value: x) then
+      check_preds(v: inout v, st: st, pos: e.pos, name: u.var_name, preds: x.preds, term: u.term)
+      set st = st with (env: insert(map: st.env, key: u.var_name, value: x with (term: u.term)))
+    case None then
+    end match
+  end for
+  return res
+end fn vcall_user
+
+fn vbuiltin(v: inout Verifier, e: Expr, name: String, p: List<String>, pe: List<Expr>, st: inout St) -> String do
+  let rty = type_of(info: v.info, e: e)
+  let a0 = arg_str(p: p, i: 0)
+  let a1 = arg_str(p: p, i: 1)
+  let a2 = arg_str(p: p, i: 2)
+  match name
+  case "len" then
+    return define(v: inout v, sort: "Int", term: "(len " ++ a0 ++ ")")
+  case "push" then
+    var et = Ty.TUnknown
+    match rty
+    case TList(elem: t) then
+      set et = t
+    else
+    end match
+    let r = fresh(v: inout v, sort: "Val")
+    add_def(v: inout v, d: "(assert (= (len " ++ r ++ ") (+ (len " ++ a0 ++ ") 1)))")
+    add_def(v: inout v, d: "(assert (= (elem_" ++ sort_of(et) ++ " " ++ r ++ " (len " ++ a0 ++ ")) " ++ a1 ++ "))")
+    return r
+  case "slice" then
+    let goal = "(and (<= 0 " ++ a1 ++ ") (<= " ++ a1 ++ " " ++ a2 ++ ") (<= " ++ a2 ++ " (len " ++ a0 ++ ")))"
+    var what = "slice bounds"
+    if len(pe) >= 3 then
+      set what = "slice bounds: 0 <= " ++ pretty_expr(pe[1]) ++ " <= " ++ pretty_expr(pe[2]) ++ " <= len(" ++ pretty_expr(pe[0]) ++ ")"
+    end if
+    obligation(v: inout v, st: st, pos: e.pos, what: what, goal: goal)
+    // Only meaningful once the bounds hold, so it is a path fact, not a definition.
+    let r = fresh(v: inout v, sort: "Val")
+    add_fact(st: inout st, f: "(= (len " ++ r ++ ") (- " ++ a2 ++ " " ++ a1 ++ "))")
+    return r
+  case "char" then
+    let goal = "(and (<= 0 " ++ a0 ++ ") (< " ++ a0 ++ " 256))"
+    var what = "char code in range"
+    if len(pe) >= 1 then
+      set what = "char code in range: 0 <= " ++ pretty_expr(pe[0]) ++ " < 256"
+    end if
+    obligation(v: inout v, st: st, pos: e.pos, what: what, goal: goal)
+    let r = fresh(v: inout v, sort: "Val")
+    add_def(v: inout v, d: "(assert (= (len " ++ r ++ ") 1))")
+    add_fact(st: inout st, f: "(= (byte " ++ r ++ " 0) " ++ a0 ++ ")")
+    return r
+  case "int_to_str" then
+    let r = fresh(v: inout v, sort: "Val")
+    add_def(v: inout v, d: "(assert (>= (len " ++ r ++ ") 1))")
+    return r
+  case "hash" then
+    let r = fresh(v: inout v, sort: "Val")
+    add_def(v: inout v, d: "(assert (= (len " ++ r ++ ") 16))")
+    return r
+  case "keys" then
+    let r = fresh(v: inout v, sort: "Val")
+    add_def(v: inout v, d: "(assert (= (len " ++ r ++ ") (len " ++ a0 ++ ")))")
+    return r
+  case "panic" then
+    return "0"
+  case "exit" then
+    return "0"
+  case "print" then
+    return "0"
+  case "eprint" then
+    return "0"
+  else
+    return fresh(v: inout v, sort: sort_of(rty))
+  end match
+end fn vbuiltin
+
+fn arg_str(p: List<String>, i: Int) -> String do
+  if (i >= 0) and (i < len(p)) then
+    return p[i]
+  end if
+  return "0"
+end fn arg_str
+
+// ---- running Z3 ----
+
+struct Failure
+  fn_name: String,
+  ob: Ob,
+  verdict: String,
+  model: List<Shown>,
+end struct Failure
+
+struct Discharged
+  error: String,
+  failures: List<Failure>,
+end struct Discharged
+
+fn run_z3(script: String) -> Output uses proc do
+  var z3 = "z3"
+  match getenv("VOW_Z3")
+  case Some(value: x) then
+    set z3 = x
+  case None then
+  end match
+  return run(argv: [z3, "-in", "-smt2"], input: script)
+end fn run_z3
+
+fn script_for(pre: List<String>, vcs: List<FnVc>, model: Option<Ob>) -> String do
+  var s: List<String> = ["(set-option :produce-models true)", "(set-option :timeout 10000)"]
+  set s = s ++ pre
+  for vc in vcs do
+    set s = push(list: s, item: "(push 1) ; fn " ++ vc.name)
+    set s = s ++ vc.decls
+    set s = s ++ vc.defs
+    var obs: List<Ob> = vc.obs
+    var is_model = false
+    match model
+    case Some(value: o) then
+      set obs = [o]
+      set is_model = true
+    case None then
+      // Sanity check: the definitions alone must be satisfiable, or every
+      // obligation in this function would be proved vacuously.
+      set s = push(list: s, item: "(check-sat)")
+    end match
+    for ob in obs do
+      set s = push(list: s, item: "(push 1)")
+      for f in ob.facts do
+        set s = push(list: s, item: "(assert " ++ f ++ ")")
+      end for
+      set s = push(list: s, item: "(assert (not " ++ ob.goal ++ "))")
+      set s = push(list: s, item: "(check-sat)")
+      if is_model and (len(ob.show) > 0) then
+        var terms: List<String> = []
+        for x in ob.show do
+          set terms = push(list: terms, item: x.term)
+        end for
+        set s = push(list: s, item: "(get-value (" ++ join(parts: terms, sep: " ") ++ "))")
+      end if
+      set s = push(list: s, item: "(pop 1)")
+    end for
+    set s = push(list: s, item: "(pop 1)")
+  end for
+  return join(parts: s, sep: "\n") ++ "\n"
+end fn script_for
+
+// The values printed by (get-value ...), in order.
+fn parse_values(out: String) -> List<String> do
+  var vals: List<String> = []
+  let start = find_sub(s: out, p: "((")
+  if start < 0 then
+    return vals
+  end if
+  var i = start + 1
+  while i < len(out) invariant i >= 0 do
+    let c = out[i]
+    if c == '(' then
+      var depth = 0
+      var j = i
+      var closed = false
+      while j < len(out) invariant j >= i invariant j <= len(out) do
+        if out[j] == '(' then
+          set depth = depth + 1
+        elif out[j] == ')' then
+          set depth = depth - 1
+          if depth == 0 then
+            set closed = true
+            break
+          end if
+        end if
+        set j = j + 1
+      end while
+      if not closed then
+        return vals
+      end if
+      if (i + 1) <= j then
+        set vals = push(list: vals, item: split_pair(slice(of: out, from: i + 1, to: j)))
+      end if
+      set i = j + 1
+    elif c == ')' then
+      break
+    else
+      set i = i + 1
+    end if
+  end while
+  return vals
+end fn parse_values
+
+// "term value": the term is an atom or a parenthesised expression.
+fn split_pair(pair: String) -> String do
+  let p = trim(pair)
+  var i = 0
+  if (len(p) > 0) and (p[0] == '(') then
+    var d = 0
+    while i < len(p) invariant i >= 0 do
+      if p[i] == '(' then
+        set d = d + 1
+      elif p[i] == ')' then
+        set d = d - 1
+        if d == 0 then
+          set i = i + 1
+          break
+        end if
+      end if
+      set i = i + 1
+    end while
+  else
+    while (i < len(p)) and not is_space(p[i]) invariant i >= 0 do
+      set i = i + 1
+    end while
+  end if
+  if i > len(p) then
+    return ""
+  end if
+  let val = trim(slice(of: p, from: i, to: len(p)))
+  // Render (- 5) as -5.
+  if starts_with(s: val, p: "(- ") and ends_with(s: val, p: ")") and (len(val) >= 4) then
+    return "-" ++ trim(slice(of: val, from: 3, to: len(val) - 1))
+  end if
+  return val
+end fn split_pair
+
+fn discharge(pre: List<String>, vcs: List<FnVc>) -> Discharged uses proc, fs do
+  let script = script_for(pre: pre, vcs: vcs, model: Option.None)
+  match getenv("VOW_SMT_DUMP")
+  case Some(value: path) then
+    let ok = write_file(path: path, contents: script)
+  case None then
+  end match
+  let o = run_z3(script)
+  var answers: List<String> = []
+  for l0 in split(s: o.out, sep: '\n') do
+    let l = trim(l0)
+    if (l == "sat") or (l == "unsat") or (l == "unknown") or starts_with(s: l, p: "(error") then
+      set answers = push(list: answers, item: l)
+    end if
+  end for
+  let none: List<Failure> = []
+  for a in answers do
+    if starts_with(s: a, p: "(error") then
+      return Discharged(error: "Z3 rejected the generated query: " ++ a, failures: none)
+    end if
+  end for
+  var total = 0
+  for vc in vcs do
+    set total = total + (len(vc.obs) + 1)
+  end for
+  if len(answers) != total then
+    let msg = "Z3 answered " ++ int_to_str(len(answers)) ++ " of " ++ int_to_str(total) ++ " queries"
+    if o.code != 0 then
+      return Discharged(error: msg ++ " (is Z3 installed? set VOW_Z3 to its path)", failures: none)
+    end if
+    return Discharged(error: msg, failures: none)
+  end if
+  var failures: List<Failure> = []
+  var k = 0
+  for vc in vcs invariant k >= 0 do
+    if (k < len(answers)) and (answers[k] == "unsat") then
+      return Discharged(error: "internal verifier error: the definitions for '" ++ vc.name ++ "' are inconsistent", failures: none)
+    end if
+    set k = k + 1
+    for ob in vc.obs invariant k >= 0 do
+      var a = "unknown"
+      if k < len(answers) then
+        set a = answers[k]
+      end if
+      set k = k + 1
+      if a == "unsat" then
+        continue
+      end if
+      var model: List<Shown> = []
+      if (a == "sat") and (len(ob.show) > 0) then
+        let mo = run_z3(script_for(pre: pre, vcs: [vc], model: Option.Some(value: ob)))
+        let vals = parse_values(mo.out)
+        for i in 0..len(ob.show) do
+          if i < len(vals) then
+            set model = push(list: model, item: Shown(name: ob.show[i].name, term: vals[i]))
+          end if
+        end for
+      end if
+      set failures = push(list: failures, item: Failure(fn_name: vc.name, ob: ob, verdict: a, model: model))
+    end for
+  end for
+  return Discharged(error: "", failures: failures)
+end fn discharge
+
+fn failure_diag(f: Failure) -> Diag do
+  var d = diag(pos: f.ob.pos, msg: "cannot prove " ++ f.ob.what)
+  if f.verdict == "unknown" then
+    set d = with_note(d: d, note: "Z3 gave up (timeout or incomplete theory); add an assertion, invariant or check to help it")
+  elif len(f.model) > 0 then
+    var parts: List<String> = []
+    for m in f.model do
+      set parts = push(list: parts, item: m.name ++ " = " ++ m.term)
+    end for
+    set d = with_note(d: d, note: "counterexample: " ++ join(parts: parts, sep: ", "))
+  end if
+  return with_note(d: d, note: "in function '" ++ f.fn_name ++ "'")
+end fn failure_diag
