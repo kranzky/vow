@@ -1,0 +1,4 @@
+// error: cannot prove assertion: false
+fn main() do
+  assert false
+end fn main

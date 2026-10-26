@@ -1,0 +1,5 @@
+// error: cannot prove divisor is not zero: d
+fn ratio(n: Int, d: Int) -> Int do
+  return n / d
+end fn ratio
+fn main() do end fn main

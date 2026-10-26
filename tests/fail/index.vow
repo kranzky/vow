@@ -1,0 +1,5 @@
+// error: cannot prove index in bounds: 0 <= 0 < len(xs)
+fn first(xs: List<Int>) -> Int do
+  return xs[0]
+end fn first
+fn main() do end fn main

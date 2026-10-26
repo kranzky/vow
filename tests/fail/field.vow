@@ -1,0 +1,9 @@
+// error: cannot prove field 'hi' of Range satisfies it >= lo
+struct Range
+  lo: Int,
+  hi: Int where it >= lo,
+end struct Range
+fn make(a: Int, b: Int) -> Range do
+  return Range(lo: a, hi: b)
+end fn make
+fn main() do end fn main

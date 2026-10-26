@@ -5,6 +5,7 @@ mod diag;
 mod lexer;
 mod parser;
 mod pretty;
+mod verify;
 
 use ast::Item;
 use diag::{Diag, Pos};
@@ -104,11 +105,13 @@ fn main() {
     let cmd = argv[0].as_str();
     let file = argv[1].clone();
     let mut json = false;
+    let mut no_verify = false;
     let mut out: Option<String> = None;
     let mut i = 2;
     while i < argv.len() {
         match argv[i].as_str() {
             "--json" => json = true,
+            "--no-verify" => no_verify = true,
             "-o" if i + 1 < argv.len() => {
                 out = Some(argv[i + 1].clone());
                 i += 1;
@@ -137,7 +140,51 @@ fn main() {
         report(&errs, &src.files, json);
         exit(1);
     }
-    let verified = false;
+    // Holes and verification. Holes are reported together with the facts the verifier
+    // knows at that point, so the verifier runs even when there are holes.
+    let mut verified = false;
+    if !no_verify || !info.holes.is_empty() {
+        let mut v = verify::Verifier::new(&info);
+        let mut vcs = Vec::new();
+        for it in &src.items {
+            if let Item::Fn(f) = it {
+                vcs.push(v.function(f));
+            }
+        }
+        if !info.holes.is_empty() {
+            let mut diags = Vec::new();
+            for h in &info.holes {
+                let mut d = Diag::new(h.pos, &format!("hole ?{} needs a value of type {}", h.name, h.expected.show()));
+                d.kind = "hole";
+                let locals: Vec<String> = h.locals.iter().map(|(n, t)| format!("{}: {}", n, t.show())).collect();
+                d = d.note(&format!("in scope: {}", if locals.is_empty() { "(nothing)".into() } else { locals.join(", ") }));
+                if let Some(facts) = v.hole_facts.get(&h.id) {
+                    if !facts.is_empty() {
+                        d = d.note(&format!("known facts: {}", facts.join("; ")));
+                    }
+                }
+                diags.push(d);
+            }
+            report(&diags, &src.files, json);
+            exit(1);
+        }
+        let pre: Vec<String> = v.preamble.iter().cloned().collect();
+        let pre = order_preamble(pre);
+        match verify::discharge(&pre, &vcs) {
+            Err(e) => {
+                eprintln!("vowc: {}", e);
+                exit(1);
+            }
+            Ok(fails) => {
+                if !fails.is_empty() {
+                    let diags: Vec<Diag> = fails.iter().map(verify::failure_diag).collect();
+                    report(&diags, &src.files, json);
+                    exit(1);
+                }
+            }
+        }
+        verified = !no_verify;
+    }
     let c = codegen::generate(&src.items, &info, &src.files, verified);
     match cmd {
         "check" => println!("ok"),
@@ -169,6 +216,20 @@ fn main() {
             exit(2);
         }
     }
+}
+
+/// The sort declaration must come first; declarations before assertions.
+fn order_preamble(mut pre: Vec<String>) -> Vec<String> {
+    pre.sort_by_key(|l| {
+        if l.starts_with("(declare-sort") {
+            0
+        } else if l.starts_with("(declare") {
+            1
+        } else {
+            2
+        }
+    });
+    pre
 }
 
 const RUNTIME: &str = include_str!("../../runtime/vow_rt.h");

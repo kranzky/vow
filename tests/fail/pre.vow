@@ -1,0 +1,7 @@
+// error: cannot prove precondition of 'half': (n % 2) == 0
+fn half(n: Int) -> Int requires (n % 2) == 0 do
+  return n / 2
+end fn half
+fn main() do
+  let h = half(7)
+end fn main

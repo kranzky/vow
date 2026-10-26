@@ -1,0 +1,11 @@
+// error: cannot prove loop invariant is preserved: total <= i
+fn sum_to(n: Int where it >= 0) -> Int do
+  var total = 0
+  var i = 0
+  while i < n invariant total <= i do
+    set total = total + 2
+    set i = i + 1
+  end while
+  return total
+end fn sum_to
+fn main() do end fn main

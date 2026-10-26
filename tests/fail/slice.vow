@@ -1,0 +1,5 @@
+// error: cannot prove slice bounds
+fn tail(s: String) -> String do
+  return slice(of: s, from: 1, to: len(s))
+end fn tail
+fn main() do end fn main

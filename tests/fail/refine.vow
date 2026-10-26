@@ -1,0 +1,6 @@
+// error: cannot prove 'n' satisfies it >= 0
+fn f(x: Int where it >= 0) -> Int do
+  let n: Int where it >= 0 = x - 1
+  return n
+end fn f
+fn main() do end fn main

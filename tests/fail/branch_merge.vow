@@ -1,0 +1,10 @@
+// error: cannot prove assertion: y == 1
+fn f(x: Int) -> Int do
+  var y = 0
+  if x > 0 then
+    set y = 1
+  end if
+  assert y == 1
+  return y
+end fn f
+fn main() do end fn main

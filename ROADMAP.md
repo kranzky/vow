@@ -21,3 +21,7 @@
       on Windows; support `cc`, `clang`, MSVC and `zig cc` as the C backend
 - [ ] M10: vow.kranzky.com: static site with the spec, the LLM guide, `llms.txt` and
       examples (GitHub Pages + CNAME)
+- [ ] M11: Backends beyond C, in order: `#line` directives so C-level errors and
+      debuggers point at `.vow` lines; bundled `zig cc` to remove the C toolchain
+      dependency; a WebAssembly backend (powers a browser playground on the site);
+      QBE only if compile speed becomes the bottleneck; a native backend last, if ever
