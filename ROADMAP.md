@@ -50,7 +50,8 @@ Must-have, language and proofs:
 Must-have, runtime and portability:
 - [ ] Memory reclamation (reference counting or GC)
 - [ ] Windows `run()`, `#line` mapping, readable panics
-- [ ] Standard library and C FFI; `net`/`time`/`random` effects
+- [x] `std/text.vow` (verified text library), `make_dir`, `list_dir`
+- [ ] More standard modules and a C FFI; `net`/`time`/`random` effects
 
 Must-have, tooling:
 - [ ] `vowc fmt`, `vowc test`, LSP (hover shows type and known facts)

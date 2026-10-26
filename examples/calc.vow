@@ -1,0 +1,89 @@
+// A recursive-descent evaluator for sums with parentheses, such as "10 - (2 + 3)".
+// The recursion is proved to terminate: each nested call starts further into the
+// input, and every loop consumes input.
+
+struct Parsed
+  ok: Bool,
+  value: Int,
+  pos: Int,
+end struct Parsed
+
+// A constructor call is not a specification expression, so say what callers need.
+fn fail(pos: Int) -> Parsed
+  ensures (not result.ok) and (result.pos == pos)
+do
+  return Parsed(ok: false, value: 0, pos: pos)
+end fn fail
+
+fn skip_spaces(s: String, pos: Int where (0 <= it) and (it <= len(s))) -> Int
+  ensures (pos <= result) and (result <= len(s))
+do
+  var i = pos
+  while (i < len(s)) and (s[i] == ' ') invariant (pos <= i) and (i <= len(s)) decreases len(s) - i do
+    set i = i + 1
+  end while
+  return i
+end fn skip_spaces
+
+// A sum of terms starting at pos. A term is a number or a parenthesised sum.
+fn sum_at(s: String, pos: Int where (0 <= it) and (it <= len(s))) -> Parsed
+  ensures (pos <= result.pos) and (result.pos <= len(s))
+  decreases len(s) - pos
+do
+  var total = 0
+  var sign = 1
+  var i = skip_spaces(s: s, pos: pos)
+  while i < len(s) invariant (pos <= i) and (i <= len(s)) decreases len(s) - i do
+    let c = s[i]
+    var term = 0
+    if c == '(' then
+      let inner = sum_at(s: s, pos: i + 1)
+      if (not inner.ok) or (inner.pos >= len(s)) or (s[inner.pos] != ')') then
+        return fail(inner.pos)
+      end if
+      set term = inner.value
+      set i = inner.pos + 1
+    elif (c >= '0') and (c <= '9') then
+      // Progress: entered on a digit, so the loop consumes at least one byte.
+      let start = i
+      while (i < len(s)) and (s[i] >= '0') and (s[i] <= '9')
+        invariant (start <= i) and (i <= len(s))
+        decreases len(s) - i
+      do
+        let d = s[i] - '0'
+        if term > ((9223372036854775807 - d) / 10) then
+          return fail(i)
+        end if
+        set term = (term * 10) + d
+        set i = i + 1
+      end while
+    else
+      return fail(i)
+    end if
+    set total = total + (sign * term)
+    set i = skip_spaces(s: s, pos: i)
+    if (i < len(s)) and (s[i] == '+') then
+      set sign = 1
+    elif (i < len(s)) and (s[i] == '-') then
+      set sign = -1
+    else
+      return Parsed(ok: true, value: total, pos: i)
+    end if
+    set i = skip_spaces(s: s, pos: i + 1)
+  end while
+  return fail(i)
+end fn sum_at
+
+fn eval(s: String) -> String do
+  let r = sum_at(s: s, pos: 0)
+  if r.ok and (r.pos == len(s)) then
+    return int_to_str(r.value)
+  end if
+  return "error at " ++ int_to_str(r.pos)
+end fn eval
+
+fn main() uses console do
+  for e in ["1 + 2", "10 - (2 + 3)", "((7))", "4 - (1 - (2 - 3))", "2 +", "(1 + 2"] do
+    print(e ++ " = " ++ eval(e) ++ "\n")
+  end for
+end fn main

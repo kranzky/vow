@@ -130,6 +130,28 @@ Built-ins: `len push slice join int_to_str str_to_int char insert lookup has key
 panic print eprint read_file write_file args getenv run exit`. Signatures are in the
 spec. `print` adds no newline.
 
+### The standard library
+
+`import "std/text.vow"` works from any file (the module is built into the compiler).
+Every function in it is verified and carries a contract, so use it rather than writing
+your own string helpers:
+
+| Function | What its contract tells you |
+|---|---|
+| `is_digit(c)`, `is_alpha(c)`, `is_alnum(c)`, `is_space(c)` | transparent (expression functions) |
+| `starts_at(s: s, at: i, p: p)`, `starts_with(s: s, p: p)`, `ends_with(s: s, p: p)` | transparent: when true, the bounds and every byte of the match are known |
+| `find(s: s, p: p, from: i) -> Int` | `-1`, or an index `>= from` where `p` occurs; `-1` means no occurrence at or after `from` |
+| `find_byte(s: s, c: c, from: i)`, `find_last_byte(s: s, c: c)` | `-1` or an in-bounds index holding `c`; `-1` means absent |
+| `contains(s: s, p: p) -> Bool` | true implies an occurrence exists |
+| `split(s: s, sep: c) -> List<String>` | at least one piece; no piece contains `sep` |
+| `lines(s) -> List<String>` | handles `\n` and `\r\n`; no line contains `\n` |
+| `trim(s)`, `trim_start(s)`, `trim_end(s)` | no longer than `s`; no surrounding space |
+| `replace(s: s, old: o, new: n)`, `repeat(s: s, n: k)` | proved to terminate |
+| `to_lower(s)`, `to_upper(s)` | same length; no upper (lower) case letters |
+
+Library names share the global namespace, so don't define your own `trim` in a file
+that imports it.
+
 ## 4. Making proofs go through
 
 The verifier reasons about each function **using only the signatures of the functions
@@ -238,6 +260,24 @@ whose whole body is `return <spec expression>` can be used inside specifications
 verifier at runtime too, so `if is_sorted(xs) then ...` teaches the verifier that
 `xs` is sorted.
 
+**Give every helper the contract its callers need.** The verifier reasons about a
+call from the callee's signature alone. A single-expression function is transparent;
+anything else exposes only its `ensures`. Two cases catch people out:
+- A predicate with a loop says nothing when it returns `true` unless you write
+  `ensures result implies ...` (see `find` in `std/text.vow`). Prefer writing the
+  predicate as one expression, so it is transparent.
+- A helper that builds a struct is *not* an expression function (constructors are not
+  specification expressions), so its callers learn nothing about the fields. Say what
+  they need (from `examples/calc.vow`):
+
+  ```
+  fn fail(pos: Int) -> Parsed
+    ensures (not result.ok) and (result.pos == pos)
+  do
+    return Parsed(ok: false, value: 0, pos: pos)
+  end fn fail
+  ```
+
 **Sortedness: use the pairwise form.** `forall i in 0..n: forall j in i..n: xs[i] <=
 xs[j]` is what proofs need; the adjacent form (`xs[i-1] <= xs[i]`) needs induction,
 which the verifier cannot do.
@@ -252,6 +292,34 @@ non-negative at the top of an iteration and smaller at its end:
 `decreases n` in its contract. If the measure needs help, add a progress invariant
 (`let start = i` before the loop, `invariant i > start` inside). Without a measure, a
 contract only says what holds *if* the code returns.
+
+**Nested loops need progress invariants.** A loop's measure must drop on every path,
+including paths through inner loops. After an inner loop the verifier only knows the
+inner invariants, so record where it started:
+
+```
+let start = i                        // entered on a digit
+while (i < len(s)) and is_digit(s[i]) invariant (start <= i) and (i <= len(s)) decreases len(s) - i do
+  set i = i + 1
+end while
+// The verifier now knows i > start: had the loop stopped at once, s[start] would be a
+// digit and the condition would still hold.
+```
+
+**Recursive descent with measures.** `examples/calc.vow` parses nested parentheses
+with one directly recursive function. It is proved to terminate with
+`decreases len(s) - pos` because every recursive call starts after a consumed `(`,
+and its `ensures (pos <= result.pos) and (result.pos <= len(s))` lets the caller's loop
+prove progress. Mutual recursion can't be measured yet, so put the recursion in one
+function.
+
+**Proofs about built strings.** The verifier tracks the bytes of strings built with
+`++`, `slice` and `char`, so a property such as "no `<` anywhere" can be an invariant
+of a `++` loop (`examples/escape.vow`). It knows nothing about the bytes of a `join`.
+So when you need a proof about a string's contents, build that string with `++`. Use
+`join` when only speed matters; it avoids the quadratic copying of repeated `++`. A
+common split: prove each small piece (for example, every escaped text fragment), then
+`join` the pieces into the page.
 
 **Specifications are restricted.** Inside `requires`, `ensures`, `where`, `invariant`,
 `decreases`, `assert` and `check` you may use literals, variables, `it`, `result`,
@@ -352,7 +420,7 @@ Repeated `++` copies the whole string every time.
 **Removing the last list element.** `slice(of: xs, from: 0, to: len(xs) - 1)` after
 checking `len(xs) > 0`.
 
-**A loop that runs at least once, or a loop with a flag:**
+**A loop with a flag:**
 
 ```
 var more = true
@@ -362,15 +430,59 @@ while more do
 end while
 ```
 
+This loop has no `decreases` measure, so it gets no termination proof. That's fine
+when termination isn't required. When it is, loop over a quantity that shrinks, such
+as the remaining input (`while pos < len(toks) ... decreases len(toks) - pos`).
+
+**Text processing.** Trim, skip blanks and comments, split on a separator, and let
+the library's contracts prove the slices (from `examples/config.vow`):
+
+```
+import "std/text.vow"
+
+fn parse_line(line: String) -> Option<Entry> do
+  let t = trim(line)
+  if (len(t) == 0) or starts_with(s: t, p: "#") then
+    return Option.None
+  end if
+  let eq = find_byte(s: t, c: '=', from: 0)
+  if eq < 0 then
+    return Option.None
+  end if
+  // find_byte's contract says t[eq] is '=', so both slices are in bounds.
+  let key = trim(slice(of: t, from: 0, to: eq))
+  ...
+```
+
+`for line in lines(text)` handles both `\n` and `\r\n` line endings.
+
 **Errors without exceptions.** Return an `Option`, a struct with an `error: String`
 field (empty means success), or record diagnostics in an `inout` state. The
 self-hosted parser records the first error and jumps its cursor to end of file, so
 every loop stops naturally.
 
 **Effects.** Declare the smallest set you need: `uses console` for
-`print`/`eprint`, `uses fs` for files, `uses proc` for `args`, `getenv`, `run` and
-`exit`. A pure function needs no `uses` clause, and that is checkable by anyone
-reading its signature.
+`print`/`eprint`, `uses fs` for files and directories (`read_file`, `write_file`,
+`make_dir`, `list_dir`), `uses proc` for `args`, `getenv`, `run` and `exit`. A pure
+function needs no `uses` clause, and that is checkable by anyone reading its signature.
+
+**A command-line tool without `proc`.** Keep every function pure except `main`, and
+end on errors with `panic`, which needs no effect. `exit` and `args` need `proc`, so
+a tool limited to `fs` and `console` uses fixed paths or reads its inputs from a file.
+`make_dir` creates missing parents like `mkdir -p`; `list_dir` returns sorted names.
+From `examples/mkindex.vow`:
+
+```
+fn main() uses fs, console do
+  match list_dir("examples")
+  case None then
+    panic("cannot list examples (run from the repository root)")
+  case Some(value: names) then
+    if not make_dir("build/index") then
+      panic("cannot create build/index")
+    end if
+    ...
+```
 
 ## 7. A working session
 
@@ -387,6 +499,12 @@ reading its signature.
   holds the target, -1 means absent) and termination
 - `examples/isort.vow`: insertion sort proved sorted and length-preserving
 - `examples/escape.vow`: an HTML escaper proved never to emit `<` or `>`
+- `examples/config.vow`: text processing with `std/text.vow`
+- `examples/calc.vow`: recursive descent proved to terminate
+- `examples/mkindex.vow`: a command-line tool with only `fs` and `console`
+- `tools/vowsite/`: a 545-line static site generator, written by another model from
+  this guide alone (see its `REPORT.md`)
+- `std/text.vow`: the verified standard text library
 - `examples/cursor.vow`: refined struct fields with `inout`
 - `examples/wordfreq.vow`: string scanning, maps and options
 - `examples/shapes.vow`: enums, refinement aliases, exhaustive `match`

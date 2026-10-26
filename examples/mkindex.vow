@@ -1,0 +1,34 @@
+// A batch tool with only `fs` and `console` effects: it lists the .vow files in a
+// directory and writes an index. Errors end the program with `panic`, which needs no
+// effect. (`exit` and `args` would need `proc`; this tool uses fixed paths instead.)
+
+import "std/text.vow"
+
+// Everything except main is pure, so the I/O boundary is visible in the signatures.
+fn index(names: List<String>) -> String do
+  var parts: List<String> = ["# Vow examples", ""]
+  for n in names do
+    if ends_with(s: n, p: ".vow") then
+      set parts = push(list: parts, item: "- " ++ slice(of: n, from: 0, to: len(n) - 4))
+    end if
+  end for
+  return join(parts: parts, sep: "\n") ++ "\n"
+end fn index
+
+fn main() uses fs, console do
+  let src = "examples"
+  let out = "build/index"
+  match list_dir(src)
+  case None then
+    panic("cannot list " ++ src ++ " (run from the repository root)")
+  case Some(value: names) then
+    if not make_dir(out) then
+      panic("cannot create " ++ out)
+    end if
+    let path = out ++ "/examples.md"
+    if not write_file(path: path, contents: index(names)) then
+      panic("cannot write " ++ path)
+    end if
+    print("wrote " ++ path ++ "\n")
+  end match
+end fn main

@@ -44,7 +44,9 @@ name variables, parameters or binders.
 ## Program structure
 
 A program is a sequence of declarations. `import "path.vow"` textually merges another
-file (resolved relative to the importing file; each file is included once). All
+file (resolved relative to the importing file; each file is included once). Paths
+beginning with `std/` name standard library modules built into the compiler, such as
+`import "std/text.vow"`. All
 declarations share one global namespace and may appear in any order.
 
 ```
@@ -225,6 +227,8 @@ SMT-LIB. The divisor must be provably non-zero.
 | `print(s)`, `eprint(s)` | `uses console`; no newline is added |
 | `read_file(path) -> Option<String>` | `uses fs` |
 | `write_file(path: p, contents: c) -> Bool` | `uses fs` |
+| `make_dir(path) -> Bool` | `uses fs`; creates missing parents; true if the directory exists afterwards |
+| `list_dir(path) -> Option<List<String>>` | `uses fs`; sorted names, without `.` and `..` |
 | `args() -> List<String>` | `uses proc`; excludes the program name |
 | `getenv(name) -> Option<String>` | `uses proc` |
 | `run(argv: List<String>, input: String) -> Output` | `uses proc`; runs a subprocess |

@@ -55,6 +55,11 @@ end fn search
 - **Content-addressed verification.** A function is re-verified only when its body, or
   the *contracts* of what it calls, change.
 
+## Standard library
+
+`import "std/text.vow"` gives verified text utilities (`find`, `split`, `lines`,
+`trim`, `replace`, `starts_with`, ...), each with a contract the verifier can use.
+
 ## Self-hosting
 
 The compiler is written in Vow (`compiler/`, about 6,000 lines) and verified by itself:

@@ -1,0 +1,47 @@
+// Parsing "key = value" lines with comments: the everyday text-processing recipe.
+// Uses std/text.vow; every slice below is proved in bounds.
+
+import "std/text.vow"
+
+struct Entry
+  key: String where len(it) > 0,
+  value: String,
+end struct Entry
+
+// One line of the file: an entry, or nothing for blank lines, comments and junk.
+fn parse_line(line: String) -> Option<Entry> do
+  let t = trim(line)
+  if (len(t) == 0) or starts_with(s: t, p: "#") then
+    return Option.None
+  end if
+  let eq = find_byte(s: t, c: '=', from: 0)
+  if eq < 0 then
+    return Option.None
+  end if
+  // find_byte's contract says t[eq] is '=', so both slices are in bounds.
+  let key = trim(slice(of: t, from: 0, to: eq))
+  if len(key) == 0 then
+    return Option.None
+  end if
+  return Option.Some(value: Entry(key: key, value: trim(slice(of: t, from: eq + 1, to: len(t)))))
+end fn parse_line
+
+fn parse(text: String) -> Map<String, String> do
+  var out: Map<String, String> = {}
+  for line in lines(text) do
+    match parse_line(line)
+    case Some(value: e) then
+      set out = insert(map: out, key: e.key, value: e.value)
+    case None then
+    end match
+  end for
+  return out
+end fn parse
+
+fn main() uses console do
+  let text = "# settings\nname = Vow\n\n  version=0.1  \nbroken line\n= no key\npath = a=b\r\n"
+  let conf = parse(text)
+  for k in keys(conf) do
+    print(k ++ " -> " ++ value_or(opt: lookup(map: conf, key: k), default: "") ++ "\n")
+  end for
+end fn main
