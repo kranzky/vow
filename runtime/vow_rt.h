@@ -12,11 +12,13 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
+#include <dirent.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -425,6 +427,50 @@ static V vwrite_file(V path, V contents) {
     size_t w = fwrite(VS(contents)->data, 1, (size_t)VS(contents)->len, f);
     int ok = fclose(f) == 0 && w == (size_t)VS(contents)->len;
     return (V)ok;
+}
+
+// make_dir(path): create the directory and any missing parents, like `mkdir -p`.
+static V vmake_dir(V path) {
+    int64_t n = VS(path)->len;
+    if (n == 0) return 0;
+    char *p = (char *)malloc((size_t)n + 1);
+    memcpy(p, VS(path)->data, (size_t)n + 1);
+    for (int64_t i = 1; i < n; i++) {
+        if (p[i] == '/') {
+            p[i] = 0;
+            mkdir(p, 0777);
+            p[i] = '/';
+        }
+    }
+    mkdir(p, 0777);
+    struct stat st;
+    int ok = stat(p, &st) == 0 && S_ISDIR(st.st_mode);
+    free(p);
+    return (V)ok;
+}
+
+static int vow_name_cmp(const void *a, const void *b) {
+    return vstr_cmp(*(const V *)a, *(const V *)b);
+}
+
+// list_dir(path): the names in a directory, sorted, without "." and "..".
+static V vlist_dir(V path) {
+    DIR *d = opendir(VS(path)->data);
+    if (!d) return vnone();
+    int64_t cap = 16, n = 0;
+    V *names = (V *)malloc(sizeof(V) * (size_t)cap);
+    struct dirent *e;
+    while ((e = readdir(d)) != 0) {
+        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
+        if (n == cap) names = (V *)realloc(names, sizeof(V) * (size_t)(cap *= 2));
+        names[n++] = vstr_new(e->d_name, (int64_t)strlen(e->d_name));
+    }
+    closedir(d);
+    qsort(names, (size_t)n, sizeof(V), vow_name_cmp);
+    V l = vlist_empty();
+    for (int64_t i = 0; i < n; i++) l = vlist_push(l, names[i]);
+    free(names);
+    return vsome(l);
 }
 
 static V vargs(void) {

@@ -1677,7 +1677,7 @@ end fn script_for
 // The values printed by (get-value ...), in order.
 fn parse_values(out: String) -> List<String> do
   var vals: List<String> = []
-  let start = find_sub(s: out, p: "((")
+  let start = find(s: out, p: "((", from: 0)
   if start < 0 then
     return vals
   end if

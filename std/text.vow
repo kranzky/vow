@@ -1,0 +1,261 @@
+// std/text.vow: verified text utilities. Import with `import "std/text.vow"`.
+//
+// Strings are byte strings. The single-expression functions here (is_digit,
+// starts_at, starts_with, ...) are expression functions: the verifier sees through
+// them, so a caller that checks `starts_with(s: line, p: "# ")` learns the bounds and
+// the bytes, with no extra annotations.
+
+// ---- bytes ----
+
+fn is_digit(c: Int) -> Bool do
+  return (c >= '0') and (c <= '9')
+end fn is_digit
+
+fn is_alpha(c: Int) -> Bool do
+  return ((c >= 'a') and (c <= 'z')) or ((c >= 'A') and (c <= 'Z')) or (c == '_')
+end fn is_alpha
+
+fn is_alnum(c: Int) -> Bool do
+  return is_alpha(c) or is_digit(c)
+end fn is_alnum
+
+fn is_space(c: Int) -> Bool do
+  return (c == ' ') or (c == '\t') or (c == '\r') or (c == '\n')
+end fn is_space
+
+// ---- matching ----
+
+// True if `p` occurs in `s` starting at byte `at`.
+fn starts_at(s: String, at: Int, p: String) -> Bool do
+  return ((0 <= at) and ((at + len(p)) <= len(s))) and (forall k in 0..len(p): s[at + k] == p[k])
+end fn starts_at
+
+fn starts_with(s: String, p: String) -> Bool do
+  return starts_at(s: s, at: 0, p: p)
+end fn starts_with
+
+fn ends_with(s: String, p: String) -> Bool do
+  return starts_at(s: s, at: len(s) - len(p), p: p)
+end fn ends_with
+
+// The first index at or after `from` where `p` occurs, or -1.
+fn find(s: String, p: String, from: Int where it >= 0) -> Int
+  ensures (-1 <= result) and (result < (len(s) + 1))
+  ensures (result >= 0) implies ((from <= result) and starts_at(s: s, at: result, p: p))
+  ensures (result == -1) implies (forall i in from..((len(s) - len(p)) + 1): not starts_at(s: s, at: i, p: p))
+do
+  var i = from
+  while (i + len(p)) <= len(s)
+    invariant from <= i
+    invariant forall j in from..i: not starts_at(s: s, at: j, p: p)
+    decreases len(s) - i
+  do
+    if starts_at(s: s, at: i, p: p) then
+      return i
+    end if
+    set i = i + 1
+  end while
+  return -1
+end fn find
+
+// The first index at or after `from` holding byte `c`, or -1.
+fn find_byte(s: String, c: Int, from: Int where it >= 0) -> Int
+  ensures (-1 <= result) and (result < len(s))
+  ensures (result >= 0) implies ((from <= result) and (s[result] == c))
+  ensures (result == -1) implies (forall i in from..len(s): s[i] != c)
+do
+  for i in from..len(s) invariant forall j in from..i: s[j] != c do
+    if s[i] == c then
+      return i
+    end if
+  end for
+  return -1
+end fn find_byte
+
+// The last index holding byte `c`, or -1.
+fn find_last_byte(s: String, c: Int) -> Int
+  ensures (-1 <= result) and (result < len(s))
+  ensures (result >= 0) implies (s[result] == c)
+  ensures (result >= 0) implies (forall j in (result + 1)..len(s): s[j] != c)
+  ensures (result == -1) implies (forall j in 0..len(s): s[j] != c)
+do
+  var i = len(s) - 1
+  while i >= 0
+    invariant i < len(s)
+    invariant forall j in (i + 1)..len(s): s[j] != c
+    decreases i + 1
+  do
+    if s[i] == c then
+      return i
+    end if
+    set i = i - 1
+  end while
+  return -1
+end fn find_last_byte
+
+fn contains(s: String, p: String) -> Bool
+  ensures result implies (exists i in 0..((len(s) - len(p)) + 1): starts_at(s: s, at: i, p: p))
+do
+  return find(s: s, p: p, from: 0) >= 0
+end fn contains
+
+// ---- splitting ----
+
+// The pieces of `s` between occurrences of byte `sep`. "a,b,,c" gives four pieces;
+// "" gives one empty piece.
+fn split(s: String, sep: Int) -> List<String>
+  ensures len(result) >= 1
+  ensures forall i in 0..len(result): forall j in 0..len(result[i]): result[i][j] != sep
+do
+  var out: List<String> = []
+  var start = 0
+  for i in 0..len(s)
+    invariant (0 <= start) and (start <= i)
+    invariant forall j in start..i: s[j] != sep
+    invariant forall a in 0..len(out): forall b in 0..len(out[a]): out[a][b] != sep
+  do
+    if s[i] == sep then
+      set out = push(list: out, item: slice(of: s, from: start, to: i))
+      set start = i + 1
+    end if
+  end for
+  return push(list: out, item: slice(of: s, from: start, to: len(s)))
+end fn split
+
+// The lines of `s`, without their line endings. Both "\n" and "\r\n" end a line, and
+// a final line ending does not start another line: "a\nb\n" and "a\r\nb" both give
+// ["a", "b"]; "" gives [].
+fn lines(s: String) -> List<String>
+  ensures forall i in 0..len(result): forall j in 0..len(result[i]): result[i][j] != '\n'
+do
+  var out: List<String> = []
+  var start = 0
+  for i in 0..len(s)
+    invariant (0 <= start) and (start <= i)
+    invariant forall j in start..i: s[j] != '\n'
+    invariant forall a in 0..len(out): forall b in 0..len(out[a]): out[a][b] != '\n'
+  do
+    if s[i] == '\n' then
+      var stop = i
+      if (stop > start) and (s[stop - 1] == '\r') then
+        set stop = stop - 1
+      end if
+      set out = push(list: out, item: slice(of: s, from: start, to: stop))
+      set start = i + 1
+    end if
+  end for
+  if start < len(s) then
+    var stop = len(s)
+    if (stop > start) and (s[stop - 1] == '\r') then
+      set stop = stop - 1
+    end if
+    set out = push(list: out, item: slice(of: s, from: start, to: stop))
+  end if
+  return out
+end fn lines
+
+// ---- trimming ----
+
+fn trim_start(s: String) -> String
+  ensures len(result) <= len(s)
+  ensures (len(result) > 0) implies not is_space(result[0])
+do
+  var a = 0
+  while (a < len(s)) and is_space(s[a]) invariant (0 <= a) and (a <= len(s)) decreases len(s) - a do
+    set a = a + 1
+  end while
+  return slice(of: s, from: a, to: len(s))
+end fn trim_start
+
+fn trim_end(s: String) -> String
+  ensures len(result) <= len(s)
+  ensures (len(result) > 0) implies not is_space(result[len(result) - 1])
+do
+  var b = len(s)
+  while (b > 0) and is_space(s[b - 1]) invariant (0 <= b) and (b <= len(s)) decreases b do
+    set b = b - 1
+  end while
+  return slice(of: s, from: 0, to: b)
+end fn trim_end
+
+fn trim(s: String) -> String
+  ensures len(result) <= len(s)
+  ensures (len(result) > 0) implies not is_space(result[0])
+  ensures (len(result) > 0) implies not is_space(result[len(result) - 1])
+do
+  var a = 0
+  var b = len(s)
+  while (a < b) and is_space(s[a]) invariant 0 <= a invariant a <= b invariant b <= len(s) decreases b - a do
+    set a = a + 1
+  end while
+  while (b > a) and is_space(s[b - 1]) invariant 0 <= a invariant a <= b invariant b <= len(s) decreases b - a do
+    set b = b - 1
+  end while
+  return slice(of: s, from: a, to: b)
+end fn trim
+
+// ---- building ----
+
+// `s` repeated `n` times.
+fn repeat(s: String, n: Int) -> String do
+  var parts: List<String> = []
+  for i in 0..n do
+    set parts = push(list: parts, item: s)
+  end for
+  return join(parts: parts, sep: "")
+end fn repeat
+
+// Every occurrence of `old` replaced by `new`, scanning left to right.
+fn replace(s: String, old: String where len(it) > 0, new: String) -> String do
+  var parts: List<String> = []
+  var i = 0
+  while i < len(s) invariant (0 <= i) and (i <= len(s)) decreases len(s) - i do
+    let at = find(s: s, p: old, from: i)
+    if at < 0 then
+      break
+    end if
+    set parts = push(list: parts, item: slice(of: s, from: i, to: at))
+    set parts = push(list: parts, item: new)
+    set i = at + len(old)
+  end while
+  set parts = push(list: parts, item: slice(of: s, from: i, to: len(s)))
+  return join(parts: parts, sep: "")
+end fn replace
+
+fn to_lower(s: String) -> String
+  ensures len(result) == len(s)
+  ensures forall i in 0..len(s): not ((result[i] >= 'A') and (result[i] <= 'Z'))
+do
+  var out = ""
+  for i in 0..len(s)
+    invariant len(out) == i
+    invariant forall j in 0..i: not ((out[j] >= 'A') and (out[j] <= 'Z'))
+  do
+    let c = s[i]
+    if (c >= 'A') and (c <= 'Z') then
+      set out = out ++ char(c + 32)
+    else
+      set out = out ++ char(c)
+    end if
+  end for
+  return out
+end fn to_lower
+
+fn to_upper(s: String) -> String
+  ensures len(result) == len(s)
+  ensures forall i in 0..len(s): not ((result[i] >= 'a') and (result[i] <= 'z'))
+do
+  var out = ""
+  for i in 0..len(s)
+    invariant len(out) == i
+    invariant forall j in 0..i: not ((out[j] >= 'a') and (out[j] <= 'z'))
+  do
+    let c = s[i]
+    if (c >= 'a') and (c <= 'z') then
+      set out = out ++ char(c - 32)
+    else
+      set out = out ++ char(c)
+    end if
+  end for
+  return out
+end fn to_upper

@@ -1,6 +1,16 @@
 // Loading source files and their imports.
 
 import "parser.vow"
+import "std_text.vow"
+
+// Standard library modules, embedded in the compiler. `import "std/text.vow"` names
+// the module "<std>/text.vow", wherever the importing file is.
+fn std_source(name: String) -> Option<String> do
+  if name == "text.vow" then
+    return Option.Some(value: std_text())
+  end if
+  return Option.None
+end fn std_source
 
 // Lexical path normalisation, identical to the bootstrap compiler's.
 fn normalize(path: String) -> String do
@@ -42,6 +52,9 @@ fn dirname(path: String) -> String do
 end fn dirname
 
 fn join_path(dir: String, rel: String) -> String do
+  if starts_with(s: rel, p: "std/") then
+    return "<std>/" ++ slice(of: rel, from: 4, to: len(rel))
+  end if
   if starts_with(s: rel, p: "/") or (len(dir) == 0) then
     return normalize(rel)
   end if
@@ -73,9 +86,18 @@ fn load(root: String) -> Source uses fs do
     end if
     let file_id = len(files)
     set files = push(list: files, item: top.path)
-    match read_file(top.path)
+    var source: Option<String> = Option.None
+    var missing = "cannot open '" ++ top.path ++ "'"
+    if starts_with(s: top.path, p: "<std>/") then
+      let m = slice(of: top.path, from: 6, to: len(top.path))
+      set source = std_source(m)
+      set missing = "there is no standard module 'std/" ++ m ++ "'"
+    else
+      set source = read_file(top.path)
+    end if
+    match source
     case None then
-      set errs = push(list: errs, item: diag(pos: top.from, msg: "cannot open '" ++ top.path ++ "'"))
+      set errs = push(list: errs, item: diag(pos: top.from, msg: missing))
     case Some(value: src) then
       let lx = lex(src: src, file: file_id)
       match lx.err

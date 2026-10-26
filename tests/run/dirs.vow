@@ -1,0 +1,17 @@
+// make_dir creates parents; list_dir lists names in order.
+fn main() uses console, fs do
+  let base = "/tmp/vow-test-dirs"
+  let made = make_dir(base ++ "/b/deep") and make_dir(base ++ "/a")
+  let again = make_dir(base ++ "/a")
+  let wrote = write_file(path: base ++ "/c.txt", contents: "hi")
+  match list_dir(base)
+  case Some(value: names) then
+    print(join(parts: names, sep: " ") ++ "\n")
+  case None then
+    print("missing\n")
+  end match
+  print(int_to_str(len(value_or(opt: list_dir(base ++ "/b"), default: []))) ++ " ")
+  if made and again and wrote and is_none(list_dir(base ++ "/nope")) then
+    print("ok\n")
+  end if
+end fn main

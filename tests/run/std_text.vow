@@ -1,0 +1,29 @@
+// The standard text library.
+import "std/text.vow"
+
+fn show(xs: List<String>) -> String do
+  var parts: List<String> = []
+  for x in xs do
+    set parts = push(list: parts, item: "[" ++ x ++ "]")
+  end for
+  return join(parts: parts, sep: "")
+end fn show
+
+fn main() uses console do
+  print(show(lines("one\r\ntwo\n\nthree\n")) ++ " " ++ int_to_str(len(lines(""))) ++ "\n")
+  print(show(split(s: "a,b,,c", sep: ',')) ++ " " ++ show(split(s: "", sep: ',')) ++ "\n")
+  print("[" ++ trim("  x y \t") ++ "][" ++ trim_start("  x ") ++ "][" ++ trim_end("  x ") ++ "][" ++ trim("   ") ++ "]\n")
+  print(int_to_str(find(s: "banana", p: "an", from: 0)) ++ " " ++ int_to_str(find(s: "banana", p: "an", from: 2)) ++ " ")
+  print(int_to_str(find(s: "banana", p: "x", from: 0)) ++ " " ++ int_to_str(find_byte(s: "banana", c: 'n', from: 3)) ++ " ")
+  print(int_to_str(find_last_byte(s: "banana", c: 'a')) ++ "\n")
+  let line = "# Title"
+  if starts_with(s: line, p: "# ") then
+    // starts_with is transparent, so this slice is proved in bounds.
+    print(slice(of: line, from: 2, to: len(line)) ++ " ")
+  end if
+  if ends_with(s: "notes.md", p: ".md") and contains(s: "notes.md", p: "tes") then
+    print("md ")
+  end if
+  print(replace(s: "{{a}} and {{a}}", old: "{{a}}", new: "x") ++ " " ++ repeat(s: "ab", n: 3) ++ " ")
+  print(to_lower("MiXeD 42") ++ " " ++ to_upper("MiXeD 42") ++ "\n")
+end fn main

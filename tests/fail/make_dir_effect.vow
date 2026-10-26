@@ -1,0 +1,5 @@
+// error: 'make_dir' uses 'fs', but the enclosing function does not declare it
+fn setup() -> Bool do
+  return make_dir("out")
+end fn setup
+fn main() do end fn main

@@ -497,6 +497,8 @@ impl<'a> Gen<'a> {
                     "read_file" => format!("vread_file({})", p[0]),
                     "write_file" => format!("vwrite_file({}, {})", p[0], p[1]),
                     "args" => "vargs()".into(),
+                    "make_dir" => format!("vmake_dir({})", p[0]),
+                    "list_dir" => format!("vlist_dir({})", p[0]),
                     "getenv" => format!("vgetenv({})", p[0]),
                     "run" => format!("vrun({}, {})", p[0], p[1]),
                     "is_some" => format!("(V)(VP({})[0] == 1)", p[0]),

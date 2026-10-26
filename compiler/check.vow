@@ -167,6 +167,10 @@ fn builtin_params(name: String) -> Option<List<String>> do
   case "args" then
     let none: List<String> = []
     return Option.Some(value: none)
+  case "make_dir" then
+    return Option.Some(value: ["path"])
+  case "list_dir" then
+    return Option.Some(value: ["path"])
   case "getenv" then
     return Option.Some(value: ["name"])
   case "run" then
@@ -190,7 +194,7 @@ end fn is_builtin
 fn builtin_effect(name: String) -> String do
   if (name == "print") or (name == "eprint") then
     return "console"
-  elif (name == "read_file") or (name == "write_file") then
+  elif (name == "read_file") or (name == "write_file") or (name == "make_dir") or (name == "list_dir") then
     return "fs"
   elif (name == "args") or (name == "getenv") or (name == "run") or (name == "exit") then
     return "proc"
@@ -2017,6 +2021,12 @@ fn builtin_call(c: inout Checker, e: Expr, name: String, a: List<Expr> where len
   case "getenv" then
     want(c: inout c, x: a[0], t: Ty.TStr, what: "the variable name")
     return Ty.TOpt(inner: Ty.TStr)
+  case "make_dir" then
+    want(c: inout c, x: a[0], t: Ty.TStr, what: "the path")
+    return Ty.TBool
+  case "list_dir" then
+    want(c: inout c, x: a[0], t: Ty.TStr, what: "the path")
+    return Ty.TOpt(inner: Ty.TList(elem: Ty.TStr))
   case "run" then
     if len(a) < 2 then
       return Ty.TUnknown

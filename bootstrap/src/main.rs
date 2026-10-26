@@ -70,7 +70,14 @@ fn dirname(path: &str) -> String {
     }
 }
 
+/// Standard library modules, embedded in the compiler. `import "std/text.vow"` names
+/// the module `<std>/text.vow`, wherever the importing file is.
+const STD: &[(&str, &str)] = &[("text.vow", include_str!("../../std/text.vow"))];
+
 fn join_path(dir: &str, rel: &str) -> String {
+    if let Some(m) = rel.strip_prefix("std/") {
+        return format!("<std>/{}", m);
+    }
     if rel.starts_with('/') || dir.is_empty() {
         normalize(rel)
     } else {
@@ -90,11 +97,21 @@ fn load(root: &str) -> Result<Source, (Vec<String>, Vec<Diag>)> {
         }
         let file_id = files.len() as u32;
         files.push(path.clone());
-        let src = match std::fs::read(&path) {
-            Ok(b) => String::from_utf8_lossy(&b).into_owned(),
-            Err(_) => {
-                errs.push(Diag::new(from, &format!("cannot open '{}'", path)));
-                continue;
+        let src = if let Some(m) = path.strip_prefix("<std>/") {
+            match STD.iter().find(|(n, _)| *n == m) {
+                Some((_, text)) => text.to_string(),
+                None => {
+                    errs.push(Diag::new(from, &format!("there is no standard module 'std/{}'", m)));
+                    continue;
+                }
+            }
+        } else {
+            match std::fs::read(&path) {
+                Ok(b) => String::from_utf8_lossy(&b).into_owned(),
+                Err(_) => {
+                    errs.push(Diag::new(from, &format!("cannot open '{}'", path)));
+                    continue;
+                }
             }
         };
         let toks = match lexer::lex(&src, file_id) {

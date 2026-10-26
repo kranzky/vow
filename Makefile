@@ -38,7 +38,7 @@ test-site: build/vowsite
 	@echo "== vowsite"
 	@VOWSITE=$(CURDIR)/build/vowsite tools/vowsite/tests/run.sh
 
-bootstrap: $(RUST_VOWC) compiler/runtime_h.vow
+bootstrap: $(RUST_VOWC) compiler/runtime_h.vow compiler/std_text.vow
 	@mkdir -p build
 	@echo "== stage 1: Rust bootstrap verifies and builds the self-hosted compiler"
 	$(RUST_VOWC) build compiler/vowc.vow -o build/stage1 --no-cache
@@ -56,6 +56,9 @@ bootstrap: $(RUST_VOWC) compiler/runtime_h.vow
 
 compiler/runtime_h.vow: runtime/vow_rt.h tools/embed.vow $(RUST_VOWC)
 	$(RUST_VOWC) run tools/embed.vow -- runtime/vow_rt.h runtime_header > $@
+
+compiler/std_text.vow: std/text.vow tools/embed.vow $(RUST_VOWC)
+	$(RUST_VOWC) run tools/embed.vow -- std/text.vow std_text > $@
 
 clean:
 	rm -rf build bootstrap/target

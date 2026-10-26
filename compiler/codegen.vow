@@ -647,6 +647,10 @@ fn gen_builtin(g: inout Gen, name: String, p: List<String>, pe: List<Expr>) -> S
     set rhs = "vwrite_file(" ++ a0 ++ ", " ++ a1 ++ ")"
   case "args" then
     set rhs = "vargs()"
+  case "make_dir" then
+    set rhs = "vmake_dir(" ++ a0 ++ ")"
+  case "list_dir" then
+    set rhs = "vlist_dir(" ++ a0 ++ ")"
   case "getenv" then
     set rhs = "vgetenv(" ++ a0 ++ ")"
   case "run" then

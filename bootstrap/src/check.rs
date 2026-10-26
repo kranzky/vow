@@ -130,6 +130,8 @@ pub const BUILTINS: &[Builtin] = &[
     Builtin { name: "eprint", params: &["s"], effect: Some("console"), noreturn: false },
     Builtin { name: "read_file", params: &["path"], effect: Some("fs"), noreturn: false },
     Builtin { name: "write_file", params: &["path", "contents"], effect: Some("fs"), noreturn: false },
+    Builtin { name: "make_dir", params: &["path"], effect: Some("fs"), noreturn: false },
+    Builtin { name: "list_dir", params: &["path"], effect: Some("fs"), noreturn: false },
     Builtin { name: "args", params: &[], effect: Some("proc"), noreturn: false },
     Builtin { name: "getenv", params: &["name"], effect: Some("proc"), noreturn: false },
     Builtin { name: "run", params: &["argv", "input"], effect: Some("proc"), noreturn: false },
@@ -1517,6 +1519,14 @@ impl Checker {
                 Ty::Bool
             }
             "args" => Ty::List(Box::new(Ty::Str)),
+            "make_dir" => {
+                want(self, a[0], &st, "the path");
+                Ty::Bool
+            }
+            "list_dir" => {
+                want(self, a[0], &st, "the path");
+                Ty::Opt(Box::new(Ty::List(Box::new(Ty::Str))))
+            }
             "is_some" | "is_none" => {
                 let t = self.expr(a[0], None);
                 match t {

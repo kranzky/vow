@@ -1,4 +1,7 @@
-// Shared helpers for the self-hosted compiler.
+// Shared helpers for the self-hosted compiler. Text utilities come from the
+// standard library.
+
+import "std/text.vow"
 
 struct Pos
   file: Int,
@@ -25,49 +28,6 @@ fn with_note(d: Diag, note: String) -> Diag do
   return d with (notes: push(list: d.notes, item: note))
 end fn with_note
 
-fn is_digit(c: Int) -> Bool do
-  return (c >= '0') and (c <= '9')
-end fn is_digit
-
-fn is_alpha(c: Int) -> Bool do
-  return ((c >= 'a') and (c <= 'z')) or ((c >= 'A') and (c <= 'Z')) or (c == '_')
-end fn is_alpha
-
-fn is_alnum(c: Int) -> Bool do
-  return is_alpha(c) or is_digit(c)
-end fn is_alnum
-
-fn is_space(c: Int) -> Bool do
-  return (c == ' ') or (c == '\t') or (c == '\r') or (c == '\n')
-end fn is_space
-
-// True if `p` occurs in `s` starting at byte `at`.
-fn starts_at(s: String, at: Int where it >= 0, p: String) -> Bool
-  ensures result implies ((at + len(p)) <= len(s))
-  ensures result implies (forall k in 0..len(p): s[at + k] == p[k])
-do
-  if (at + len(p)) > len(s) then
-    return false
-  end if
-  for k in 0..len(p) invariant forall j in 0..k: s[at + j] == p[j] do
-    if s[at + k] != p[k] then
-      return false
-    end if
-  end for
-  return true
-end fn starts_at
-
-fn starts_with(s: String, p: String) -> Bool do
-  return starts_at(s: s, at: 0, p: p)
-end fn starts_with
-
-fn ends_with(s: String, p: String) -> Bool do
-  if len(p) > len(s) then
-    return false
-  end if
-  return starts_at(s: s, at: len(s) - len(p), p: p)
-end fn ends_with
-
 fn contains_str(xs: List<String>, x: String) -> Bool
   ensures result == (exists i in 0..len(xs): xs[i] == x)
 do
@@ -91,92 +51,6 @@ do
   end for
   return -1
 end fn index_of_str
-
-fn find_byte(s: String, c: Int) -> Int
-  ensures (-1 <= result) and (result < len(s))
-  ensures (result >= 0) implies (s[result] == c)
-  ensures (result == -1) implies (forall i in 0..len(s): s[i] != c)
-do
-  for i in 0..len(s) invariant forall j in 0..i: s[j] != c do
-    if s[i] == c then
-      return i
-    end if
-  end for
-  return -1
-end fn find_byte
-
-fn find_last_byte(s: String, c: Int) -> Int
-  ensures (-1 <= result) and (result < len(s))
-  ensures (result >= 0) implies (s[result] == c)
-  ensures (result >= 0) implies (forall j in (result + 1)..len(s): s[j] != c)
-  ensures (result == -1) implies (forall j in 0..len(s): s[j] != c)
-do
-  var i = len(s) - 1
-  while i >= 0
-    invariant i < len(s)
-    invariant forall j in (i + 1)..len(s): s[j] != c
-    decreases i + 1
-  do
-    if s[i] == c then
-      return i
-    end if
-    set i = i - 1
-  end while
-  return -1
-end fn find_last_byte
-
-fn find_sub(s: String, p: String) -> Int
-  ensures result >= -1
-do
-  var i = 0
-  while (i + len(p)) <= len(s) invariant i >= 0 decreases len(s) - i do
-    if starts_at(s: s, at: i, p: p) then
-      return i
-    end if
-    set i = i + 1
-  end while
-  return -1
-end fn find_sub
-
-fn repeat(s: String, n: Int) -> String do
-  var parts: List<String> = []
-  for i in 0..n do
-    set parts = push(list: parts, item: s)
-  end for
-  return join(parts: parts, sep: "")
-end fn repeat
-
-fn split(s: String, sep: Int) -> List<String> do
-  var out: List<String> = []
-  var start = 0
-  for i in 0..len(s) invariant (0 <= start) and (start <= len(s)) do
-    if s[i] == sep then
-      if start <= i then
-        set out = push(list: out, item: slice(of: s, from: start, to: i))
-      end if
-      set start = i + 1
-    end if
-  end for
-  if start <= len(s) then
-    set out = push(list: out, item: slice(of: s, from: start, to: len(s)))
-  end if
-  return out
-end fn split
-
-fn trim(s: String) -> String do
-  var a = 0
-  var b = len(s)
-  while (a < b) and is_space(s[a]) invariant 0 <= a invariant a <= b invariant b <= len(s) decreases b - a do
-    set a = a + 1
-  end while
-  while (b > a) and is_space(s[b - 1]) invariant 0 <= a invariant a <= b invariant b <= len(s) decreases b - a do
-    set b = b - 1
-  end while
-  if a > b then
-    return ""
-  end if
-  return slice(of: s, from: a, to: b)
-end fn trim
 
 fn int_list_contains(xs: List<Int>, x: Int) -> Bool
   ensures result == (exists i in 0..len(xs): xs[i] == x)
