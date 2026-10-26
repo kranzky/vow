@@ -4,6 +4,7 @@
 #   make test       run the test suite with both compilers
 #   make bootstrap  rebuild from the Rust bootstrap, check the self-hosting fixpoint
 #                   (stage 2 and stage 3 emit identical C) and refresh the seed
+#   make site       build vowsite (tools/vowsite) and generate public/ from site/
 #
 # Verification needs Z3 on the PATH (or VOW_Z3=/path/to/z3).
 
@@ -20,11 +21,22 @@ build/vowc: seed/vowc.c runtime/vow_rt.h
 $(RUST_VOWC): $(wildcard bootstrap/src/*.rs) runtime/vow_rt.h
 	cd bootstrap && cargo build --release -q
 
-test: build/vowc $(RUST_VOWC)
+test: build/vowc $(RUST_VOWC) test-site
 	@echo "== bootstrap compiler (Rust)"
 	@VOWC=$(CURDIR)/$(RUST_VOWC) tests/run.sh
 	@echo "== self-hosted compiler"
 	@VOWC=$(CURDIR)/build/vowc tests/run.sh
+
+build/vowsite: tools/vowsite/vowsite.vow build/vowc runtime/vow_rt.h
+	build/vowc build tools/vowsite/vowsite.vow -o $@
+
+site: build/vowsite
+	@mkdir -p public
+	./build/vowsite
+
+test-site: build/vowsite
+	@echo "== vowsite"
+	@VOWSITE=$(CURDIR)/build/vowsite tools/vowsite/tests/run.sh
 
 bootstrap: $(RUST_VOWC) compiler/runtime_h.vow
 	@mkdir -p build
@@ -48,4 +60,4 @@ compiler/runtime_h.vow: runtime/vow_rt.h tools/embed.vow $(RUST_VOWC)
 clean:
 	rm -rf build bootstrap/target
 
-.PHONY: all test bootstrap clean
+.PHONY: all test bootstrap clean site test-site

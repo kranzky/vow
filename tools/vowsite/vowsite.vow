@@ -1,0 +1,545 @@
+// A small Markdown-to-HTML batch program. Only main has effects.
+
+fn tag_free(s: String) -> Bool do
+  return forall i in 0..len(s): (s[i] != '<') and (s[i] != '>')
+end fn tag_free
+
+fn escape(s: String) -> String
+  ensures tag_free(result)
+do
+  var out = ""
+  for i in 0..len(s) invariant tag_free(out) do
+    let c = s[i]
+    if c == '<' then
+      set out = out ++ "&lt;"
+    elif c == '>' then
+      set out = out ++ "&gt;"
+    elif c == '&' then
+      set out = out ++ "&amp;"
+    elif c == '"' then
+      set out = out ++ "&quot;"
+    else
+      set out = out ++ char(c)
+    end if
+  end for
+  return out
+end fn escape
+
+fn at(s: String, pos: Int, needle: String) -> Bool do
+  if (pos >= 0) and (pos <= len(s)) then
+    if len(needle) <= (len(s) - pos) then
+      return slice(of: s, from: pos, to: pos + len(needle)) == needle
+    end if
+  end if
+  return false
+end fn at
+
+fn find(s: String, start: Int, needle: String) -> Int
+  requires (0 <= start) and (start <= len(s))
+  requires len(needle) > 0
+  ensures result >= -1
+  ensures (result >= 0) implies ((start <= result) and ((result + len(needle)) <= len(s)))
+do
+  for i in start..len(s) do
+    if len(needle) <= (len(s) - i) then
+      if at(s: s, pos: i, needle: needle) then
+        return i
+      end if
+    end if
+  end for
+  return -1
+end fn find
+
+fn trim(s: String) -> String do
+  var lo = 0
+  var hi = len(s)
+  while (lo < hi) and ((s[lo] == ' ') or (s[lo] == '\t'))
+    invariant (0 <= lo) and (lo <= hi)
+    invariant hi <= len(s)
+    decreases hi - lo
+  do
+    set lo = lo + 1
+  end while
+  while (lo < hi) and ((s[hi - 1] == ' ') or (s[hi - 1] == '\t'))
+    invariant (0 <= lo) and (lo <= hi)
+    invariant hi <= len(s)
+    decreases hi - lo
+  do
+    set hi = hi - 1
+  end while
+  return slice(of: s, from: lo, to: hi)
+end fn trim
+
+struct Line
+  text: String,
+  ending: String,
+end struct Line
+
+// Keep original LF/CRLF and the absence of a final newline for fenced code.
+fn lines(s: String) -> List<Line> do
+  var out: List<Line> = []
+  var start = 0
+  for i in 0..len(s)
+    invariant (0 <= start) and (start <= i)
+  do
+    if s[i] == '\n' then
+      if (i > start) and (s[i - 1] == '\r') then
+        set out = push(list: out, item: Line(text: slice(of: s, from: start, to: i - 1), ending: "\r\n"))
+      else
+        set out = push(list: out, item: Line(text: slice(of: s, from: start, to: i), ending: "\n"))
+      end if
+      set start = i + 1
+    end if
+  end for
+  if start < len(s) then
+    set out = push(list: out, item: Line(text: slice(of: s, from: start, to: len(s)), ending: ""))
+  end if
+  return out
+end fn lines
+
+fn link_end(s: String, start: Int) -> Int
+  requires (0 <= start) and (start <= len(s))
+  ensures result >= -1
+  ensures (result >= 0) implies ((start <= result) and (result < len(s)))
+do
+  var depth = 0
+  for i in start..len(s) invariant depth >= 0 do
+    if s[i] == '(' then
+      set depth = depth + 1
+    elif s[i] == ')' then
+      if depth == 0 then
+        return i
+      end if
+      set depth = depth - 1
+    end if
+  end for
+  return -1
+end fn link_end
+
+// Escaping protects the attribute boundary; separately exclude active schemes.
+fn safe_url(s: String) -> Bool do
+  var scheme: List<String> = []
+  for i in 0..len(s) do
+    let c = s[i]
+    if (c <= ' ') or (c == 127) or (c == '\\') then
+      return false
+    end if
+  end for
+  for i in 0..len(s) do
+    let c = s[i]
+    if c == ':' then
+      let name = join(parts: scheme, sep: "")
+      return (name == "http") or (name == "https") or (name == "mailto")
+    elif (c == '/') or (c == '?') or (c == '#') then
+      return true
+    elif (c >= 'A') and (c <= 'Z') then
+      set scheme = push(list: scheme, item: char(c + 32))
+    else
+      set scheme = push(list: scheme, item: char(c))
+    end if
+  end for
+  return true
+end fn safe_url
+
+// Find a matching emphasis delimiter without closing inside a code span or a
+// nested emphasis/strong span. Each recursive search starts farther right.
+fn emphasis_end(s: String, start: Int, width: Int) -> Int
+  requires (0 <= start) and (start <= len(s))
+  requires (width == 1) or (width == 2)
+  ensures result >= -1
+  ensures (result >= 0) implies ((start <= result) and ((result + width) <= len(s)))
+  decreases len(s) - start
+do
+  var i = start
+  while i < len(s)
+    invariant (start <= i) and (i <= len(s))
+    decreases len(s) - i
+  do
+    var next = i + 1
+    if s[i] == '`' then
+      let close = find(s: s, start: i + 1, needle: "`")
+      if close >= 0 then
+        set next = close + 1
+      end if
+    elif s[i] == '*' then
+      if ((i + 2) <= len(s)) and at(s: s, pos: i, needle: "**") then
+        if width == 2 then
+          return i
+        end if
+        if ((i + 3) <= len(s)) and at(s: s, pos: i, needle: "***") then
+          return i
+        end if
+        let close = emphasis_end(s: s, start: i + 2, width: 2)
+        set next = i + 2
+        if close >= 0 then
+          set next = close + 2
+        end if
+      elif width == 1 then
+        return i
+      else
+        let close = emphasis_end(s: s, start: i + 1, width: 1)
+        if close >= 0 then
+          set next = close + 1
+        end if
+      end if
+    end if
+    set i = next
+  end while
+  return -1
+end fn emphasis_end
+
+fn inline(s: String) -> String
+  decreases len(s)
+do
+  var out: List<String> = []
+  var i = 0
+  while i < len(s)
+    invariant (0 <= i) and (i <= len(s))
+    decreases len(s) - i
+  do
+    var next = i + 1
+    var piece = escape(char(s[i]))
+    if s[i] == '`' then
+      let close = find(s: s, start: i + 1, needle: "`")
+      if close >= 0 then
+        set piece = "<code>" ++ escape(slice(of: s, from: i + 1, to: close)) ++ "</code>"
+        set next = close + 1
+      end if
+    elif ((i + 2) <= len(s)) and at(s: s, pos: i, needle: "**") then
+      let close = emphasis_end(s: s, start: i + 2, width: 2)
+      if close >= 0 then
+        set piece = "<strong>" ++ inline(slice(of: s, from: i + 2, to: close)) ++ "</strong>"
+        set next = close + 2
+      else
+        // An unmatched double marker remains literal, never an empty emphasis.
+        set piece = escape("**")
+        set next = i + 2
+      end if
+    elif s[i] == '*' then
+      let close = emphasis_end(s: s, start: i + 1, width: 1)
+      if close > (i + 1) then
+        set piece = "<em>" ++ inline(slice(of: s, from: i + 1, to: close)) ++ "</em>"
+        set next = close + 1
+      end if
+    elif s[i] == '[' then
+      let middle = find(s: s, start: i + 1, needle: "](")
+      if middle >= 0 then
+        let close = link_end(s: s, start: middle + 2)
+        if close >= 0 then
+          let url = slice(of: s, from: middle + 2, to: close)
+          if safe_url(url) then
+            set piece = "<a href=\"" ++ escape(url) ++ "\">" ++ inline(slice(of: s, from: i + 1, to: middle)) ++ "</a>"
+          else
+            set piece = escape(slice(of: s, from: i, to: close + 1))
+          end if
+          set next = close + 1
+        end if
+      end if
+    end if
+    set out = push(list: out, item: piece)
+    set i = next
+  end while
+  return join(parts: out, sep: "")
+end fn inline
+
+fn heading(s: String) -> Int
+  ensures (0 <= result) and (result <= len(s))
+  ensures result <= 4
+do
+  if (len(s) >= 2) and at(s: s, pos: 0, needle: "# ") then
+    return 2
+  elif (len(s) >= 3) and at(s: s, pos: 0, needle: "## ") then
+    return 3
+  elif (len(s) >= 4) and at(s: s, pos: 0, needle: "### ") then
+    return 4
+  end if
+  return 0
+end fn heading
+
+fn fence(s: String) -> Bool do
+  if at(s: s, pos: 0, needle: "```") then
+    if len(s) == 3 then
+      return true
+    elif len(s) > 3 then
+      return s[3] != '`'
+    end if
+  end if
+  return false
+end fn fence
+
+fn list_marker(s: String) -> Int
+  ensures (0 <= result) and (result <= len(s))
+do
+  if (len(s) >= 2) and at(s: s, pos: 0, needle: "- ") then
+    return 2
+  end if
+  var i = 0
+  while (i < len(s)) and ((s[i] >= '0') and (s[i] <= '9'))
+    invariant (0 <= i) and (i <= len(s))
+    decreases len(s) - i
+  do
+    set i = i + 1
+  end while
+  if (i > 0) and ((i + 2) <= len(s)) then
+    if at(s: s, pos: i, needle: ". ") then
+      return i + 2
+    end if
+  end if
+  return 0
+end fn list_marker
+
+fn cells(s: String) -> List<String> do
+  let row = trim(s)
+  var out: List<String> = []
+  var start = 0
+  var code = false
+  var pipes = 0
+  for i in 0..len(row)
+    invariant (0 <= start) and (start <= i)
+    invariant pipes >= 0
+  do
+    if row[i] == '`' then
+      set code = not code
+    elif (row[i] == '|') and (not code) then
+      if i > 0 then
+        set out = push(list: out, item: trim(slice(of: row, from: start, to: i)))
+      end if
+      set start = i + 1
+      set pipes = pipes + 1
+    end if
+  end for
+  if pipes == 0 then
+    return []
+  end if
+  if start < len(row) then
+    set out = push(list: out, item: trim(slice(of: row, from: start, to: len(row))))
+  end if
+  return out
+end fn cells
+
+fn separator(s: String) -> Bool do
+  if len(s) < 3 then
+    return false
+  end if
+  for i in 0..len(s) do
+    if s[i] != '-' then
+      return false
+    end if
+  end for
+  return true
+end fn separator
+
+fn table_start(src: List<Line>, pos: Int) -> Bool
+  requires (0 <= pos) and (pos < len(src))
+do
+  if (pos + 1) < len(src) then
+    let heads = cells(src[pos].text)
+    let dividers = cells(src[pos + 1].text)
+    if (len(heads) > 0) and (len(heads) == len(dividers)) then
+      for cell in dividers do
+        if not separator(cell) then
+          return false
+        end if
+      end for
+      return true
+    end if
+  end if
+  return false
+end fn table_start
+
+fn row_html(row: List<String>, header: Bool) -> String do
+  var tag = "td"
+  if header then
+    set tag = "th"
+  end if
+  var out: List<String> = ["<tr>"]
+  for cell in row do
+    set out = push(list: out, item: "<" ++ tag ++ ">" ++ inline(cell) ++ "</" ++ tag ++ ">")
+  end for
+  return join(parts: out, sep: "") ++ "</tr>\n"
+end fn row_html
+
+fn block_start(src: List<Line>, pos: Int) -> Bool
+  requires (0 <= pos) and (pos < len(src))
+do
+  let text = src[pos].text
+  return (trim(text) == "") or fence(text) or (heading(text) > 0) or (list_marker(text) > 0) or table_start(src: src, pos: pos)
+end fn block_start
+
+fn render(src: List<Line>) -> String do
+  var out: List<String> = []
+  var i = 0
+  while i < len(src)
+    invariant (0 <= i) and (i <= len(src))
+    decreases len(src) - i
+  do
+    let text = src[i].text
+    let head = heading(text)
+    let marker = list_marker(text)
+    if trim(text) == "" then
+      set i = i + 1
+    elif fence(text) then
+      set i = i + 1
+      let start = i
+      set out = push(list: out, item: "<pre><code>")
+      while (i < len(src)) and (src[i].text != "```")
+        invariant (start <= i) and (i <= len(src))
+        decreases len(src) - i
+      do
+        set out = push(list: out, item: escape(src[i].text ++ src[i].ending))
+        set i = i + 1
+      end while
+      if i < len(src) then
+        set i = i + 1
+      end if
+      set out = push(list: out, item: "</code></pre>\n")
+    elif head > 0 then
+      let tag = "h" ++ int_to_str(head - 1)
+      set out = push(list: out, item: "<" ++ tag ++ ">" ++ inline(slice(of: text, from: head, to: len(text))) ++ "</" ++ tag ++ ">\n")
+      set i = i + 1
+    elif marker > 0 then
+      let unordered = at(s: text, pos: 0, needle: "- ")
+      var tag = "ol"
+      if unordered then
+        set tag = "ul"
+      end if
+      set out = push(list: out, item: "<" ++ tag ++ ">\n<li>" ++ inline(slice(of: text, from: marker, to: len(text))) ++ "</li>\n")
+      set i = i + 1
+      let start = i
+      while i < len(src)
+        invariant (start <= i) and (i <= len(src))
+        decreases len(src) - i
+      do
+        let item = src[i].text
+        let prefix = list_marker(item)
+        if (prefix == 0) or (at(s: item, pos: 0, needle: "- ") != unordered) then
+          break
+        end if
+        set out = push(list: out, item: "<li>" ++ inline(slice(of: item, from: prefix, to: len(item))) ++ "</li>\n")
+        set i = i + 1
+      end while
+      set out = push(list: out, item: "</" ++ tag ++ ">\n")
+    elif ((i + 1) < len(src)) and table_start(src: src, pos: i) then
+      let headers = cells(text)
+      set out = push(list: out, item: "<table>\n<thead>\n" ++ row_html(row: headers, header: true) ++ "</thead>\n<tbody>\n")
+      set i = i + 2
+      let start = i
+      while i < len(src)
+        invariant (start <= i) and (i <= len(src))
+        decreases len(src) - i
+      do
+        let row = cells(src[i].text)
+        if (len(row) == 0) or (len(row) != len(headers)) then
+          break
+        end if
+        set out = push(list: out, item: row_html(row: row, header: false))
+        set i = i + 1
+      end while
+      set out = push(list: out, item: "</tbody>\n</table>\n")
+    else
+      var paragraph: List<String> = [text]
+      set i = i + 1
+      let start = i
+      while (i < len(src)) and (not block_start(src: src, pos: i))
+        invariant (start <= i) and (i <= len(src))
+        decreases len(src) - i
+      do
+        set paragraph = push(list: paragraph, item: src[i].text)
+        set i = i + 1
+      end while
+      set out = push(list: out, item: "<p>" ++ inline(join(parts: paragraph, sep: "\n")) ++ "</p>\n")
+    end if
+  end while
+  return join(parts: out, sep: "")
+end fn render
+
+fn page_title(src: List<Line>, fallback: String) -> String do
+  var code = false
+  for line in src do
+    if code then
+      if line.text == "```" then
+        set code = false
+      end if
+    elif fence(line.text) then
+      set code = true
+    elif (len(line.text) >= 2) and at(s: line.text, pos: 0, needle: "# ") then
+      return slice(of: line.text, from: 2, to: len(line.text))
+    end if
+  end for
+  return fallback
+end fn page_title
+
+// Scan only the trusted template: replacement text is never interpreted again.
+fn template_html(template: String, title: String, content: String) -> String do
+  var out: List<String> = []
+  var i = 0
+  while i < len(template)
+    invariant (0 <= i) and (i <= len(template))
+    decreases len(template) - i
+  do
+    if ((i + 9) <= len(template)) and at(s: template, pos: i, needle: "{{title}}") then
+      set out = push(list: out, item: escape(title))
+      set i = i + 9
+    elif ((i + 11) <= len(template)) and at(s: template, pos: i, needle: "{{content}}") then
+      set out = push(list: out, item: content)
+      set i = i + 11
+    else
+      set out = push(list: out, item: char(template[i]))
+      set i = i + 1
+    end if
+  end while
+  return join(parts: out, sep: "")
+end fn template_html
+
+fn page_name(s: String) -> Bool do
+  if len(s) == 0 then
+    return false
+  end if
+  for i in 0..len(s) do
+    let c = s[i]
+    if not (((c >= 'a') and (c <= 'z')) or ((c >= 'A') and (c <= 'Z')) or ((c >= '0') and (c <= '9')) or (c == '-') or (c == '_')) then
+      return false
+    end if
+  end for
+  return true
+end fn page_name
+
+fn main() uses fs, console do
+  let manifest = read_file("site/pages.txt")
+  let template = read_file("site/template.html")
+  if is_none(manifest) then
+    panic("cannot read site/pages.txt")
+  end if
+  if is_none(template) then
+    panic("cannot read site/template.html")
+  end if
+  var names: Map<String, Bool> = {}
+  for line in lines(value_or(opt: manifest, default: "")) do
+    let name = trim(line.text)
+    if name == "" then
+      continue
+    end if
+    if not page_name(name) then
+      panic("invalid page name: " ++ name ++ " (use letters, digits, - or _)")
+    end if
+    if has(map: names, key: name) then
+      panic("duplicate page name: " ++ name)
+    end if
+    set names = insert(map: names, key: name, value: true)
+  end for
+  for name in keys(names) do
+    let path = "site/" ++ name ++ ".md"
+    match read_file(path)
+    case Some(value: source) then
+      let src = lines(source)
+      let html = template_html(template: value_or(opt: template, default: ""), title: page_title(src: src, fallback: name), content: render(src))
+      let destination = "public/" ++ name ++ ".html"
+      if not write_file(path: destination, contents: html) then
+        panic("cannot write " ++ destination ++ " (create public/ first)")
+      end if
+      print(destination ++ "\n")
+    case None then
+      panic("cannot read " ++ path)
+    end match
+  end for
+end fn main
