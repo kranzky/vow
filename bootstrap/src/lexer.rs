@@ -23,7 +23,7 @@ pub const KEYWORDS: &[&str] = &[
     "fn", "end", "struct", "enum", "type", "let", "var", "set", "return", "if", "then", "elif",
     "else", "while", "for", "in", "do", "match", "case", "invariant", "requires", "ensures", "uses",
     "assert", "check", "break", "continue", "and", "or", "not", "implies", "true", "false", "with",
-    "import", "it", "result", "where", "inout",
+    "import", "it", "result", "where", "inout", "forall", "exists", "decreases",
 ];
 
 // Longest symbols first so that maximal munch works by simple prefix testing.

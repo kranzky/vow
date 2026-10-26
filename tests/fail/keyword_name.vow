@@ -1,0 +1,4 @@
+// error: 'it' is a keyword: keywords can label fields and arguments
+fn main() do
+  let it = 3
+end fn main

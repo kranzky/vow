@@ -143,7 +143,11 @@ impl<'a> Gen<'a> {
         match &s.kind {
             SK::Let { name, value, .. } => {
                 let v = self.expr(value);
-                self.line(format!("V l_{} = {};", name, v));
+                if name == "_" {
+                    self.line(format!("(void){};", v));
+                } else {
+                    self.line(format!("V l_{} = {};", name, v));
+                }
             }
             SK::Set { name, value } => {
                 let v = self.expr(value);
@@ -356,6 +360,23 @@ impl<'a> Gen<'a> {
                 }
             }
             EK::Binary(op, l, r) => self.binary(op, l, r),
+            EK::Quant(q, v, lo, hi, body) => {
+                let a = self.expr(lo);
+                let b = self.expr(hi);
+                let forall = q == "forall";
+                let t = self.bind(if forall { "1".into() } else { "0".into() });
+                self.line(format!("for (V l_{v} = {a}; VI(l_{v}) < VI({b}); l_{v} = (V)(VI(l_{v}) + 1)) {{", v = v, a = a, b = b));
+                self.ind += 1;
+                let bv = self.expr(body);
+                if forall {
+                    self.line(format!("if (!{}) {{ {} = 0; break; }}", bv, t));
+                } else {
+                    self.line(format!("if ({}) {{ {} = 1; break; }}", bv, t));
+                }
+                self.ind -= 1;
+                self.line("}".into());
+                t
+            }
         }
     }
 
@@ -478,6 +499,9 @@ impl<'a> Gen<'a> {
                     "args" => "vargs()".into(),
                     "getenv" => format!("vgetenv({})", p[0]),
                     "run" => format!("vrun({}, {})", p[0], p[1]),
+                    "is_some" => format!("(V)(VP({})[0] == 1)", p[0]),
+                    "is_none" => format!("(V)(VP({})[0] == 0)", p[0]),
+                    "value_or" => format!("(VP({o})[0] == 1 ? VP({o})[1] : {d})", o = p[0], d = p[1]),
                     _ => unreachable!(),
                 };
                 self.bind(rhs)

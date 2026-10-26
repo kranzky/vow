@@ -80,6 +80,10 @@ struct FnInfo
   effects: List<String>,
   pre: List<Expr>,
   post: List<Expr>,
+  dec: Option<Expr>,
+  // For a pure, non-recursive function whose whole body is 'return e': that e.
+  // Such a function may be used in specifications, where it is inlined.
+  inline: Option<Expr>,
   pos: Pos,
 end struct FnInfo
 
@@ -121,6 +125,12 @@ end struct Info
 fn builtin_params(name: String) -> Option<List<String>> do
   match name
   case "len" then
+    return Option.Some(value: ["x"])
+  case "value_or" then
+    return Option.Some(value: ["opt", "default"])
+  case "is_some" then
+    return Option.Some(value: ["x"])
+  case "is_none" then
     return Option.Some(value: ["x"])
   case "push" then
     return Option.Some(value: ["list", "item"])
@@ -187,6 +197,11 @@ fn builtin_effect(name: String) -> String do
   end if
   return ""
 end fn builtin_effect
+
+// Built-ins that may appear in specifications.
+fn spec_builtin(name: String) -> Bool do
+  return contains_str(xs: ["len", "value_or", "is_some", "is_none"], x: name)
+end fn spec_builtin
 
 fn builtin_noreturn(name: String) -> Bool do
   return (name == "panic") or (name == "exit")
@@ -367,7 +382,16 @@ struct Checker
   it_ty: Option<Ty>,
   result_ty: Option<Ty>,
   inout_ok: Bool,
+  files: List<String>,
 end struct Checker
+
+fn at(c: Checker, p: Pos) -> String do
+  var f = "?"
+  if (p.file >= 0) and (p.file < len(c.files)) then
+    set f = c.files[p.file]
+  end if
+  return f ++ ":" ++ int_to_str(p.line)
+end fn at
 
 fn err(c: inout Checker, pos: Pos, msg: String) do
   set c = c with (errs: push(list: c.errs, item: diag(pos: pos, msg: msg)))
@@ -478,10 +502,10 @@ fn primitive_types() -> List<String> do
   return ["Int", "Bool", "String", "Unit", "List", "Map", "Option", "Output"]
 end fn primitive_types
 
-fn check_program(items: List<Item>) -> Checker do
+fn check_program(items: List<Item>, files: List<String>) -> Checker do
   let none: Option<Ty> = Option.None
   var c = Checker(info: new_info(), errs: [], locals: [], marks: [], effects: [], ret: Ty.TUnit,
-    loops: 0, spec: false, it_ty: none, result_ty: none, inout_ok: false)
+    loops: 0, spec: false, it_ty: none, result_ty: none, inout_ok: false, files: files)
   // Phase 1: names.
   var seen_types: Map<String, Pos> = {}
   var seen_fns: Map<String, Pos> = {}
@@ -500,7 +524,7 @@ fn check_program(items: List<Item>) -> Checker do
       else
         match lookup(map: seen_types, key: name)
         case Some(value: p) then
-          err(c: inout c, pos: pos, msg: "type '" ++ name ++ "' is already declared at line " ++ int_to_str(p.line))
+          err(c: inout c, pos: pos, msg: "type '" ++ name ++ "' is already declared at " ++ at(c: c, p: p))
         case None then
         end match
       end if
@@ -511,7 +535,7 @@ fn check_program(items: List<Item>) -> Checker do
       else
         match lookup(map: seen_fns, key: name)
         case Some(value: p) then
-          err(c: inout c, pos: pos, msg: "function '" ++ name ++ "' is already declared at line " ++ int_to_str(p.line))
+          err(c: inout c, pos: pos, msg: "function '" ++ name ++ "' is already declared at " ++ at(c: c, p: p))
         case None then
         end match
       end if
@@ -608,12 +632,13 @@ fn check_program(items: List<Item>) -> Checker do
         set effs = push(list: effs, item: u.name)
       end for
       let fi = FnInfo(name: f.name, params: params, io: io, ret: ret, effects: effs, pre: f.pre,
-        post: f.post, pos: f.pos)
+        post: f.post, dec: f.dec, inline: Option.None, pos: f.pos)
       let info = c.info
       set c = c with (info: info with (fns: insert(map: info.fns, key: f.name, value: fi)))
     else
     end match
   end for
+  compute_inline(c: inout c, items: items)
   // Phase 3: refinement predicates and contracts.
   for item in items do
     match item
@@ -674,6 +699,11 @@ fn check_program(items: List<Item>) -> Checker do
         for e in f.post do
           check_pred(c: inout c, e: e, scope: all, subject: Option.None, res: Option.Some(value: fi.ret.ty))
         end for
+        match f.dec
+        case Some(value: d) then
+          check_measure(c: inout c, e: d, scope: all)
+        case None then
+        end match
       case None then
       end match
     end match
@@ -747,6 +777,193 @@ fn check_pred(c: inout Checker, e: Expr, scope: List<NamedTy>, subject: Option<T
   set c = c with (locals: saved_locals, marks: saved_marks, it_ty: none, result_ty: none, spec: false)
 end fn check_pred
 
+fn check_measure(c: inout Checker, e: Expr, scope: List<NamedTy>) do
+  let saved_locals = c.locals
+  let saved_marks = c.marks
+  var locals: List<Local> = []
+  for s in scope do
+    set locals = push(list: locals, item: Local(name: s.name, ty: s.ty, mutable: false))
+  end for
+  set c = c with (locals: locals, marks: [], spec: true)
+  let t = check_expr(c: inout c, e: e, expected: Option.Some(value: Ty.TInt))
+  expect_ty(c: inout c, pos: e.pos, got: t, want: Ty.TInt, what: "a 'decreases' measure")
+  set c = c with (locals: saved_locals, marks: saved_marks, spec: false)
+end fn check_measure
+
+struct Candidate
+  name: String,
+  body: Expr,
+end struct Candidate
+
+// The functions that may be used in specifications: pure, returning a value, no
+// inout parameters, a body that is exactly 'return e' where e is a specification
+// expression, and not recursive (so inlining terminates).
+fn compute_inline(c: inout Checker, items: List<Item>) do
+  var cand: Map<String, Expr> = {}
+  for item in items do
+    match item
+    case FnItem(decl: f) then
+      match get_fn(info: c.info, name: f.name)
+      case Some(value: fi) then
+        var pure = (len(fi.effects) == 0) and (ty_show(fi.ret.ty) != "Unit")
+        for b in fi.io do
+          if b then
+            set pure = false
+          end if
+        end for
+        if pure and (len(f.body) == 1) then
+          match f.body[0].kind
+          case Return(value: rv) then
+            match rv
+            case Some(value: e) then
+              set cand = insert(map: cand, key: f.name, value: e)
+            case None then
+            end match
+          else
+          end match
+        end if
+      case None then
+      end match
+    else
+    end match
+  end for
+  var changed = true
+  while changed do
+    var drop: List<String> = []
+    for n in keys(cand) do
+      match lookup(map: cand, key: n)
+      case Some(value: e) then
+        var seen: List<String> = []
+        if (not spec_safe(c: c, e: e, cand: cand)) or reaches(from: n, target: n, cand: cand, seen: inout seen) then
+          set drop = push(list: drop, item: n)
+        end if
+      case None then
+      end match
+    end for
+    set changed = len(drop) > 0
+    var kept: Map<String, Expr> = {}
+    for n in keys(cand) do
+      if not contains_str(xs: drop, x: n) then
+        match lookup(map: cand, key: n)
+        case Some(value: e) then
+          set kept = insert(map: kept, key: n, value: e)
+        case None then
+        end match
+      end if
+    end for
+    set cand = kept
+  end while
+  for n in keys(cand) do
+    match lookup(map: cand, key: n)
+    case Some(value: e) then
+      match get_fn(info: c.info, name: n)
+      case Some(value: fi) then
+        let info = c.info
+        set c = c with (info: info with (fns: insert(map: info.fns, key: n, value: fi with (inline: Option.Some(value: e)))))
+      case None then
+      end match
+    case None then
+    end match
+  end for
+end fn compute_inline
+
+fn spec_safe(c: Checker, e: Expr, cand: Map<String, Expr>) -> Bool do
+  match e.kind
+  case IntLit(value: v) then
+    return true
+  case BoolLit(value: v) then
+    return true
+  case StrLit(value: v) then
+    return true
+  case Var(name: n) then
+    return true
+  case Unary(op: op, x: x) then
+    return spec_safe(c: c, e: x, cand: cand)
+  case Binary(op: op, l: l, r: r) then
+    return (op != "++") and spec_safe(c: c, e: l, cand: cand) and spec_safe(c: c, e: r, cand: cand)
+  case Index(obj: o, idx: i) then
+    return spec_safe(c: c, e: o, cand: cand) and spec_safe(c: c, e: i, cand: cand)
+  case Field(obj: o, name: f) then
+    match o.kind
+    case Var(name: n) then
+      return not (has(map: c.info.enums, key: n) or (n == "Option"))
+    else
+      return spec_safe(c: c, e: o, cand: cand)
+    end match
+  case Call(callee: callee, args: args) then
+    match callee.kind
+    case Var(name: n) then
+      if not (spec_builtin(n) or has(map: cand, key: n)) then
+        return false
+      end if
+      for a in args do
+        if a.is_inout or not spec_safe(c: c, e: a.value, cand: cand) then
+          return false
+        end if
+      end for
+      return true
+    else
+      return false
+    end match
+  case Quant(q: q, name: v, lo: lo, hi: hi, body: b) then
+    return spec_safe(c: c, e: lo, cand: cand) and spec_safe(c: c, e: hi, cand: cand) and spec_safe(c: c, e: b, cand: cand)
+  else
+    return false
+  end match
+end fn spec_safe
+
+fn callees(e: Expr, out: inout List<String>) do
+  match e.kind
+  case Call(callee: c, args: args) then
+    match c.kind
+    case Var(name: n) then
+      set out = push(list: out, item: n)
+    else
+    end match
+    for a in args do
+      callees(e: a.value, out: inout out)
+    end for
+  case Unary(op: op, x: x) then
+    callees(e: x, out: inout out)
+  case Field(obj: x, name: f) then
+    callees(e: x, out: inout out)
+  case Binary(op: op, l: l, r: r) then
+    callees(e: l, out: inout out)
+    callees(e: r, out: inout out)
+  case Index(obj: l, idx: r) then
+    callees(e: l, out: inout out)
+    callees(e: r, out: inout out)
+  case Quant(q: q, name: v, lo: lo, hi: hi, body: b) then
+    callees(e: lo, out: inout out)
+    callees(e: hi, out: inout out)
+    callees(e: b, out: inout out)
+  else
+  end match
+end fn callees
+
+// True if 'from' can reach 'target' through calls among the candidates.
+fn reaches(from: String, target: String, cand: Map<String, Expr>, seen: inout List<String>) -> Bool do
+  match lookup(map: cand, key: from)
+  case None then
+    return false
+  case Some(value: body) then
+    var cs: List<String> = []
+    callees(e: body, out: inout cs)
+    for x in cs do
+      if x == target then
+        return true
+      end if
+      if not contains_str(xs: seen, x: x) then
+        set seen = push(list: seen, item: x)
+        if reaches(from: x, target: target, cand: cand, seen: inout seen) then
+          return true
+        end if
+      end if
+    end for
+    return false
+  end match
+end fn reaches
+
 fn spec_expr(c: inout Checker, e: Expr) do
   set c = c with (spec: true)
   let t = check_expr(c: inout c, e: e, expected: Option.Some(value: Ty.TBool))
@@ -805,10 +1022,16 @@ fn check_stmt(c: inout Checker, s: Stmt) do
     case None then
       set t = check_expr(c: inout c, e: value, expected: Option.None)
     end match
-    if ty_show(t) == "Unit" then
-      err(c: inout c, pos: s.pos, msg: "cannot bind a Unit value")
+    if name == "_" then
+      if m then
+        err(c: inout c, pos: s.pos, msg: "use 'let _ = ...' to discard a value")
+      end if
+    else
+      if ty_show(t) == "Unit" then
+        err(c: inout c, pos: s.pos, msg: "cannot bind a Unit value")
+      end if
+      declare(c: inout c, pos: s.pos, name: name, t: t, mutable: m)
     end if
-    declare(c: inout c, pos: s.pos, name: name, t: t, mutable: m)
   case Set(name: name, value: value) then
     match find_local(c: c, name: name)
     case None then
@@ -845,12 +1068,20 @@ fn check_stmt(c: inout Checker, s: Stmt) do
       check_block(c: inout c, stmts: b)
     case None then
     end match
-  case While(cond: cond, invs: invs, body: body) then
+  case While(cond: cond, invs: invs, dec: dec, body: body) then
     let t = check_expr(c: inout c, e: cond, expected: Option.Some(value: Ty.TBool))
     expect_ty(c: inout c, pos: cond.pos, got: t, want: Ty.TBool, what: "a while condition")
     for i in invs do
       spec_expr(c: inout c, e: i)
     end for
+    match dec
+    case Some(value: d) then
+      set c = c with (spec: true)
+      let dt = check_expr(c: inout c, e: d, expected: Option.Some(value: Ty.TInt))
+      expect_ty(c: inout c, pos: d.pos, got: dt, want: Ty.TInt, what: "a 'decreases' measure")
+      set c = c with (spec: false)
+    case None then
+    end match
     set c = c with (loops: c.loops + 1)
     check_block(c: inout c, stmts: body)
     set c = c with (loops: c.loops - 1)
@@ -859,11 +1090,11 @@ fn check_stmt(c: inout Checker, s: Stmt) do
     expect_ty(c: inout c, pos: lo.pos, got: a, want: Ty.TInt, what: "a range bound")
     let b = check_expr(c: inout c, e: hi, expected: Option.Some(value: Ty.TInt))
     expect_ty(c: inout c, pos: hi.pos, got: b, want: Ty.TInt, what: "a range bound")
+    enter(inout c)
+    declare(c: inout c, pos: s.pos, name: v, t: Ty.TInt, mutable: false)
     for i in invs do
       spec_expr(c: inout c, e: i)
     end for
-    enter(inout c)
-    declare(c: inout c, pos: s.pos, name: v, t: Ty.TInt, mutable: false)
     set c = c with (loops: c.loops + 1)
     check_block(c: inout c, stmts: body)
     set c = c with (loops: c.loops - 1)
@@ -1430,6 +1661,17 @@ fn check_expr_inner(c: inout Checker, e: Expr, expected: Option<Ty>) -> Ty do
     return want
   case Binary(op: op, l: l, r: r) then
     return check_binary(c: inout c, e: e, op: op, l: l, r: r)
+  case Quant(q: q, name: v, lo: lo, hi: hi, body: body) then
+    let a = check_expr(c: inout c, e: lo, expected: Option.Some(value: Ty.TInt))
+    expect_ty(c: inout c, pos: lo.pos, got: a, want: Ty.TInt, what: "a quantifier bound")
+    let b = check_expr(c: inout c, e: hi, expected: Option.Some(value: Ty.TInt))
+    expect_ty(c: inout c, pos: hi.pos, got: b, want: Ty.TInt, what: "a quantifier bound")
+    enter(inout c)
+    declare(c: inout c, pos: e.pos, name: v, t: Ty.TInt, mutable: false)
+    let t = check_expr(c: inout c, e: body, expected: Option.Some(value: Ty.TBool))
+    expect_ty(c: inout c, pos: body.pos, got: t, want: Ty.TBool, what: "the body of '" ++ q ++ "'")
+    leave(inout c)
+    return Ty.TBool
   end match
 end fn check_expr_inner
 
@@ -1599,8 +1841,8 @@ fn check_call(c: inout Checker, e: Expr, callee: Expr, args: List<Arg>, expected
   end match
   match builtin_params(name)
   case Some(value: params) then
-    if c.spec and (name != "len") then
-      err(c: inout c, pos: e.pos, msg: "'" ++ name ++ "' is not allowed in a specification (only 'len' is)")
+    if c.spec and not spec_builtin(name) then
+      err(c: inout c, pos: e.pos, msg: "'" ++ name ++ "' is not allowed in a specification (only len, value_or, is_some and is_none are)")
       return Ty.TUnknown
     end if
     let eff = builtin_effect(name)
@@ -1631,7 +1873,8 @@ fn check_call(c: inout Checker, e: Expr, callee: Expr, args: List<Arg>, expected
   end match
   match get_fn(info: c.info, name: name)
   case Some(value: fi) then
-    if spec_forbid(c: inout c, e: e, what: "calling '" ++ name ++ "'") then
+    if c.spec and not is_some(fi.inline) then
+      err(c: inout c, pos: e.pos, msg: "'" ++ name ++ "' cannot be used in a specification: only pure, non-recursive functions whose whole body is 'return <expression>' can")
       return Ty.TUnknown
     end if
     for u in fi.effects do
@@ -1784,10 +2027,41 @@ fn builtin_call(c: inout Checker, e: Expr, name: String, a: List<Expr> where len
   case "exit" then
     want(c: inout c, x: a[0], t: Ty.TInt, what: "the exit code")
     return Ty.TUnit
+  case "is_some" then
+    return option_test(c: inout c, name: name, x: a[0])
+  case "is_none" then
+    return option_test(c: inout c, name: name, x: a[0])
+  case "value_or" then
+    let t = check_expr(c: inout c, e: a[0], expected: Option.None)
+    if len(a) < 2 then
+      return Ty.TUnknown
+    end if
+    match t
+    case TOpt(inner: inner) then
+      want(c: inout c, x: a[1], t: inner, what: "the default")
+      return inner
+    case TUnknown then
+      let d = check_expr(c: inout c, e: a[1], expected: Option.None)
+      return Ty.TUnknown
+    else
+      err(c: inout c, pos: a[0].pos, msg: "'value_or' needs an Option, not " ++ ty_show(t))
+      return Ty.TUnknown
+    end match
   else
     return map_builtin(c: inout c, e: e, name: name, a: a, expected: expected)
   end match
 end fn builtin_call
+
+fn option_test(c: inout Checker, name: String, x: Expr) -> Ty do
+  let t = check_expr(c: inout c, e: x, expected: Option.None)
+  match t
+  case TOpt(inner: i) then
+  case TUnknown then
+  else
+    err(c: inout c, pos: x.pos, msg: "'" ++ name ++ "' needs an Option, not " ++ ty_show(t))
+  end match
+  return Ty.TBool
+end fn option_test
 
 fn map_builtin(c: inout Checker, e: Expr, name: String, a: List<Expr> where len(it) > 0, expected: Option<Ty>) -> Ty do
   var mt = Ty.TUnknown

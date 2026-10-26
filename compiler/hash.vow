@@ -6,7 +6,7 @@ import "check.vow"
 import "pretty.vow"
 
 fn verifier_version() -> String do
-  return "vow-verifier-1"
+  return "vow-verifier-2"
 end fn verifier_version
 
 fn calls_in_expr(e: Expr, info: Info, out: inout List<String>) do
@@ -42,9 +42,27 @@ fn calls_in_expr(e: Expr, info: Info, out: inout List<String>) do
     calls_in_expr(e: a, info: info, out: inout out)
   case Unary(op: op, x: a) then
     calls_in_expr(e: a, info: info, out: inout out)
+  case Quant(q: q, name: n, lo: lo, hi: hi, body: b) then
+    calls_in_expr(e: lo, info: info, out: inout out)
+    calls_in_expr(e: hi, info: info, out: inout out)
+    calls_in_expr(e: b, info: info, out: inout out)
   else
   end match
 end fn calls_in_expr
+
+fn calls_in_all(es: List<Expr>, info: Info, out: inout List<String>) do
+  for e in es do
+    calls_in_expr(e: e, info: info, out: inout out)
+  end for
+end fn calls_in_all
+
+fn calls_in_opt_expr(e: Option<Expr>, info: Info, out: inout List<String>) do
+  match e
+  case Some(value: x) then
+    calls_in_expr(e: x, info: info, out: inout out)
+  case None then
+  end match
+end fn calls_in_opt_expr
 
 fn add_name(out: inout List<String>, n: String) do
   if not contains_str(xs: out, x: n) then
@@ -85,15 +103,19 @@ fn calls_in_block(stmts: List<Stmt>, info: Info, out: inout List<String>) do
         calls_in_block(stmts: a.body, info: info, out: inout out)
       end for
       calls_in_opt(b: els, info: info, out: inout out)
-    case While(cond: c, invs: invs, body: body) then
+    case While(cond: c, invs: invs, dec: dec, body: body) then
       calls_in_expr(e: c, info: info, out: inout out)
+      calls_in_all(es: invs, info: info, out: inout out)
+      calls_in_opt_expr(e: dec, info: info, out: inout out)
       calls_in_block(stmts: body, info: info, out: inout out)
     case ForRange(name: v, lo: lo, hi: hi, invs: invs, body: body) then
       calls_in_expr(e: lo, info: info, out: inout out)
       calls_in_expr(e: hi, info: info, out: inout out)
+      calls_in_all(es: invs, info: info, out: inout out)
       calls_in_block(stmts: body, info: info, out: inout out)
     case ForEach(name: v, list: l, invs: invs, body: body) then
       calls_in_expr(e: l, info: info, out: inout out)
+      calls_in_all(es: invs, info: info, out: inout out)
       calls_in_block(stmts: body, info: info, out: inout out)
     case Match(scrut: sc, cases: cases, els: els) then
       calls_in_expr(e: sc, info: info, out: inout out)
@@ -105,6 +127,15 @@ fn calls_in_block(stmts: List<Stmt>, info: Info, out: inout List<String>) do
     end match
   end for
 end fn calls_in_block
+
+fn is_inline(info: Info, name: String) -> Bool do
+  match get_fn(info: info, name: name)
+  case Some(value: fi) then
+    return is_some(fi.inline)
+  case None then
+    return false
+  end match
+end fn is_inline
 
 struct FnHash
   name: String,
@@ -122,12 +153,28 @@ fn hash_program(items: List<Item>, info: Info) -> List<FnHash> do
       set types = push(list: types, item: pretty_item(item) ++ "\n")
     end match
   end for
+  // Type refinements may call expression functions, whose bodies are inlined.
+  for item in items do
+    match item
+    case FnItem(decl: f) then
+      if is_inline(info: info, name: f.name) then
+        set types = push(list: types, item: pretty_item(item) ++ "\n")
+      end if
+    else
+    end match
+  end for
   let types_hash = hash(join(parts: types, sep: ""))
+  // An expression function is inlined into specifications, so its body is part of
+  // what callers rely on.
   var contracts: Map<String, String> = {}
   for item in items do
     match item
     case FnItem(decl: f) then
-      set contracts = insert(map: contracts, key: f.name, value: hash(fn_contract(f)))
+      if is_inline(info: info, name: f.name) then
+        set contracts = insert(map: contracts, key: f.name, value: hash(pretty_item(item)))
+      else
+        set contracts = insert(map: contracts, key: f.name, value: hash(fn_contract(f)))
+      end if
     else
     end match
   end for
@@ -136,8 +183,16 @@ fn hash_program(items: List<Item>, info: Info) -> List<FnHash> do
     match item
     case FnItem(decl: f) then
       let body = hash(pretty_item(item))
+      // Calls anywhere the proof looks: the body, its specifications and the
+      // function's own contract (which may call expression functions).
       var callees: List<String> = []
       calls_in_block(stmts: f.body, info: info, out: inout callees)
+      calls_in_all(es: f.pre, info: info, out: inout callees)
+      calls_in_all(es: f.post, info: info, out: inout callees)
+      for p in f.params do
+        calls_in_opt_expr(e: p.ty.refine, info: info, out: inout callees)
+      end for
+      calls_in_opt_expr(e: f.dec, info: info, out: inout callees)
       // Sorted, like the bootstrap compiler's BTreeSet.
       var sorted: Map<String, String> = {}
       for c in callees do

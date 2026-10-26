@@ -45,6 +45,8 @@ fn pretty_operand(e: Expr) -> String do
   match e.kind
   case Binary(op: o, l: a, r: b) then
     return "(" ++ pretty_expr(e) ++ ")"
+  case Quant(q: q, name: v, lo: lo, hi: hi, body: b) then
+    return "(" ++ pretty_expr(e) ++ ")"
   else
     return pretty_expr(e)
   end match
@@ -92,6 +94,8 @@ fn pretty_expr(e: Expr) -> String do
     return "-" ++ pretty_operand(x)
   case Binary(op: op, l: l, r: r) then
     return pretty_operand(l) ++ " " ++ op ++ " " ++ pretty_operand(r)
+  case Quant(q: q, name: v, lo: lo, hi: hi, body: b) then
+    return q ++ " " ++ v ++ " in " ++ pretty_expr(lo) ++ ".." ++ pretty_expr(hi) ++ ": " ++ pretty_expr(b)
   end match
 end fn pretty_expr
 
@@ -200,8 +204,14 @@ fn pretty_stmt(out: inout List<String>, s: Stmt, ind: Int) do
     case None then
     end match
     pline(out: inout out, ind: ind, s: "end if")
-  case While(cond: c, invs: invs, body: body) then
-    pline(out: inout out, ind: ind, s: "while " ++ pretty_expr(c) ++ pretty_invs(invs) ++ " do")
+  case While(cond: c, invs: invs, dec: dec, body: body) then
+    var d = ""
+    match dec
+    case Some(value: m) then
+      set d = " decreases " ++ pretty_expr(m)
+    case None then
+    end match
+    pline(out: inout out, ind: ind, s: "while " ++ pretty_expr(c) ++ pretty_invs(invs) ++ d ++ " do")
     pretty_block(out: inout out, stmts: body, ind: ind + 1)
     pline(out: inout out, ind: ind, s: "end while")
   case ForRange(name: v, lo: lo, hi: hi, invs: invs, body: body) then
@@ -259,6 +269,11 @@ fn fn_contract(f: FnDecl) -> String do
   for e in f.post do
     set s = s ++ " ensures " ++ pretty_expr(e)
   end for
+  match f.dec
+  case Some(value: d) then
+    set s = s ++ " decreases " ++ pretty_expr(d)
+  case None then
+  end match
   return s
 end fn fn_contract
 

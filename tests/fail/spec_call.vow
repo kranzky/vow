@@ -1,0 +1,9 @@
+// error: 'noisy' cannot be used in a specification
+fn noisy(x: Int) -> Bool uses console do
+  print("hi")
+  return x > 0
+end fn noisy
+fn f(x: Int) -> Int requires noisy(x) do
+  return x
+end fn f
+fn main() do end fn main

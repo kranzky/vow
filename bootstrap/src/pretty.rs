@@ -33,7 +33,7 @@ fn args(a: &[Arg]) -> String {
 
 fn operand(e: &Expr) -> String {
     match &e.kind {
-        EK::Binary(..) => format!("({})", expr(e)),
+        EK::Binary(..) | EK::Quant(..) => format!("({})", expr(e)),
         _ => expr(e),
     }
 }
@@ -64,6 +64,7 @@ pub fn expr(e: &Expr) -> String {
             }
         }
         EK::Binary(op, l, r) => format!("{} {} {}", operand(l), op, operand(r)),
+        EK::Quant(q, v, lo, hi, body) => format!("{} {} in {}..{}: {}", q, v, expr(lo), expr(hi), expr(body)),
     }
 }
 
@@ -123,8 +124,12 @@ fn stmt(out: &mut Vec<String>, s: &Stmt, ind: usize) {
             }
             line(out, ind, "end if".into());
         }
-        SK::While { cond, invs: iv, body } => {
-            line(out, ind, format!("while {}{} do", expr(cond), invs(iv)));
+        SK::While { cond, invs: iv, dec, body } => {
+            let d = match dec {
+                Some(d) => format!(" decreases {}", expr(d)),
+                None => String::new(),
+            };
+            line(out, ind, format!("while {}{}{} do", expr(cond), invs(iv), d));
             block(out, body, ind + 1);
             line(out, ind, "end while".into());
         }
@@ -185,6 +190,9 @@ pub fn fn_contract(f: &FnDecl) -> String {
     }
     for e in &f.ensures {
         s.push_str(&format!(" ensures {}", expr(e)));
+    }
+    if let Some(d) = &f.decreases {
+        s.push_str(&format!(" decreases {}", expr(d)));
     }
     s
 }

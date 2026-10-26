@@ -178,7 +178,7 @@ fn main() {
         }
         return;
     }
-    let (info, errs) = check::check_program(&src.items);
+    let (info, errs) = check::check_program(&src.items, &src.files);
     if !errs.is_empty() {
         report(&errs, &src.files, json);
         exit(1);

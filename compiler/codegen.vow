@@ -179,7 +179,11 @@ fn gen_stmt(g: inout Gen, s: Stmt) do
   match s.kind
   case Let(name: name, ty: ty, value: value, mutable: m) then
     let v = gen_expr(g: inout g, e: value)
-    line(g: inout g, s: "V l_" ++ name ++ " = " ++ v ++ ";")
+    if name == "_" then
+      line(g: inout g, s: "(void)" ++ v ++ ";")
+    else
+      line(g: inout g, s: "V l_" ++ name ++ " = " ++ v ++ ";")
+    end if
   case Set(name: name, value: value) then
     let v = gen_expr(g: inout g, e: value)
     line(g: inout g, s: cvar(g: g, n: name) ++ " = " ++ v ++ ";")
@@ -432,6 +436,27 @@ fn gen_expr(g: inout Gen, e: Expr) -> String do
     return bind(g: inout g, rhs: "(V)!" ++ v)
   case Binary(op: op, l: l, r: r) then
     return gen_binary(g: inout g, op: op, l: l, r: r)
+  case Quant(q: q, name: v, lo: lo, hi: hi, body: body) then
+    let a = gen_expr(g: inout g, e: lo)
+    let b = gen_expr(g: inout g, e: hi)
+    let is_forall = q == "forall"
+    var init = "0"
+    if is_forall then
+      set init = "1"
+    end if
+    let t = bind(g: inout g, rhs: init)
+    let lv = "l_" ++ v
+    line(g: inout g, s: "for (V " ++ lv ++ " = " ++ a ++ "; VI(" ++ lv ++ ") < VI(" ++ b ++ "); " ++ lv ++ " = (V)(VI(" ++ lv ++ ") + 1)) {")
+    indent(inout g)
+    let bv = gen_expr(g: inout g, e: body)
+    if is_forall then
+      line(g: inout g, s: "if (!" ++ bv ++ ") { " ++ t ++ " = 0; break; }")
+    else
+      line(g: inout g, s: "if (" ++ bv ++ ") { " ++ t ++ " = 1; break; }")
+    end if
+    dedent(inout g)
+    line(g: inout g, s: "}")
+    return t
   end match
 end fn gen_expr
 
@@ -626,6 +651,12 @@ fn gen_builtin(g: inout Gen, name: String, p: List<String>, pe: List<Expr>) -> S
     set rhs = "vgetenv(" ++ a0 ++ ")"
   case "run" then
     set rhs = "vrun(" ++ a0 ++ ", " ++ a1 ++ ")"
+  case "is_some" then
+    set rhs = "(V)(VP(" ++ a0 ++ ")[0] == 1)"
+  case "is_none" then
+    set rhs = "(V)(VP(" ++ a0 ++ ")[0] == 0)"
+  case "value_or" then
+    set rhs = "(VP(" ++ a0 ++ ")[0] == 1 ? VP(" ++ a0 ++ ")[1] : " ++ a1 ++ ")"
   else
     set rhs = "0"
   end match

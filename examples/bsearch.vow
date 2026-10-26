@@ -1,9 +1,17 @@
-// Binary search. Every index is proved in bounds from the loop invariants, so the
-// compiled code has no bounds checks at all.
+// Binary search with a full functional specification: on sorted input, a returned
+// index holds the target, and -1 means the target is absent. Every index is proved in
+// bounds and the loop is proved to terminate, so the compiled code has no bounds
+// checks at all.
+
+fn is_sorted(xs: List<Int>) -> Bool do
+  return forall i in 0..len(xs): forall j in i..len(xs): xs[i] <= xs[j]
+end fn is_sorted
 
 fn search(xs: List<Int>, target: Int) -> Int
-  ensures result >= -1
-  ensures result < len(xs)
+  requires is_sorted(xs)
+  ensures (-1 <= result) and (result < len(xs))
+  ensures (result >= 0) implies (xs[result] == target)
+  ensures (result == -1) implies (forall i in 0..len(xs): xs[i] != target)
 do
   var lo = 0
   var hi = len(xs)
@@ -11,6 +19,9 @@ do
     invariant 0 <= lo
     invariant lo <= hi
     invariant hi <= len(xs)
+    invariant forall i in 0..lo: xs[i] < target
+    invariant forall i in hi..len(xs): xs[i] > target
+    decreases hi - lo
   do
     let mid = lo + ((hi - lo) / 2)
     let x = xs[mid]

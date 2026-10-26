@@ -1,0 +1,8 @@
+// error: cannot prove loop measure decreases: 10 - i
+fn spin() do
+  var i = 0
+  while i < 10 decreases 10 - i do
+    set i = i + 0
+  end while
+end fn spin
+fn main() do end fn main

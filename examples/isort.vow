@@ -1,0 +1,47 @@
+// Insertion sort, proved to return a sorted list of the same length.
+
+fn is_sorted(xs: List<Int>) -> Bool do
+  return forall i in 0..len(xs): forall j in i..len(xs): xs[i] <= xs[j]
+end fn is_sorted
+
+// Insert x into a sorted list, keeping it sorted.
+fn insert_sorted(xs: List<Int>, x: Int) -> List<Int>
+  requires is_sorted(xs)
+  ensures is_sorted(result)
+  ensures len(result) == (len(xs) + 1)
+do
+  var i = 0
+  while (i < len(xs)) and (xs[i] < x)
+    invariant 0 <= i
+    invariant i <= len(xs)
+    invariant forall k in 0..i: xs[k] < x
+    decreases len(xs) - i
+  do
+    set i = i + 1
+  end while
+  // Everything before i is < x, and everything from i on is >= x.
+  assert (i == len(xs)) or (xs[i] >= x)
+  assert forall k in i..len(xs): xs[k] >= x
+  let before = slice(of: xs, from: 0, to: i)
+  let after = slice(of: xs, from: i, to: len(xs))
+  return (before ++ [x]) ++ after
+end fn insert_sorted
+
+fn sort(xs: List<Int>) -> List<Int>
+  ensures is_sorted(result)
+  ensures len(result) == len(xs)
+do
+  var out: List<Int> = []
+  for i in 0..len(xs) invariant is_sorted(out) invariant len(out) == i do
+    set out = insert_sorted(xs: out, x: xs[i])
+  end for
+  return out
+end fn sort
+
+fn main() uses console do
+  var parts: List<String> = []
+  for x in sort([5, 2, 9, 1, 5, 6, -3]) do
+    set parts = push(list: parts, item: int_to_str(x))
+  end for
+  print(join(parts: parts, sep: " ") ++ "\n")
+end fn main

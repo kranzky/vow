@@ -26,6 +26,8 @@ pub enum EK {
     With(Box<Expr>, Vec<Arg>),
     Unary(String, Box<Expr>),
     Binary(String, Box<Expr>, Box<Expr>),
+    /// "forall" or "exists", bound variable, range low, range high, body.
+    Quant(String, String, Box<Expr>, Box<Expr>, Box<Expr>),
 }
 
 #[derive(Clone, Debug)]
@@ -60,6 +62,7 @@ pub struct FnDecl {
     pub uses: Vec<(String, Pos)>,
     pub requires: Vec<Expr>,
     pub ensures: Vec<Expr>,
+    pub decreases: Option<Expr>,
     pub body: Vec<Stmt>,
     pub pos: Pos,
 }
@@ -112,7 +115,7 @@ pub enum SK {
     Set { name: String, value: Expr },
     Return(Option<Expr>),
     If { arms: Vec<(Expr, Vec<Stmt>)>, els: Option<Vec<Stmt>> },
-    While { cond: Expr, invs: Vec<Expr>, body: Vec<Stmt> },
+    While { cond: Expr, invs: Vec<Expr>, dec: Option<Expr>, body: Vec<Stmt> },
     ForRange { var: String, lo: Expr, hi: Expr, invs: Vec<Expr>, body: Vec<Stmt> },
     ForEach { var: String, list: Expr, invs: Vec<Expr>, body: Vec<Stmt> },
     Match { scrut: Expr, cases: Vec<Case>, els: Option<Vec<Stmt>> },

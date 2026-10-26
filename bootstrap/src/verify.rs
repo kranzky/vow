@@ -29,6 +29,10 @@ pub struct FnVc {
     pub name: String,
     pub decls: Vec<String>,
     pub defs: Vec<String>,
+    /// Quantified content axioms about fresh constants. They are consistent by
+    /// construction (each only describes a fresh constant's contents), and Z3 cannot
+    /// cheaply show their satisfiability, so they come after the vacuity check.
+    pub qdefs: Vec<String>,
     pub obs: Vec<Ob>,
 }
 
@@ -55,6 +59,11 @@ struct Spec {
 
 struct Loop {
     invs: Vec<Expr>,
+    /// For a range loop: the loop variable and its value in the next iteration, so
+    /// that invariants mentioning it are checked for the next iteration at `continue`.
+    next: Option<(String, String)>,
+    /// The loop's `decreases` measure and its value at the top of the iteration.
+    dec: Option<(Expr, String)>,
 }
 
 pub struct Verifier<'a> {
@@ -62,6 +71,7 @@ pub struct Verifier<'a> {
     n: usize,
     decls: Vec<String>,
     defs: Vec<String>,
+    qdefs: Vec<String>,
     obs: Vec<Ob>,
     pub preamble: BTreeSet<String>,
     strs: HashMap<String, String>,
@@ -69,6 +79,7 @@ pub struct Verifier<'a> {
     fname: String,
     ret: RTy,
     ensures: Vec<Expr>,
+    decreases: Option<Expr>,
     params: HashMap<String, String>,
     pub hole_facts: HashMap<ExprId, Vec<String>>,
 }
@@ -132,6 +143,11 @@ fn assigned_expr(e: &Expr, out: &mut Vec<String>) {
             assigned_expr(b, out);
         }
         EK::Field(a, _) | EK::Unary(_, a) => assigned_expr(a, out),
+        EK::Quant(_, _, lo, hi, b) => {
+            assigned_expr(lo, out);
+            assigned_expr(hi, out);
+            assigned_expr(b, out);
+        }
         _ => {}
     }
 }
@@ -192,6 +208,7 @@ impl<'a> Verifier<'a> {
             n: 0,
             decls: Vec::new(),
             defs: Vec::new(),
+            qdefs: Vec::new(),
             obs: Vec::new(),
             preamble: PRELUDE.iter().map(|s| s.to_string()).collect(),
             strs: HashMap::new(),
@@ -199,6 +216,7 @@ impl<'a> Verifier<'a> {
             fname: String::new(),
             ret: RTy::plain(Ty::Unit),
             ensures: Vec::new(),
+            decreases: None,
             params: HashMap::new(),
             hole_facts: HashMap::new(),
         }
@@ -278,6 +296,7 @@ impl<'a> Verifier<'a> {
         self.n = 0;
         self.decls.clear();
         self.defs.clear();
+        self.qdefs.clear();
         self.obs.clear();
         self.strs.clear();
         self.loops.clear();
@@ -285,6 +304,7 @@ impl<'a> Verifier<'a> {
         self.fname = f.name.clone();
         self.ret = fi.ret.clone();
         self.ensures = fi.ensures.clone();
+        self.decreases = fi.decreases.clone();
         self.params.clear();
         let mut st = St { env: HashMap::new(), facts: Vec::new(), src: Vec::new(), dead: false };
         for (pname, r) in &fi.params {
@@ -307,7 +327,13 @@ impl<'a> Verifier<'a> {
         if !st.dead && fi.ret.ty == Ty::Unit {
             self.check_post(&st, f.pos, "0".into());
         }
-        FnVc { name: f.name.clone(), decls: self.decls.clone(), defs: self.defs.clone(), obs: self.obs.clone() }
+        FnVc {
+            name: f.name.clone(),
+            decls: self.decls.clone(),
+            defs: self.defs.clone(),
+            qdefs: self.qdefs.clone(),
+            obs: self.obs.clone(),
+        }
     }
 
     fn check_post(&mut self, st: &St, pos: Pos, val: String) {
@@ -354,9 +380,36 @@ impl<'a> Verifier<'a> {
             EK::It => sp.it.clone().expect("it"),
             EK::Result => sp.result.clone().expect("result"),
             EK::Call(_, args) => {
-                // Only `len` is allowed in specifications.
-                let a = self.sexpr(&args[0].value, sp);
-                format!("(len {})", a)
+                let ci = self.info.calls[&e.id].clone();
+                let mut p = Vec::new();
+                for i in &ci.order {
+                    p.push(self.sexpr(&args[*i].value, sp));
+                }
+                match &ci.kind {
+                    CallKind::Builtin(n) => match n.as_str() {
+                        "len" => format!("(len {})", p[0]),
+                        "is_some" => format!("(= (tag {}) 1)", p[0]),
+                        "is_none" => format!("(= (tag {}) 0)", p[0]),
+                        _ => {
+                            let t = self.info.ty(e);
+                            let f = self.vfield_fn("Option", "Some", "value", &t);
+                            format!("(ite (= (tag {o}) 1) ({f} {o}) {d})", o = p[0], f = f, d = p[1])
+                        }
+                    },
+                    CallKind::User(n) => self.inline_call(n, &p),
+                    _ => panic!("constructor in spec"),
+                }
+            }
+            EK::Quant(q, v, lo, hi, body) => {
+                let a = self.sexpr(lo, sp);
+                let b = self.sexpr(hi, sp);
+                self.n += 1;
+                let qv = format!("q{}", self.n);
+                let mut binds = sp.binds.clone();
+                binds.insert(v.clone(), qv.clone());
+                let inner = Spec { binds, it: sp.it.clone(), result: sp.result.clone() };
+                let body = self.sexpr(body, &inner);
+                quant_term(q, &qv, &a, &b, &body)
             }
             EK::Field(o, f) => {
                 let ot = self.info.ty(o);
@@ -397,6 +450,54 @@ impl<'a> Verifier<'a> {
         }
     }
 
+    /// The body of an expression function with its parameters bound to `args`.
+    fn inline_call(&mut self, name: &str, args: &[String]) -> String {
+        let fi = self.info.fns[name].clone();
+        let body = fi.inline.clone().expect("only expression functions are inlined");
+        let mut binds = HashMap::new();
+        for (i, (pn, _)) in fi.params.iter().enumerate() {
+            binds.insert(pn.clone(), args[i].clone());
+        }
+        self.sexpr(&body, &Spec { binds, it: None, result: None })
+    }
+
+    /// The SMT function giving the contents of a String or List.
+    fn content_fn(t: &Ty) -> Option<String> {
+        match t {
+            Ty::Str => Some("byte".into()),
+            Ty::List(e) => Some(format!("elem_{}", sort(e))),
+            _ => None,
+        }
+    }
+
+    /// True if `e` can be translated as a specification term (see check::spec_safe).
+    fn translatable(&self, e: &Expr) -> bool {
+        match &e.kind {
+            EK::Int(_) | EK::Bool(_) | EK::Str(_) | EK::Var(_) => true,
+            EK::Unary(_, x) => self.translatable(x),
+            EK::Binary(op, l, r) => op != "++" && self.translatable(l) && self.translatable(r),
+            EK::Index(o, i) => self.translatable(o) && self.translatable(i),
+            EK::Field(o, _) => {
+                matches!(self.info.ty(o), Ty::Struct(_)) && self.translatable(o)
+            }
+            EK::Call(_, args) => {
+                let ok = match self.info.calls.get(&e.id).map(|c| &c.kind) {
+                    Some(CallKind::Builtin(n)) => crate::check::SPEC_BUILTINS.contains(&n.as_str()),
+                    Some(CallKind::User(n)) => self.info.fns[n].inline.is_some(),
+                    _ => false,
+                };
+                ok && args.iter().all(|a| self.translatable(&a.value))
+            }
+            EK::Quant(_, _, lo, hi, b) => self.translatable(lo) && self.translatable(hi) && self.translatable(b),
+            _ => false,
+        }
+    }
+
+    fn fresh_q(&mut self) -> String {
+        self.n += 1;
+        format!("q{}", self.n)
+    }
+
     // ---- statements ----
 
     fn block(&mut self, stmts: &[Stmt], st: &mut St) {
@@ -427,6 +528,9 @@ impl<'a> Verifier<'a> {
         match &s.kind {
             SK::Let { name, ty, value, .. } => {
                 let v = self.expr(value, st);
+                if name == "_" {
+                    return;
+                }
                 let r = match ty {
                     Some(te) => self.info.resolve(te),
                     None => RTy::plain(self.info.ty(value)),
@@ -546,7 +650,7 @@ impl<'a> Verifier<'a> {
                 }
                 *st = self.merge(&base, results);
             }
-            SK::While { cond, invs, body } => {
+            SK::While { cond, invs, dec, body } => {
                 for i in invs {
                     let g = self.spec_term(i, st, None, None);
                     self.obligation(st, i.pos, format!("loop invariant holds on entry: {}", pretty::expr(i)), g);
@@ -556,39 +660,66 @@ impl<'a> Verifier<'a> {
                 let mut inner = head.clone();
                 inner.facts.push(c.clone());
                 inner.src.push(pretty::expr(cond));
-                self.loops.push(Loop { invs: invs.clone() });
+                let measure = match dec {
+                    Some(d) => {
+                        let t = self.spec_term(d, &inner, None, None);
+                        let d0 = self.define("Int", t);
+                        let what = format!("loop measure is non-negative: {}", pretty::expr(d));
+                        self.obligation(&inner, d.pos, what, format!("(>= {} 0)", d0));
+                        Some((d.clone(), d0))
+                    }
+                    None => None,
+                };
+                self.loops.push(Loop { invs: invs.clone(), next: None, dec: measure.clone() });
                 self.block(body, &mut inner);
                 self.loops.pop();
                 self.check_invs(&inner, invs, "is preserved");
+                self.check_measure(&inner, &measure);
                 let mut after = head;
-                if !crate::check::terminates(body, self.info) || true {
-                    if !has_break(body) {
-                        after.facts.push(format!("(not {})", c));
-                        after.src.push(format!("not ({})", pretty::expr(cond)));
-                    }
+                if !has_break(body) {
+                    after.facts.push(format!("(not {})", c));
+                    after.src.push(format!("not ({})", pretty::expr(cond)));
                 }
                 *st = after;
             }
             SK::ForRange { var, lo, hi, invs, body } => {
                 let a = self.expr(lo, st);
                 let b = self.expr(hi, st);
+                let mut entry = st.clone();
+                entry.env.insert(var.clone(), Var { term: a.clone(), ty: Ty::Int, preds: Vec::new() });
                 for i in invs {
-                    let g = self.spec_term(i, st, None, None);
-                    self.obligation(st, i.pos, format!("loop invariant holds on entry: {}", pretty::expr(i)), g);
+                    let g = self.spec_term(i, &entry, None, None);
+                    self.obligation(&entry, i.pos, format!("loop invariant holds on entry: {}", pretty::expr(i)), g);
                 }
-                let head = self.havoc(body, st, invs);
-                let mut inner = head.clone();
+                // Verified like the counted while loop it is: invariants may mention the
+                // loop variable, which is lo on entry and one more after each iteration.
+                let mut head = self.havoc(body, st, &[]);
                 let iv = self.fresh("Int");
-                inner.facts.push(format!("(<= {} {})", a, iv));
+                head.facts.push(format!("(<= {} {})", a, iv));
+                head.facts.push(format!("(or (<= {} {}) (= {} {}))", iv, b, iv, a));
+                head.env.insert(var.clone(), Var { term: iv.clone(), ty: Ty::Int, preds: Vec::new() });
+                for i in invs {
+                    let t = self.spec_term(i, &head, None, None);
+                    head.facts.push(t);
+                    head.src.push(pretty::expr(i));
+                }
+                let mut inner = head.clone();
                 inner.facts.push(format!("(< {} {})", iv, b));
                 inner.src.push(format!("{} <= {}", pretty::expr(lo), var));
                 inner.src.push(format!("{} < {}", var, pretty::expr(hi)));
-                inner.env.insert(var.clone(), Var { term: iv, ty: Ty::Int, preds: Vec::new() });
-                self.loops.push(Loop { invs: invs.clone() });
+                let next = self.define("Int", format!("(+ {} 1)", iv));
+                self.loops.push(Loop { invs: invs.clone(), next: Some((var.clone(), next.clone())), dec: None });
                 self.block(body, &mut inner);
                 self.loops.pop();
-                self.check_invs(&inner, invs, "is preserved");
-                *st = head;
+                let mut end = inner.clone();
+                end.env.get_mut(var).unwrap().term = next;
+                self.check_invs(&end, invs, "is preserved");
+                let mut after = head;
+                if !has_break(body) {
+                    after.facts.push(format!("(<= {} {})", b, iv));
+                }
+                after.env.remove(var);
+                *st = after;
             }
             SK::ForEach { var, list, invs, body } => {
                 let l = self.expr(list, st);
@@ -608,7 +739,7 @@ impl<'a> Verifier<'a> {
                 let x = self.define(sort(&et), format!("(elem_{} {} {})", sort(&et), l, k));
                 inner.env.insert(var.clone(), Var { term: x, ty: et, preds: Vec::new() });
                 inner.src.push(format!("{} is an element of {}", var, pretty::expr(list)));
-                self.loops.push(Loop { invs: invs.clone() });
+                self.loops.push(Loop { invs: invs.clone(), next: None, dec: None });
                 self.block(body, &mut inner);
                 self.loops.pop();
                 self.check_invs(&inner, invs, "is preserved");
@@ -628,7 +759,17 @@ impl<'a> Verifier<'a> {
             SK::Break | SK::Continue => {
                 let invs = self.loops.last().map(|l| l.invs.clone()).unwrap_or_default();
                 let what = if matches!(s.kind, SK::Break) { "holds at 'break'" } else { "holds at 'continue'" };
-                self.check_invs(st, &invs, what);
+                let mut at = st.clone();
+                if matches!(s.kind, SK::Continue) {
+                    if let Some((v, next)) = self.loops.last().and_then(|l| l.next.clone()) {
+                        at.env.get_mut(&v).unwrap().term = next;
+                    }
+                }
+                self.check_invs(&at, &invs, what);
+                if matches!(s.kind, SK::Continue) {
+                    let measure = self.loops.last().and_then(|l| l.dec.clone());
+                    self.check_measure(st, &measure);
+                }
                 st.dead = true;
             }
             SK::Expr(e) => {
@@ -637,6 +778,14 @@ impl<'a> Verifier<'a> {
                     st.dead = true;
                 }
             }
+        }
+    }
+
+    fn check_measure(&mut self, st: &St, measure: &Option<(Expr, String)>) {
+        if let Some((d, d0)) = measure {
+            let now = self.spec_term(d, st, None, None);
+            let what = format!("loop measure decreases: {}", pretty::expr(d));
+            self.obligation(st, d.pos, what, format!("(< {} {})", now, d0));
         }
     }
 
@@ -834,6 +983,29 @@ impl<'a> Verifier<'a> {
                     format!("(not {})", v)
                 }
             }
+            EK::Quant(q, v, lo, hi, body) => {
+                let a = self.expr(lo, st);
+                let b = self.expr(hi, st);
+                // Obligations of the body, for every value of the bound variable.
+                let mut sub = st.clone();
+                let iv = self.fresh("Int");
+                sub.facts.push(format!("(<= {} {})", a, iv));
+                sub.facts.push(format!("(< {} {})", iv, b));
+                sub.env.insert(v.clone(), Var { term: iv, ty: Ty::Int, preds: Vec::new() });
+                self.expr(body, &mut sub);
+                if !self.translatable(body) {
+                    return self.fresh("Bool");
+                }
+                // The value: the quantified formula over the current environment.
+                let mut binds = HashMap::new();
+                for (k, x) in &st.env {
+                    binds.insert(k.clone(), x.term.clone());
+                }
+                let qv = self.fresh_q();
+                binds.insert(v.clone(), qv.clone());
+                let bt = self.sexpr(body, &Spec { binds, it: None, result: None });
+                self.define("Bool", quant_term(q, &qv, &a, &b, &bt))
+            }
             EK::Binary(op, l, r) => {
                 if op == "and" || op == "or" || op == "implies" {
                     let a = self.expr(l, st);
@@ -858,6 +1030,14 @@ impl<'a> Verifier<'a> {
                     "++" => {
                         let r = self.fresh("Val");
                         self.defs.push(format!("(assert (= (len {}) (+ (len {}) (len {}))))", r, a, b));
+                        // Triggered only when the result's contents are inspected.
+                        if let Some(f) = Self::content_fn(&self.info.ty(l)) {
+                            let q = self.fresh_q();
+                            self.qdefs.push(format!(
+                                "(assert (forall (({q} Int)) (! (=> (and (<= 0 {q}) (< {q} (len {r}))) (= ({f} {r} {q}) (ite (< {q} (len {a})) ({f} {a} {q}) ({f} {b} (- {q} (len {a})))))) :pattern (({f} {r} {q})))))",
+                                q = q, a = a, b = b, f = f, r = r
+                            ));
+                        }
                         r
                     }
                     "==" | "!=" | "<" | "<=" | ">" | ">=" => self.define("Bool", binop_term(op, &a, &b)),
@@ -915,6 +1095,15 @@ impl<'a> Verifier<'a> {
                     let g = self.spec_with(r, binds.clone(), None);
                     self.obligation(st, e.pos, format!("precondition of '{}': {}", name, pretty::expr(r)), g);
                 }
+                // Measured on the arguments as passed in.
+                if name == &self.fname {
+                    if let Some(d) = self.decreases.clone() {
+                        let entry = self.spec_with(&d, self.params.clone(), None);
+                        let now = self.spec_with(&d, binds.clone(), None);
+                        let what = format!("recursive call to '{}' decreases its measure: {}", name, pretty::expr(&d));
+                        self.obligation(st, e.pos, what, format!("(and (>= {} 0) (< {} {}))", entry, now, entry));
+                    }
+                }
                 // Each inout argument's var receives a new value.
                 let mut post = binds.clone();
                 let mut updated: Vec<(String, String)> = Vec::new();
@@ -938,6 +1127,11 @@ impl<'a> Verifier<'a> {
                 }
                 let binds = post;
                 let res = self.fresh(sort(&fi.ret.ty));
+                if fi.inline.is_some() {
+                    // Expression functions are transparent: the result is the body.
+                    let t = self.inline_call(name, &p);
+                    st.facts.push(format!("(= {} {})", res, t));
+                }
                 for pr in &fi.ret.preds {
                     let t = self.spec_with(pr, binds.clone(), Some(res.clone()));
                     st.facts.push(t);
@@ -1000,6 +1194,11 @@ impl<'a> Verifier<'a> {
                 let r = self.fresh("Val");
                 self.defs.push(format!("(assert (= (len {}) (+ (len {}) 1)))", r, p[0]));
                 self.defs.push(format!("(assert (= (elem_{} {} (len {})) {}))", sort(&et), r, p[0], p[1]));
+                let q = self.fresh_q();
+                self.qdefs.push(format!(
+                    "(assert (forall (({q} Int)) (! (=> (and (<= 0 {q}) (< {q} (len {a}))) (= (elem_{s} {r} {q}) (elem_{s} {a} {q}))) :pattern ((elem_{s} {r} {q})))))",
+                    q = q, a = p[0], s = sort(&et), r = r
+                ));
                 r
             }
             "slice" => {
@@ -1016,6 +1215,13 @@ impl<'a> Verifier<'a> {
                 // through the len >= 0 axiom and make the obligation vacuous.
                 let r = self.fresh("Val");
                 st.facts.push(format!("(= (len {}) (- {} {}))", r, p[2], p[1]));
+                if let Some(f) = Self::content_fn(&rty) {
+                    let q = self.fresh_q();
+                    st.facts.push(format!(
+                        "(forall (({q} Int)) (! (=> (and (<= 0 {q}) (< {q} (- {t} {fr}))) (= ({f} {r} {q}) ({f} {o} (+ {fr} {q})))) :pattern (({f} {r} {q}))))",
+                        q = q, t = p[2], fr = p[1], f = f, r = r, o = p[0]
+                    ));
+                }
                 r
             }
             "char" => {
@@ -1042,8 +1248,22 @@ impl<'a> Verifier<'a> {
                 r
             }
             "panic" | "exit" | "print" | "eprint" => "0".into(),
+            "is_some" => self.define("Bool", format!("(= (tag {}) 1)", p[0])),
+            "is_none" => self.define("Bool", format!("(= (tag {}) 0)", p[0])),
+            "value_or" => {
+                let f = self.vfield_fn("Option", "Some", "value", &rty);
+                self.define(sort(&rty), format!("(ite (= (tag {o}) 1) ({f} {o}) {d})", o = p[0], f = f, d = p[1]))
+            }
             _ => self.fresh(sort(&rty)),
         }
+    }
+}
+
+fn quant_term(q: &str, v: &str, lo: &str, hi: &str, body: &str) -> String {
+    if q == "forall" {
+        format!("(forall (({v} Int)) (=> (and (<= {lo} {v}) (< {v} {hi})) {body}))", v = v, lo = lo, hi = hi, body = body)
+    } else {
+        format!("(exists (({v} Int)) (and (<= {lo} {v}) (< {v} {hi}) {body}))", v = v, lo = lo, hi = hi, body = body)
     }
 }
 
@@ -1153,6 +1373,10 @@ fn script_for(pre: &[String], vcs: &[&FnVc], model: Option<&Ob>) -> String {
             // Sanity check: the definitions alone must be satisfiable, or every
             // obligation in this function would be proved vacuously.
             s.push_str("(check-sat)\n");
+        }
+        for d in &vc.qdefs {
+            s.push_str(d);
+            s.push('\n');
         }
         let obs: Vec<&Ob> = match model {
             Some(o) => vec![o],

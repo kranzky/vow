@@ -1,0 +1,8 @@
+// error: cannot prove recursive call to 'f' decreases its measure: n
+fn f(n: Int) -> Int decreases n do
+  if n <= 0 then
+    return 0
+  end if
+  return f(n + 1)
+end fn f
+fn main() do end fn main

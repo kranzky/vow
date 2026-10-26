@@ -1,0 +1,67 @@
+// Keyword labels, discards, Option helpers, quantifiers, expression functions and
+// termination measures.
+
+struct Decl
+  type: String,
+  requires: List<String>,
+  result: Int,
+end struct Decl
+
+fn all_positive(xs: List<Int>) -> Bool do
+  return forall i in 0..len(xs): xs[i] > 0
+end fn all_positive
+
+fn sum(xs: List<Int>) -> Int
+  requires all_positive(xs)
+  ensures result >= 0
+do
+  var total = 0
+  for x in xs invariant total >= 0 do
+    set total = total + x
+  end for
+  return total
+end fn sum
+
+fn factorial(n: Int where it >= 0) -> Int
+  decreases n
+do
+  if n == 0 then
+    return 1
+  end if
+  return n * factorial(n - 1)
+end fn factorial
+
+fn digits(n: Int where it >= 0) -> Int do
+  var k = n
+  var count = 1
+  while k >= 10 invariant k >= 0 decreases k do
+    set k = k / 10
+    set count = count + 1
+  end while
+  return count
+end fn digits
+
+fn main() uses console do
+  let d = Decl(type: "fn", requires: ["a", "b"], result: 7)
+  let e = d with (result: d.result + 1)
+  print(e.type ++ " " ++ int_to_str(len(e.requires)) ++ " " ++ int_to_str(e.result) ++ "\n")
+  let m: Map<String, Int> = insert(map: {}, key: "x", value: 5)
+  print(int_to_str(value_or(opt: lookup(map: m, key: "x"), default: 0)) ++ " ")
+  print(int_to_str(value_or(opt: lookup(map: m, key: "y"), default: -1)) ++ "\n")
+  if is_some(lookup(map: m, key: "x")) and is_none(lookup(map: m, key: "y")) then
+    print("options ok\n")
+  end if
+  let xs = [3, 1, 4]
+  if all_positive(xs) then
+    print("sum " ++ int_to_str(sum(xs)) ++ "\n")
+  end if
+  let ys = [3, -1, 4]
+  if not all_positive(ys) then
+    print("not all positive\n")
+  end if
+  if exists i in 0..len(ys): ys[i] < 0 then
+    print("found a negative\n")
+  end if
+  let _ = factorial(5)
+  print(int_to_str(factorial(10)) ++ " " ++ int_to_str(digits(12345)) ++ "\n")
+end fn main

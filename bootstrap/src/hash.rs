@@ -9,7 +9,7 @@ use crate::pretty;
 use std::collections::BTreeSet;
 
 /// Bump when the verifier's encoding changes, so stale cache entries are ignored.
-pub const VERIFIER_VERSION: &str = "vow-verifier-1";
+pub const VERIFIER_VERSION: &str = "vow-verifier-2";
 
 pub fn fnv(s: &str) -> String {
     let mut h: u64 = 14695981039346656037;
@@ -43,7 +43,18 @@ fn calls_in_expr(e: &Expr, info: &Info, out: &mut BTreeSet<String>) {
             calls_in_expr(b, info, out);
         }
         EK::Field(a, _) | EK::Unary(_, a) => calls_in_expr(a, info, out),
+        EK::Quant(_, _, lo, hi, b) => {
+            calls_in_expr(lo, info, out);
+            calls_in_expr(hi, info, out);
+            calls_in_expr(b, info, out);
+        }
         _ => {}
+    }
+}
+
+fn calls_in_all(es: &[Expr], info: &Info, out: &mut BTreeSet<String>) {
+    for e in es {
+        calls_in_expr(e, info, out);
     }
 }
 
@@ -61,17 +72,23 @@ fn calls_in_block(stmts: &[Stmt], info: &Info, out: &mut BTreeSet<String>) {
                     calls_in_block(b, info, out);
                 }
             }
-            SK::While { cond, body, .. } => {
+            SK::While { cond, invs, dec, body } => {
                 calls_in_expr(cond, info, out);
+                calls_in_all(invs, info, out);
+                if let Some(d) = dec {
+                    calls_in_expr(d, info, out);
+                }
                 calls_in_block(body, info, out);
             }
-            SK::ForRange { lo, hi, body, .. } => {
+            SK::ForRange { lo, hi, invs, body, .. } => {
                 calls_in_expr(lo, info, out);
                 calls_in_expr(hi, info, out);
+                calls_in_all(invs, info, out);
                 calls_in_block(body, info, out);
             }
-            SK::ForEach { list, body, .. } => {
+            SK::ForEach { list, invs, body, .. } => {
                 calls_in_expr(list, info, out);
+                calls_in_all(invs, info, out);
                 calls_in_block(body, info, out);
             }
             SK::Match { scrut, cases, els } => {
@@ -103,19 +120,43 @@ pub fn hash_program(items: &[Item], info: &Info) -> Vec<FnHash> {
             types.push('\n');
         }
     }
+    // Type refinements may call expression functions, whose bodies are inlined.
+    for it in items {
+        if let Item::Fn(f) = it {
+            if info.fns[&f.name].inline.is_some() {
+                types.push_str(&pretty::item(it));
+                types.push('\n');
+            }
+        }
+    }
     let types_hash = fnv(&types);
+    // An expression function is inlined into specifications, so its body is part of
+    // what callers rely on.
     let mut contracts = std::collections::HashMap::new();
     for it in items {
         if let Item::Fn(f) = it {
-            contracts.insert(f.name.clone(), fnv(&pretty::fn_contract(f)));
+            let text = if info.fns[&f.name].inline.is_some() { pretty::item(it) } else { pretty::fn_contract(f) };
+            contracts.insert(f.name.clone(), fnv(&text));
         }
     }
     let mut out = Vec::new();
     for it in items {
         if let Item::Fn(f) = it {
             let body = fnv(&pretty::item(it));
+            // Calls anywhere the proof looks: the body, its specifications and the
+            // function's own contract (which may call expression functions).
             let mut callees = BTreeSet::new();
             calls_in_block(&f.body, info, &mut callees);
+            calls_in_all(&f.requires, info, &mut callees);
+            calls_in_all(&f.ensures, info, &mut callees);
+            for p in &f.params {
+                if let Some(r) = &p.ty.refine {
+                    calls_in_expr(r, info, &mut callees);
+                }
+            }
+            if let Some(d) = &f.decreases {
+                calls_in_expr(d, info, &mut callees);
+            }
             let mut material = format!("{}\n{}\n{}\n", VERIFIER_VERSION, body, types_hash);
             for c in &callees {
                 material.push_str(&format!("{}={}\n", c, contracts[c]));

@@ -79,6 +79,22 @@ impl<'a> Parser<'a> {
         if t.kind == TK::Ident {
             self.advance();
             Ok((t.text, t.pos))
+        } else if t.kind == TK::Keyword {
+            Err(Diag::new(t.pos, &format!("expected a name {}, found {}", ctx, describe(&t))).note(&format!(
+                "'{}' is a keyword: keywords can label fields and arguments, but cannot name variables or parameters",
+                t.text
+            )))
+        } else {
+            Err(Diag::new(t.pos, &format!("expected a name {}, found {}", ctx, describe(&t))))
+        }
+    }
+
+    /// A label: any identifier or keyword (field names, argument labels).
+    fn label(&mut self, ctx: &str) -> PResult<(String, Pos)> {
+        let t = self.peek().clone();
+        if t.kind == TK::Ident || t.kind == TK::Keyword {
+            self.advance();
+            Ok((t.text, t.pos))
         } else {
             Err(Diag::new(t.pos, &format!("expected a name {}, found {}", ctx, describe(&t))))
         }
@@ -173,10 +189,11 @@ impl<'a> Parser<'a> {
         Ok(t)
     }
 
-    fn parse_fields(&mut self, closer: &str) -> PResult<Vec<Field>> {
+    fn parse_fields(&mut self, closer: &str, labels: bool) -> PResult<Vec<Field>> {
         let mut fields = Vec::new();
         while !self.is(closer) {
-            let (name, pos) = self.ident("for a field or parameter")?;
+            let (name, pos) =
+                if labels { self.label("for a field")? } else { self.ident("for a field or parameter")? };
             self.expect(":", "after the field name")?;
             let inout = self.accept("inout");
             let ty = self.parse_type()?;
@@ -192,7 +209,7 @@ impl<'a> Parser<'a> {
         let start = self.expect("fn", "")?.pos;
         let (name, _) = self.ident("for the function")?;
         self.expect("(", "to open the parameter list")?;
-        let params = self.parse_fields(")")?;
+        let params = self.parse_fields(")", false)?;
         self.expect(")", "to close the parameter list")?;
         let ret = if self.accept("->") { Some(self.parse_type()?) } else { None };
         let mut uses = Vec::new();
@@ -207,11 +224,18 @@ impl<'a> Parser<'a> {
         }
         let mut requires = Vec::new();
         let mut ensures = Vec::new();
+        let mut decreases = None;
         loop {
             if self.accept("requires") {
                 requires.push(self.parse_expr()?);
             } else if self.accept("ensures") {
                 ensures.push(self.parse_expr()?);
+            } else if self.is("decreases") {
+                let p = self.advance().pos;
+                if decreases.is_some() {
+                    return Err(Diag::new(p, "a function has at most one 'decreases' clause"));
+                }
+                decreases = Some(self.parse_expr()?);
             } else {
                 break;
             }
@@ -219,13 +243,13 @@ impl<'a> Parser<'a> {
         self.expect("do", "to begin the function body")?;
         let body = self.parse_block()?;
         self.close("fn", &name, start)?;
-        Ok(FnDecl { name, params, ret, uses, requires, ensures, body, pos: start })
+        Ok(FnDecl { name, params, ret, uses, requires, ensures, decreases, body, pos: start })
     }
 
     fn parse_struct(&mut self) -> PResult<StructDecl> {
         let start = self.expect("struct", "")?.pos;
         let (name, _) = self.ident("for the struct")?;
-        let fields = self.parse_fields("end")?;
+        let fields = self.parse_fields("end", true)?;
         self.close("struct", &name, start)?;
         Ok(StructDecl { name, fields, pos: start })
     }
@@ -238,7 +262,7 @@ impl<'a> Parser<'a> {
             let (vname, vpos) = self.ident("for a variant")?;
             let mut fields = Vec::new();
             if self.accept("(") {
-                fields = self.parse_fields(")")?;
+                fields = self.parse_fields(")", true)?;
                 self.expect(")", "to close the variant fields")?;
             }
             variants.push(Variant { name: vname, fields, pos: vpos });
@@ -328,10 +352,11 @@ impl<'a> Parser<'a> {
                     self.advance();
                     let cond = self.parse_expr()?;
                     let invs = self.parse_invariants()?;
+                    let dec = if self.accept("decreases") { Some(self.parse_expr()?) } else { None };
                     self.expect("do", "after the while condition")?;
                     let body = self.parse_block()?;
                     self.close("while", "", pos)?;
-                    SK::While { cond, invs, body }
+                    SK::While { cond, invs, dec, body }
                 }
                 "for" => {
                     self.advance();
@@ -415,7 +440,7 @@ impl<'a> Parser<'a> {
         let mut binds = Vec::new();
         if self.accept("(") {
             while !self.is(")") {
-                let (f, _) = self.ident("for a field in the pattern")?;
+                let (f, _) = self.label("for a field in the pattern")?;
                 self.expect(":", "after the field name in the pattern")?;
                 let (b, _) = self.ident("for the binder in the pattern")?;
                 binds.push((f, b));
@@ -473,7 +498,9 @@ impl<'a> Parser<'a> {
         let mut args = Vec::new();
         while !self.is(")") {
             let t = self.peek().clone();
-            let named = t.kind == TK::Ident && self.peek_at(1).kind == TK::Sym && self.peek_at(1).text == ":";
+            let named = (t.kind == TK::Ident || t.kind == TK::Keyword)
+                && self.peek_at(1).kind == TK::Sym
+                && self.peek_at(1).text == ":";
             let name = if named {
                 self.advance();
                 self.advance();
@@ -509,9 +536,9 @@ impl<'a> Parser<'a> {
                 self.expect("]", "to close the index")?;
                 let pos = e.pos;
                 e = self.mk(pos, EK::Index(Box::new(e), Box::new(idx)));
-            } else if self.is(".") && self.peek_at(1).kind == TK::Ident {
+            } else if self.is(".") && (self.peek_at(1).kind == TK::Ident || self.peek_at(1).kind == TK::Keyword) {
                 self.advance();
-                let (f, _) = self.ident("after '.'")?;
+                let (f, _) = self.label("after '.'")?;
                 let pos = e.pos;
                 e = self.mk(pos, EK::Field(Box::new(e), f));
             } else if self.accept("with") {
@@ -544,6 +571,16 @@ impl<'a> Parser<'a> {
                 "false" => EK::Bool(false),
                 "it" => EK::It,
                 "result" => EK::Result,
+                "forall" | "exists" => {
+                    let (var, _) = self.ident("for the quantified variable")?;
+                    self.expect("in", "after the quantified variable")?;
+                    let lo = self.parse_expr()?;
+                    self.expect("..", "in the quantifier range")?;
+                    let hi = self.parse_expr()?;
+                    self.expect(":", "after the quantifier range")?;
+                    let body = self.parse_expr()?;
+                    EK::Quant(t.text.clone(), var, Box::new(lo), Box::new(hi), Box::new(body))
+                }
                 _ => return Err(Diag::new(pos, &format!("expected an expression, found {}", describe(&t)))),
             },
             TK::Sym => match t.text.as_str() {

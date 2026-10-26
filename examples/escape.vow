@@ -1,0 +1,31 @@
+// An HTML escaper with a proof that its output never contains '<' or '>', so its
+// output cannot open or close a tag.
+
+fn tag_free(s: String) -> Bool do
+  return forall i in 0..len(s): (s[i] != '<') and (s[i] != '>')
+end fn tag_free
+
+fn escape(s: String) -> String
+  ensures tag_free(result)
+do
+  var out = ""
+  for i in 0..len(s) invariant tag_free(out) do
+    let c = s[i]
+    if c == '<' then
+      set out = out ++ "&lt;"
+    elif c == '>' then
+      set out = out ++ "&gt;"
+    elif c == '&' then
+      set out = out ++ "&amp;"
+    elif c == '"' then
+      set out = out ++ "&quot;"
+    else
+      set out = out ++ char(c)
+    end if
+  end for
+  return out
+end fn escape
+
+fn main() uses console do
+  print(escape("<a href=\"x\">Tom & Jerry</a>") ++ "\n")
+end fn main

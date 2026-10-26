@@ -23,10 +23,14 @@ struct Ob
   show: List<Shown>,
 end struct Ob
 
+// qdefs are quantified content axioms about fresh constants. They are consistent by
+// construction (each only describes a fresh constant's contents), and Z3 cannot cheaply
+// show their satisfiability, so they come after the vacuity check.
 struct FnVc
   name: String,
   decls: List<String>,
   defs: List<String>,
+  qdefs: List<String>,
   obs: List<Ob>,
 end struct FnVc
 
@@ -50,18 +54,31 @@ struct Spec
   res: String,
 end struct Spec
 
+// A loop being verified: its invariants; for a range loop, the loop variable and its
+// value in the next iteration (next_var is "" otherwise); and its 'decreases' measure
+// with that measure's value at the top of the iteration.
+struct LoopCtx
+  invs: List<Expr>,
+  next_var: String,
+  next_term: String,
+  dec: Option<Expr>,
+  d0: String,
+end struct LoopCtx
+
 struct Verifier
   info: Info,
   n: Int,
   decls: List<String>,
   defs: List<String>,
+  qdefs: List<String>,
   obs: List<Ob>,
   preamble: Map<String, Bool>,
   strs: Map<String, String>,
-  loops: List<List<Expr>>,
+  loops: List<LoopCtx>,
   fname: String,
   ret: RTy,
   post: List<Expr>,
+  dec: Option<Expr>,
   params: Map<String, String>,
   hole_facts: Map<Int, List<String>>,
 end struct Verifier
@@ -83,8 +100,9 @@ fn new_verifier(info: Info) -> Verifier do
   for p in prelude() do
     set pre = insert(map: pre, key: p, value: true)
   end for
-  return Verifier(info: info, n: 0, decls: [], defs: [], obs: [], preamble: pre, strs: {}, loops: [],
-    fname: "", ret: plain(Ty.TUnit), post: [], params: {}, hole_facts: {})
+  let loops: List<LoopCtx> = []
+  return Verifier(info: info, n: 0, decls: [], defs: [], qdefs: [], obs: [], preamble: pre, strs: {}, loops: loops,
+    fname: "", ret: plain(Ty.TUnit), post: [], dec: Option.None, params: {}, hole_facts: {})
 end fn new_verifier
 
 fn sort_of(t: Ty) -> String do
@@ -166,6 +184,10 @@ fn assigned_expr(e: Expr, out: inout List<String>) do
     assigned_expr(e: a, out: inout out)
   case Unary(op: op, x: a) then
     assigned_expr(e: a, out: inout out)
+  case Quant(q: q, name: n, lo: lo, hi: hi, body: b) then
+    assigned_expr(e: lo, out: inout out)
+    assigned_expr(e: hi, out: inout out)
+    assigned_expr(e: b, out: inout out)
   else
   end match
 end fn assigned_expr
@@ -256,6 +278,10 @@ fn add_def(v: inout Verifier, d: String) do
   set v = v with (defs: push(list: v.defs, item: d))
 end fn add_def
 
+fn add_qdef(v: inout Verifier, d: String) do
+  set v = v with (qdefs: push(list: v.qdefs, item: d))
+end fn add_qdef
+
 fn global_fn(v: inout Verifier, name: String, args: String, sort: String) -> String do
   set v = v with (preamble: insert(map: v.preamble, key: "(declare-fun " ++ name ++ " (" ++ args ++ ") " ++ sort ++ ")", value: true))
   return name
@@ -340,15 +366,16 @@ end fn str_const
 // ---- functions ----
 
 fn verify_fn(v: inout Verifier, f: FnDecl) -> FnVc do
-  let empty_loops: List<List<Expr>> = []
-  set v = v with (n: 0, decls: [], defs: [], obs: [], strs: {}, loops: empty_loops, fname: f.name, params: {})
-  var fi = FnInfo(name: f.name, params: [], io: [], ret: plain(Ty.TUnit), effects: [], pre: [], post: [], pos: f.pos)
+  let empty_loops: List<LoopCtx> = []
+  set v = v with (n: 0, decls: [], defs: [], qdefs: [], obs: [], strs: {}, loops: empty_loops, fname: f.name, params: {})
+  var fi = FnInfo(name: f.name, params: [], io: [], ret: plain(Ty.TUnit), effects: [], pre: [], post: [],
+    dec: Option.None, inline: Option.None, pos: f.pos)
   match get_fn(info: v.info, name: f.name)
   case Some(value: x) then
     set fi = x
   case None then
   end match
-  set v = v with (ret: fi.ret, post: fi.post)
+  set v = v with (ret: fi.ret, post: fi.post, dec: fi.dec)
   var st = St(env: {}, facts: [], src: [], dead: false)
   for i in 0..len(fi.params) do
     let p = fi.params[i]
@@ -374,7 +401,7 @@ fn verify_fn(v: inout Verifier, f: FnDecl) -> FnVc do
   if (not st.dead) and (ty_show(fi.ret.ty) == "Unit") then
     check_post(v: inout v, st: st, pos: f.pos, val: "0")
   end if
-  return FnVc(name: f.name, decls: v.decls, defs: v.defs, obs: v.obs)
+  return FnVc(name: f.name, decls: v.decls, defs: v.defs, qdefs: v.qdefs, obs: v.obs)
 end fn verify_fn
 
 fn check_post(v: inout Verifier, st: St, pos: Pos, val: String) do
@@ -437,11 +464,38 @@ fn sexpr(v: inout Verifier, e: Expr, sp: Spec) -> String do
   case Result then
     return sp.res
   case Call(callee: c, args: args) then
-    // Only 'len' is allowed in specifications.
-    if len(args) == 0 then
-      return "0"
+    var ci = CallInfo(kind: "", name: "", variant: 0, order: [])
+    match call_info(info: v.info, e: e)
+    case Some(value: x) then
+      set ci = x
+    case None then
+    end match
+    var p: List<String> = []
+    for i in ci.order do
+      if (i >= 0) and (i < len(args)) then
+        set p = push(list: p, item: sexpr(v: inout v, e: args[i].value, sp: sp))
+      end if
+    end for
+    let a0 = arg_str(p: p, i: 0)
+    if ci.kind == "user" then
+      return inline_call(v: inout v, name: ci.name, args: p)
     end if
-    return "(len " ++ sexpr(v: inout v, e: args[0].value, sp: sp) ++ ")"
+    if ci.name == "len" then
+      return "(len " ++ a0 ++ ")"
+    elif ci.name == "is_some" then
+      return "(= (tag " ++ a0 ++ ") 1)"
+    elif ci.name == "is_none" then
+      return "(= (tag " ++ a0 ++ ") 0)"
+    end if
+    let f = vfield_fn(v: inout v, ename: "Option", vname: "Some", field: "value", t: type_of(info: v.info, e: e))
+    return "(ite (= (tag " ++ a0 ++ ") 1) (" ++ f ++ " " ++ a0 ++ ") " ++ arg_str(p: p, i: 1) ++ ")"
+  case Quant(q: q, name: qn, lo: lo, hi: hi, body: body) then
+    let a = sexpr(v: inout v, e: lo, sp: sp)
+    let b = sexpr(v: inout v, e: hi, sp: sp)
+    let qv = fresh_q(inout v)
+    let inner = sp with (binds: insert(map: sp.binds, key: qn, value: qv))
+    let bt = sexpr(v: inout v, e: body, sp: inner)
+    return quant_term(q: q, v: qv, lo: a, hi: b, body: bt)
   case Field(obj: o, name: f) then
     let ot = type_of(info: v.info, e: o)
     let ft = type_of(info: v.info, e: e)
@@ -479,6 +533,127 @@ fn sexpr(v: inout Verifier, e: Expr, sp: Spec) -> String do
     return "false"
   end match
 end fn sexpr
+
+// The body of an expression function with its parameters bound to args.
+fn inline_call(v: inout Verifier, name: String, args: List<String>) -> String do
+  match get_fn(info: v.info, name: name)
+  case Some(value: fi) then
+    match fi.inline
+    case Some(value: body) then
+      var binds: Map<String, String> = {}
+      for i in 0..len(fi.params) do
+        set binds = insert(map: binds, key: fi.params[i].name, value: arg_str(p: args, i: i))
+      end for
+      return sexpr(v: inout v, e: body, sp: Spec(binds: binds, subj: "", res: ""))
+    case None then
+      return "false"
+    end match
+  case None then
+    return "false"
+  end match
+end fn inline_call
+
+// The SMT function giving the contents of a String or List ("" for other types).
+fn content_fn(t: Ty) -> String do
+  match t
+  case TStr then
+    return "byte"
+  case TList(elem: e) then
+    return "elem_" ++ sort_of(e)
+  else
+    return ""
+  end match
+end fn content_fn
+
+fn fresh_q(v: inout Verifier) -> String do
+  set v = v with (n: v.n + 1)
+  return "q" ++ int_to_str(v.n)
+end fn fresh_q
+
+fn quant_term(q: String, v: String, lo: String, hi: String, body: String) -> String do
+  if q == "forall" then
+    return "(forall ((" ++ v ++ " Int)) (=> (and (<= " ++ lo ++ " " ++ v ++ ") (< " ++ v ++ " " ++ hi ++ ")) " ++ body ++ "))"
+  end if
+  return "(exists ((" ++ v ++ " Int)) (and (<= " ++ lo ++ " " ++ v ++ ") (< " ++ v ++ " " ++ hi ++ ") " ++ body ++ "))"
+end fn quant_term
+
+// True if e can be translated as a specification term (see spec_safe in check.vow).
+fn translatable(v: Verifier, e: Expr) -> Bool do
+  match e.kind
+  case IntLit(value: x) then
+    return true
+  case BoolLit(value: x) then
+    return true
+  case StrLit(value: x) then
+    return true
+  case Var(name: n) then
+    return true
+  case Unary(op: op, x: x) then
+    return translatable(v: v, e: x)
+  case Binary(op: op, l: l, r: r) then
+    return (op != "++") and translatable(v: v, e: l) and translatable(v: v, e: r)
+  case Index(obj: o, idx: i) then
+    return translatable(v: v, e: o) and translatable(v: v, e: i)
+  case Field(obj: o, name: f) then
+    match type_of(info: v.info, e: o)
+    case TStruct(name: n) then
+      return translatable(v: v, e: o)
+    else
+      return false
+    end match
+  case Call(callee: c, args: args) then
+    var ok = false
+    match call_info(info: v.info, e: e)
+    case Some(value: ci) then
+      if ci.kind == "builtin" then
+        set ok = spec_builtin(ci.name)
+      elif ci.kind == "user" then
+        match get_fn(info: v.info, name: ci.name)
+        case Some(value: fi) then
+          set ok = is_some(fi.inline)
+        case None then
+        end match
+      end if
+    case None then
+    end match
+    if not ok then
+      return false
+    end if
+    for a in args do
+      if not translatable(v: v, e: a.value) then
+        return false
+      end if
+    end for
+    return true
+  case Quant(q: q, name: n, lo: lo, hi: hi, body: b) then
+    return translatable(v: v, e: lo) and translatable(v: v, e: hi) and translatable(v: v, e: b)
+  else
+    return false
+  end match
+end fn translatable
+
+fn map_without(m: Map<String, VVar>, k: String) -> Map<String, VVar> do
+  var out: Map<String, VVar> = {}
+  for key in keys(m) do
+    if key != k then
+      match lookup(map: m, key: key)
+      case Some(value: x) then
+        set out = insert(map: out, key: key, value: x)
+      case None then
+      end match
+    end if
+  end for
+  return out
+end fn map_without
+
+fn set_term(st: St, name: String, term: String) -> St do
+  match lookup(map: st.env, key: name)
+  case Some(value: x) then
+    return st with (env: insert(map: st.env, key: name, value: x with (term: term)))
+  case None then
+    return st
+  end match
+end fn set_term
 
 // ---- statements ----
 
@@ -520,9 +695,22 @@ fn check_invs(v: inout Verifier, st: St, invs: List<Expr>, what: String) do
   end for
 end fn check_invs
 
-fn push_loop(v: inout Verifier, invs: List<Expr>) do
-  set v = v with (loops: push(list: v.loops, item: invs))
+fn push_loop(v: inout Verifier, l: LoopCtx) do
+  set v = v with (loops: push(list: v.loops, item: l))
 end fn push_loop
+
+fn plain_loop(invs: List<Expr>) -> LoopCtx do
+  return LoopCtx(invs: invs, next_var: "", next_term: "", dec: Option.None, d0: "")
+end fn plain_loop
+
+fn check_loop_measure(v: inout Verifier, st: St, l: LoopCtx) do
+  match l.dec
+  case Some(value: d) then
+    let now = spec_term(v: inout v, e: d, st: st, subj: "", res: "")
+    obligation(v: inout v, st: st, pos: d.pos, what: "loop measure decreases: " ++ pretty_expr(d), goal: "(< " ++ now ++ " " ++ l.d0 ++ ")")
+  case None then
+  end match
+end fn check_loop_measure
 
 fn pop_loop(v: inout Verifier) do
   let n = len(v.loops)
@@ -540,6 +728,9 @@ fn vstmt(v: inout Verifier, s: Stmt, st: inout St) do
   match s.kind
   case Let(name: name, ty: ty, value: value, mutable: m) then
     let t = vexpr(v: inout v, e: value, st: inout st)
+    if name == "_" then
+      return
+    end if
     var r = plain(type_of(info: v.info, e: value))
     match ty
     case Some(value: te) then
@@ -590,17 +781,27 @@ fn vstmt(v: inout Verifier, s: Stmt, st: inout St) do
     set st = merge(v: inout v, base: base, results: results)
   case Match(scrut: scrut, cases: cases, els: els) then
     vmatch(v: inout v, scrut: scrut, cases: cases, els: els, st: inout st)
-  case While(cond: cond, invs: invs, body: body) then
+  case While(cond: cond, invs: invs, dec: dec, body: body) then
     check_entry(v: inout v, st: st, invs: invs)
     var head = havoc(v: inout v, body: body, st: st, invs: invs)
     let c = vexpr(v: inout v, e: cond, st: inout head)
     var inner = head
     add_fact(st: inout inner, f: c)
     add_src(st: inout inner, f: pretty_expr(cond))
-    push_loop(v: inout v, invs: invs)
+    var lc = plain_loop(invs)
+    match dec
+    case Some(value: d) then
+      let t = spec_term(v: inout v, e: d, st: inner, subj: "", res: "")
+      let d0 = define(v: inout v, sort: "Int", term: t)
+      obligation(v: inout v, st: inner, pos: d.pos, what: "loop measure is non-negative: " ++ pretty_expr(d), goal: "(>= " ++ d0 ++ " 0)")
+      set lc = lc with (dec: dec, d0: d0)
+    case None then
+    end match
+    push_loop(v: inout v, l: lc)
     vblock(v: inout v, stmts: body, st: inout inner)
     pop_loop(inout v)
     check_invs(v: inout v, st: inner, invs: invs, what: "is preserved")
+    check_loop_measure(v: inout v, st: inner, l: lc)
     var after = head
     if not has_break(body) then
       add_fact(st: inout after, f: "(not " ++ c ++ ")")
@@ -608,22 +809,37 @@ fn vstmt(v: inout Verifier, s: Stmt, st: inout St) do
     end if
     set st = after
   case ForRange(name: var_name, lo: lo, hi: hi, invs: invs, body: body) then
+    // Verified like the counted while loop it is: invariants may mention the loop
+    // variable, which is lo on entry and one more after each iteration.
     let a = vexpr(v: inout v, e: lo, st: inout st)
     let b = vexpr(v: inout v, e: hi, st: inout st)
-    check_entry(v: inout v, st: st, invs: invs)
-    let head = havoc(v: inout v, body: body, st: st, invs: invs)
-    var inner = head
+    let entry = st with (env: insert(map: st.env, key: var_name, value: VVar(term: a, ty: Ty.TInt, preds: [])))
+    check_entry(v: inout v, st: entry, invs: invs)
+    let no_invs: List<Expr> = []
+    var head = havoc(v: inout v, body: body, st: st, invs: no_invs)
     let iv = fresh(v: inout v, sort: "Int")
-    add_fact(st: inout inner, f: "(<= " ++ a ++ " " ++ iv ++ ")")
+    add_fact(st: inout head, f: "(<= " ++ a ++ " " ++ iv ++ ")")
+    add_fact(st: inout head, f: "(or (<= " ++ iv ++ " " ++ b ++ ") (= " ++ iv ++ " " ++ a ++ "))")
+    set head = head with (env: insert(map: head.env, key: var_name, value: VVar(term: iv, ty: Ty.TInt, preds: [])))
+    for i in invs do
+      let t = spec_term(v: inout v, e: i, st: head, subj: "", res: "")
+      add_fact(st: inout head, f: t)
+      add_src(st: inout head, f: pretty_expr(i))
+    end for
+    var inner = head
     add_fact(st: inout inner, f: "(< " ++ iv ++ " " ++ b ++ ")")
     add_src(st: inout inner, f: pretty_expr(lo) ++ " <= " ++ var_name)
     add_src(st: inout inner, f: var_name ++ " < " ++ pretty_expr(hi))
-    set inner = inner with (env: insert(map: inner.env, key: var_name, value: VVar(term: iv, ty: Ty.TInt, preds: [])))
-    push_loop(v: inout v, invs: invs)
+    let next = define(v: inout v, sort: "Int", term: "(+ " ++ iv ++ " 1)")
+    push_loop(v: inout v, l: LoopCtx(invs: invs, next_var: var_name, next_term: next, dec: Option.None, d0: ""))
     vblock(v: inout v, stmts: body, st: inout inner)
     pop_loop(inout v)
-    check_invs(v: inout v, st: inner, invs: invs, what: "is preserved")
-    set st = head
+    check_invs(v: inout v, st: set_term(st: inner, name: var_name, term: next), invs: invs, what: "is preserved")
+    var after = head
+    if not has_break(body) then
+      add_fact(st: inout after, f: "(<= " ++ b ++ " " ++ iv ++ ")")
+    end if
+    set st = after with (env: map_without(m: after.env, k: var_name))
   case ForEach(name: var_name, list: l, invs: invs, body: body) then
     let lt = vexpr(v: inout v, e: l, st: inout st)
     var et = Ty.TUnknown
@@ -641,7 +857,7 @@ fn vstmt(v: inout Verifier, s: Stmt, st: inout St) do
     let x = define(v: inout v, sort: sort_of(et), term: "(elem_" ++ sort_of(et) ++ " " ++ lt ++ " " ++ k ++ ")")
     set inner = inner with (env: insert(map: inner.env, key: var_name, value: VVar(term: x, ty: et, preds: [])))
     add_src(st: inout inner, f: var_name ++ " is an element of " ++ pretty_expr(l))
-    push_loop(v: inout v, invs: invs)
+    push_loop(v: inout v, l: plain_loop(invs))
     vblock(v: inout v, stmts: body, st: inout inner)
     pop_loop(inout v)
     check_invs(v: inout v, st: inner, invs: invs, what: "is preserved")
@@ -656,20 +872,25 @@ fn vstmt(v: inout Verifier, s: Stmt, st: inout St) do
     add_fact(st: inout st, f: g)
     add_src(st: inout st, f: pretty_expr(e))
   case Break then
-    var invs: List<Expr> = []
+    var lc = plain_loop([])
     let n = len(v.loops)
     if n > 0 then
-      set invs = v.loops[n - 1]
+      set lc = v.loops[n - 1]
     end if
-    check_invs(v: inout v, st: st, invs: invs, what: "holds at 'break'")
+    check_invs(v: inout v, st: st, invs: lc.invs, what: "holds at 'break'")
     set st = st with (dead: true)
   case Continue then
-    var invs: List<Expr> = []
+    var lc = plain_loop([])
     let n = len(v.loops)
     if n > 0 then
-      set invs = v.loops[n - 1]
+      set lc = v.loops[n - 1]
     end if
-    check_invs(v: inout v, st: st, invs: invs, what: "holds at 'continue'")
+    var at = st
+    if len(lc.next_var) > 0 then
+      set at = set_term(st: st, name: lc.next_var, term: lc.next_term)
+    end if
+    check_invs(v: inout v, st: at, invs: lc.invs, what: "holds at 'continue'")
+    check_loop_measure(v: inout v, st: st, l: lc)
     set st = st with (dead: true)
   case ExprStmt(e: e) then
     let t = vexpr(v: inout v, e: e, st: inout st)
@@ -1059,6 +1280,28 @@ fn vexpr(v: inout Verifier, e: Expr, st: inout St) -> String do
       return "(- " ++ a ++ ")"
     end if
     return "(not " ++ a ++ ")"
+  case Quant(q: q, name: qn, lo: lo, hi: hi, body: body) then
+    let a = vexpr(v: inout v, e: lo, st: inout st)
+    let b = vexpr(v: inout v, e: hi, st: inout st)
+    // Obligations of the body, for every value of the bound variable.
+    var sub = st
+    let iv = fresh(v: inout v, sort: "Int")
+    add_fact(st: inout sub, f: "(<= " ++ a ++ " " ++ iv ++ ")")
+    add_fact(st: inout sub, f: "(< " ++ iv ++ " " ++ b ++ ")")
+    set sub = sub with (env: insert(map: sub.env, key: qn, value: VVar(term: iv, ty: Ty.TInt, preds: [])))
+    let ignored = vexpr(v: inout v, e: body, st: inout sub)
+    if not translatable(v: v, e: body) then
+      return fresh(v: inout v, sort: "Bool")
+    end if
+    // The value: the quantified formula over the current environment.
+    var binds: Map<String, String> = {}
+    for k in keys(st.env) do
+      set binds = insert(map: binds, key: k, value: env_term(st: st, n: k))
+    end for
+    let qv = fresh_q(inout v)
+    set binds = insert(map: binds, key: qn, value: qv)
+    let bt = sexpr(v: inout v, e: body, sp: Spec(binds: binds, subj: "", res: ""))
+    return define(v: inout v, sort: "Bool", term: quant_term(q: q, v: qv, lo: a, hi: b, body: bt))
   case Binary(op: op, l: l, r: r) then
     if (op == "and") or (op == "or") or (op == "implies") then
       let a = vexpr(v: inout v, e: l, st: inout st)
@@ -1087,6 +1330,14 @@ fn vexpr(v: inout Verifier, e: Expr, st: inout St) -> String do
     if op == "++" then
       let res = fresh(v: inout v, sort: "Val")
       add_def(v: inout v, d: "(assert (= (len " ++ res ++ ") (+ (len " ++ a ++ ") (len " ++ b ++ "))))")
+      // Triggered only when the result's contents are inspected.
+      let f = content_fn(type_of(info: v.info, e: l))
+      if len(f) > 0 then
+        let q = fresh_q(inout v)
+        let at_r = "(" ++ f ++ " " ++ res ++ " " ++ q ++ ")"
+        let pick = "(ite (< " ++ q ++ " (len " ++ a ++ ")) (" ++ f ++ " " ++ a ++ " " ++ q ++ ") (" ++ f ++ " " ++ b ++ " (- " ++ q ++ " (len " ++ a ++ "))))"
+        add_qdef(v: inout v, d: "(assert (forall ((" ++ q ++ " Int)) (! (=> (and (<= 0 " ++ q ++ ") (< " ++ q ++ " (len " ++ res ++ "))) (= " ++ at_r ++ " " ++ pick ++ ")) :pattern (" ++ at_r ++ "))))")
+      end if
       return res
     end if
     if contains_str(xs: ["==", "!=", "<", "<=", ">", ">="], x: op) then
@@ -1185,7 +1436,8 @@ struct Update
 end struct Update
 
 fn vcall_user(v: inout Verifier, e: Expr, name: String, p: List<String>, pe: List<Expr>, st: inout St) -> String do
-  var fi = FnInfo(name: name, params: [], io: [], ret: plain(Ty.TUnknown), effects: [], pre: [], post: [], pos: e.pos)
+  var fi = FnInfo(name: name, params: [], io: [], ret: plain(Ty.TUnknown), effects: [], pre: [], post: [],
+    dec: Option.None, inline: Option.None, pos: e.pos)
   match get_fn(info: v.info, name: name)
   case Some(value: x) then
     set fi = x
@@ -1207,6 +1459,17 @@ fn vcall_user(v: inout Verifier, e: Expr, name: String, p: List<String>, pe: Lis
     let g = spec_with(v: inout v, e: r, binds: binds, subj: "")
     obligation(v: inout v, st: st, pos: e.pos, what: "precondition of '" ++ name ++ "': " ++ pretty_expr(r), goal: g)
   end for
+  // Measured on the arguments as passed in.
+  if name == v.fname then
+    match v.dec
+    case Some(value: d) then
+      let entry = spec_with(v: inout v, e: d, binds: v.params, subj: "")
+      let now = spec_with(v: inout v, e: d, binds: binds, subj: "")
+      let what = "recursive call to '" ++ name ++ "' decreases its measure: " ++ pretty_expr(d)
+      obligation(v: inout v, st: st, pos: e.pos, what: what, goal: "(and (>= " ++ entry ++ " 0) (< " ++ now ++ " " ++ entry ++ "))")
+    case None then
+    end match
+  end if
   // Each inout argument's var receives a new value.
   var post = binds
   var updated: List<Update> = []
@@ -1233,6 +1496,11 @@ fn vcall_user(v: inout Verifier, e: Expr, name: String, p: List<String>, pe: Lis
     end if
   end for
   let res = fresh(v: inout v, sort: sort_of(fi.ret.ty))
+  if is_some(fi.inline) then
+    // Expression functions are transparent: the result is the body.
+    let t = inline_call(v: inout v, name: name, args: p)
+    add_fact(st: inout st, f: "(= " ++ res ++ " " ++ t ++ ")")
+  end if
   for pr in fi.ret.preds do
     let t = spec_with(v: inout v, e: pr, binds: post, subj: res)
     add_fact(st: inout st, f: t)
@@ -1270,6 +1538,10 @@ fn vbuiltin(v: inout Verifier, e: Expr, name: String, p: List<String>, pe: List<
     let r = fresh(v: inout v, sort: "Val")
     add_def(v: inout v, d: "(assert (= (len " ++ r ++ ") (+ (len " ++ a0 ++ ") 1)))")
     add_def(v: inout v, d: "(assert (= (elem_" ++ sort_of(et) ++ " " ++ r ++ " (len " ++ a0 ++ ")) " ++ a1 ++ "))")
+    let q = fresh_q(inout v)
+    let s = sort_of(et)
+    let at_r = "(elem_" ++ s ++ " " ++ r ++ " " ++ q ++ ")"
+    add_qdef(v: inout v, d: "(assert (forall ((" ++ q ++ " Int)) (! (=> (and (<= 0 " ++ q ++ ") (< " ++ q ++ " (len " ++ a0 ++ "))) (= " ++ at_r ++ " (elem_" ++ s ++ " " ++ a0 ++ " " ++ q ++ "))) :pattern (" ++ at_r ++ "))))")
     return r
   case "slice" then
     let goal = "(and (<= 0 " ++ a1 ++ ") (<= " ++ a1 ++ " " ++ a2 ++ ") (<= " ++ a2 ++ " (len " ++ a0 ++ ")))"
@@ -1281,6 +1553,12 @@ fn vbuiltin(v: inout Verifier, e: Expr, name: String, p: List<String>, pe: List<
     // Only meaningful once the bounds hold, so it is a path fact, not a definition.
     let r = fresh(v: inout v, sort: "Val")
     add_fact(st: inout st, f: "(= (len " ++ r ++ ") (- " ++ a2 ++ " " ++ a1 ++ "))")
+    let f = content_fn(rty)
+    if len(f) > 0 then
+      let q = fresh_q(inout v)
+      let at_r = "(" ++ f ++ " " ++ r ++ " " ++ q ++ ")"
+      add_fact(st: inout st, f: "(forall ((" ++ q ++ " Int)) (! (=> (and (<= 0 " ++ q ++ ") (< " ++ q ++ " (- " ++ a2 ++ " " ++ a1 ++ "))) (= " ++ at_r ++ " (" ++ f ++ " " ++ a0 ++ " (+ " ++ a1 ++ " " ++ q ++ ")))) :pattern (" ++ at_r ++ ")))")
+    end if
     return r
   case "char" then
     let goal = "(and (<= 0 " ++ a0 ++ ") (< " ++ a0 ++ " 256))"
@@ -1313,6 +1591,13 @@ fn vbuiltin(v: inout Verifier, e: Expr, name: String, p: List<String>, pe: List<
     return "0"
   case "eprint" then
     return "0"
+  case "is_some" then
+    return define(v: inout v, sort: "Bool", term: "(= (tag " ++ a0 ++ ") 1)")
+  case "is_none" then
+    return define(v: inout v, sort: "Bool", term: "(= (tag " ++ a0 ++ ") 0)")
+  case "value_or" then
+    let f = vfield_fn(v: inout v, ename: "Option", vname: "Some", field: "value", t: rty)
+    return define(v: inout v, sort: sort_of(rty), term: "(ite (= (tag " ++ a0 ++ ") 1) (" ++ f ++ " " ++ a0 ++ ") " ++ a1 ++ ")")
   else
     return fresh(v: inout v, sort: sort_of(rty))
   end match
@@ -1367,6 +1652,7 @@ fn script_for(pre: List<String>, vcs: List<FnVc>, model: Option<Ob>) -> String d
       // obligation in this function would be proved vacuously.
       set s = push(list: s, item: "(check-sat)")
     end match
+    set s = s ++ vc.qdefs
     for ob in obs do
       set s = push(list: s, item: "(push 1)")
       for f in ob.facts do

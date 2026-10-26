@@ -1,0 +1,11 @@
+// error: cannot prove postcondition of 'fill': forall i in 0..len(result): result[i] == 0
+fn fill(n: Int where it >= 0) -> List<Int>
+  ensures forall i in 0..len(result): result[i] == 0
+do
+  var out: List<Int> = []
+  for i in 0..n do
+    set out = push(list: out, item: i)
+  end for
+  return out
+end fn fill
+fn main() do end fn main

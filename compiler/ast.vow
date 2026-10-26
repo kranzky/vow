@@ -25,6 +25,8 @@ enum EK
   With(obj: Expr, args: List<Arg>),
   Unary(op: String, x: Expr),
   Binary(op: String, l: Expr, r: Expr),
+  // q is "forall" or "exists".
+  Quant(q: String, name: String, lo: Expr, hi: Expr, body: Expr),
 end enum EK
 
 // name is "" for a positional argument.
@@ -61,6 +63,7 @@ struct FnDecl
   effects: List<Effect>,
   pre: List<Expr>,
   post: List<Expr>,
+  dec: Option<Expr>,
   body: List<Stmt>,
   pos: Pos,
 end struct FnDecl
@@ -128,7 +131,7 @@ enum SK
   Set(name: String, value: Expr),
   Return(value: Option<Expr>),
   If(arms: List<Arm>, els: Option<List<Stmt>>),
-  While(cond: Expr, invs: List<Expr>, body: List<Stmt>),
+  While(cond: Expr, invs: List<Expr>, dec: Option<Expr>, body: List<Stmt>),
   ForRange(name: String, lo: Expr, hi: Expr, invs: List<Expr>, body: List<Stmt>),
   ForEach(name: String, list: Expr, invs: List<Expr>, body: List<Stmt>),
   Match(scrut: Expr, cases: List<Case>, els: Option<List<Stmt>>),

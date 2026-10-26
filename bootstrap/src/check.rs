@@ -60,6 +60,10 @@ pub struct FnInfo {
     pub uses: Vec<String>,
     pub requires: Vec<Expr>,
     pub ensures: Vec<Expr>,
+    pub decreases: Option<Expr>,
+    /// For a pure, non-recursive function whose whole body is `return e`: that `e`.
+    /// Such a function may be used in specifications, where it is inlined.
+    pub inline: Option<Expr>,
     pub pos: Pos,
 }
 
@@ -107,6 +111,9 @@ pub struct Builtin {
 
 pub const BUILTINS: &[Builtin] = &[
     Builtin { name: "len", params: &["x"], effect: None, noreturn: false },
+    Builtin { name: "value_or", params: &["opt", "default"], effect: None, noreturn: false },
+    Builtin { name: "is_some", params: &["x"], effect: None, noreturn: false },
+    Builtin { name: "is_none", params: &["x"], effect: None, noreturn: false },
     Builtin { name: "push", params: &["list", "item"], effect: None, noreturn: false },
     Builtin { name: "slice", params: &["of", "from", "to"], effect: None, noreturn: false },
     Builtin { name: "join", params: &["parts", "sep"], effect: None, noreturn: false },
@@ -251,9 +258,13 @@ pub struct Checker {
     it_ty: Option<Ty>,
     result_ty: Option<Ty>,
     inout_ok: bool,
+    files: Vec<String>,
 }
 
-pub fn check_program(items: &[Item]) -> (Info, Vec<Diag>) {
+/// Built-ins that may appear in specifications.
+pub const SPEC_BUILTINS: &[&str] = &["len", "value_or", "is_some", "is_none"];
+
+pub fn check_program(items: &[Item], files: &[String]) -> (Info, Vec<Diag>) {
     let mut structs = BTreeMap::new();
     structs.insert(
         "Output".to_string(),
@@ -279,6 +290,7 @@ pub fn check_program(items: &[Item]) -> (Info, Vec<Diag>) {
         it_ty: None,
         result_ty: None,
         inout_ok: false,
+        files: files.to_vec(),
     };
     c.run(items);
     let Checker { info, errs, .. } = c;
@@ -286,6 +298,11 @@ pub fn check_program(items: &[Item]) -> (Info, Vec<Diag>) {
 }
 
 impl Checker {
+    fn at(&self, p: Pos) -> String {
+        let f = self.files.get(p.file as usize).map(|s| s.as_str()).unwrap_or("?");
+        format!("{}:{}", f, p.line)
+    }
+
     fn err(&mut self, pos: Pos, msg: &str) {
         self.errs.push(Diag::new(pos, msg));
     }
@@ -305,14 +322,16 @@ impl Checker {
                 if PRIMITIVE_TYPES.contains(&name.as_str()) {
                     self.err(pos, &format!("'{}' is a built-in type", name));
                 } else if let Some(p) = seen_types.get(name) {
-                    self.err(pos, &format!("type '{}' is already declared at line {}", name, p.line));
+                    let at = self.at(*p);
+                    self.err(pos, &format!("type '{}' is already declared at {}", name, at));
                 }
                 seen_types.insert(name.clone(), pos);
             } else {
                 if builtin(name).is_some() {
                     self.err(pos, &format!("'{}' is a built-in function", name));
                 } else if let Some(p) = seen_fns.get(name) {
-                    self.err(pos, &format!("function '{}' is already declared at line {}", name, p.line));
+                    let at = self.at(*p);
+                    self.err(pos, &format!("function '{}' is already declared at {}", name, at));
                 }
                 seen_fns.insert(name.clone(), pos);
             }
@@ -419,11 +438,14 @@ impl Checker {
                     uses,
                     requires: f.requires.clone(),
                     ensures: f.ensures.clone(),
+                    decreases: f.decreases.clone(),
+                    inline: None,
                     pos: f.pos,
                 };
                 self.info.fns.insert(f.name.clone(), fi);
             }
         }
+        self.compute_inline(items);
         // Phase 3: refinement predicates and contracts.
         for it in items {
             match it {
@@ -481,6 +503,9 @@ impl Checker {
                     for e in &f.ensures {
                         self.check_pred(e, &all, None, Some(fi.ret.ty.clone()));
                     }
+                    if let Some(d) = &f.decreases {
+                        self.check_measure(d, &all);
+                    }
                 }
             }
         }
@@ -529,6 +554,79 @@ impl Checker {
         self.it_ty = None;
         self.result_ty = None;
         self.scopes = saved;
+    }
+
+    fn check_measure(&mut self, e: &Expr, scope: &[(String, Ty)]) {
+        let saved = std::mem::take(&mut self.scopes);
+        self.scopes =
+            vec![scope.iter().map(|(n, t)| Local { name: n.clone(), ty: t.clone(), mutable: false }).collect()];
+        self.spec = true;
+        let t = self.expr(e, Some(&Ty::Int));
+        self.expect_ty(e.pos, &t, &Ty::Int, "a 'decreases' measure");
+        self.spec = false;
+        self.scopes = saved;
+    }
+
+    /// Find the functions that may be used in specifications: pure, returning a value,
+    /// no inout parameters, a body that is exactly `return e` where `e` is a
+    /// specification expression, and not recursive (so inlining terminates).
+    fn compute_inline(&mut self, items: &[Item]) {
+        let mut cand: BTreeMap<String, Expr> = BTreeMap::new();
+        for it in items {
+            if let Item::Fn(f) = it {
+                let fi = &self.info.fns[&f.name];
+                if !fi.uses.is_empty() || fi.inout.iter().any(|b| *b) || fi.ret.ty == Ty::Unit {
+                    continue;
+                }
+                if f.body.len() == 1 {
+                    if let SK::Return(Some(e)) = &f.body[0].kind {
+                        cand.insert(f.name.clone(), e.clone());
+                    }
+                }
+            }
+        }
+        loop {
+            let names: Vec<String> = cand.keys().cloned().collect();
+            let mut drop: Vec<String> = Vec::new();
+            for n in &names {
+                if !self.spec_safe(&cand[n], &cand) || reaches(n, n, &cand, &mut Vec::new()) {
+                    drop.push(n.clone());
+                }
+            }
+            if drop.is_empty() {
+                break;
+            }
+            for d in drop {
+                cand.remove(&d);
+            }
+        }
+        for (n, e) in cand {
+            self.info.fns.get_mut(&n).unwrap().inline = Some(e);
+        }
+    }
+
+    fn spec_safe(&self, e: &Expr, cand: &BTreeMap<String, Expr>) -> bool {
+        match &e.kind {
+            EK::Int(_) | EK::Bool(_) | EK::Str(_) | EK::Var(_) => true,
+            EK::Unary(_, x) => self.spec_safe(x, cand),
+            EK::Binary(op, l, r) => op != "++" && self.spec_safe(l, cand) && self.spec_safe(r, cand),
+            EK::Index(o, i) => self.spec_safe(o, cand) && self.spec_safe(i, cand),
+            EK::Field(o, _) => match &o.kind {
+                EK::Var(n) => !(self.info.enums.contains_key(n) || n == "Option"),
+                _ => self.spec_safe(o, cand),
+            },
+            EK::Call(c, args) => match &c.kind {
+                EK::Var(n) => {
+                    (SPEC_BUILTINS.contains(&n.as_str()) || cand.contains_key(n))
+                        && args.iter().all(|a| !a.inout && self.spec_safe(&a.value, cand))
+                }
+                _ => false,
+            },
+            EK::Quant(_, _, lo, hi, b) => {
+                self.spec_safe(lo, cand) && self.spec_safe(hi, cand) && self.spec_safe(b, cand)
+            }
+            _ => false,
+        }
     }
 
     fn spec_expr(&mut self, e: &Expr) {
@@ -606,10 +704,16 @@ impl Checker {
                     }
                     None => self.expr(value, None),
                 };
-                if t == Ty::Unit {
-                    self.err(s.pos, "cannot bind a Unit value");
+                if name == "_" {
+                    if *mutable {
+                        self.err(s.pos, "use 'let _ = ...' to discard a value");
+                    }
+                } else {
+                    if t == Ty::Unit {
+                        self.err(s.pos, "cannot bind a Unit value");
+                    }
+                    self.declare(s.pos, name, t, *mutable);
                 }
-                self.declare(s.pos, name, t, *mutable);
             }
             SK::Set { name, value } => match self.lookup(name).cloned() {
                 None => self.err(s.pos, &format!("unknown variable '{}'", name)),
@@ -648,11 +752,17 @@ impl Checker {
                     self.block(b);
                 }
             }
-            SK::While { cond, invs, body } => {
+            SK::While { cond, invs, dec, body } => {
                 let t = self.expr(cond, Some(&Ty::Bool));
                 self.expect_ty(cond.pos, &t, &Ty::Bool, "a while condition");
                 for i in invs {
                     self.spec_expr(i);
+                }
+                if let Some(d) = dec {
+                    self.spec = true;
+                    let t = self.expr(d, Some(&Ty::Int));
+                    self.expect_ty(d.pos, &t, &Ty::Int, "a 'decreases' measure");
+                    self.spec = false;
                 }
                 self.loops += 1;
                 self.block(body);
@@ -663,11 +773,11 @@ impl Checker {
                 self.expect_ty(lo.pos, &a, &Ty::Int, "a range bound");
                 let b = self.expr(hi, Some(&Ty::Int));
                 self.expect_ty(hi.pos, &b, &Ty::Int, "a range bound");
+                self.scopes.push(Vec::new());
+                self.declare(s.pos, var, Ty::Int, false);
                 for i in invs {
                     self.spec_expr(i);
                 }
-                self.scopes.push(Vec::new());
-                self.declare(s.pos, var, Ty::Int, false);
                 self.loops += 1;
                 self.block(body);
                 self.loops -= 1;
@@ -1070,6 +1180,18 @@ impl Checker {
                 want
             }
             EK::Binary(op, l, r) => self.binary(e, op, l, r),
+            EK::Quant(q, v, lo, hi, body) => {
+                let a = self.expr(lo, Some(&Ty::Int));
+                self.expect_ty(lo.pos, &a, &Ty::Int, "a quantifier bound");
+                let b = self.expr(hi, Some(&Ty::Int));
+                self.expect_ty(hi.pos, &b, &Ty::Int, "a quantifier bound");
+                self.scopes.push(Vec::new());
+                self.declare(e.pos, v, Ty::Int, false);
+                let t = self.expr(body, Some(&Ty::Bool));
+                self.expect_ty(body.pos, &t, &Ty::Bool, &format!("the body of '{}'", q));
+                self.scopes.pop();
+                Ty::Bool
+            }
         }
     }
 
@@ -1212,8 +1334,11 @@ impl Checker {
             }
         };
         if let Some(b) = builtin(&name) {
-            if self.spec && name != "len" {
-                self.err(e.pos, &format!("'{}' is not allowed in a specification (only 'len' is)", name));
+            if self.spec && !SPEC_BUILTINS.contains(&name.as_str()) {
+                self.err(
+                    e.pos,
+                    &format!("'{}' is not allowed in a specification (only len, value_or, is_some and is_none are)", name),
+                );
                 return Ty::Unknown;
             }
             if let Some(eff) = b.effect {
@@ -1229,7 +1354,14 @@ impl Checker {
             return self.builtin_call(e, &name, &a, expected);
         }
         if let Some(fi) = self.info.fns.get(&name).cloned() {
-            if self.spec_forbid(e, &format!("calling '{}'", name)) {
+            if self.spec && fi.inline.is_none() {
+                self.err(
+                    e.pos,
+                    &format!(
+                        "'{}' cannot be used in a specification: only pure, non-recursive functions whose whole body is 'return <expression>' can",
+                        name
+                    ),
+                );
                 return Ty::Unknown;
             }
             for u in &fi.uses {
@@ -1385,6 +1517,32 @@ impl Checker {
                 Ty::Bool
             }
             "args" => Ty::List(Box::new(Ty::Str)),
+            "is_some" | "is_none" => {
+                let t = self.expr(a[0], None);
+                match t {
+                    Ty::Opt(_) | Ty::Unknown => {}
+                    t => self.err(a[0].pos, &format!("'{}' needs an Option, not {}", name, t.show())),
+                }
+                Ty::Bool
+            }
+            "value_or" => {
+                let t = self.expr(a[0], None);
+                match t {
+                    Ty::Opt(inner) => {
+                        let inner = *inner;
+                        want(self, a[1], &inner, "the default");
+                        inner
+                    }
+                    Ty::Unknown => {
+                        self.expr(a[1], None);
+                        Ty::Unknown
+                    }
+                    t => {
+                        self.err(a[0].pos, &format!("'value_or' needs an Option, not {}", t.show()));
+                        Ty::Unknown
+                    }
+                }
+            }
             "getenv" => {
                 want(self, a[0], &st, "the variable name");
                 Ty::Opt(Box::new(Ty::Str))
@@ -1404,6 +1562,52 @@ impl Checker {
             }
         }
     }
+}
+
+fn callees(e: &Expr, out: &mut Vec<String>) {
+    match &e.kind {
+        EK::Call(c, args) => {
+            if let EK::Var(n) = &c.kind {
+                out.push(n.clone());
+            }
+            for a in args {
+                callees(&a.value, out);
+            }
+        }
+        EK::Unary(_, x) | EK::Field(x, _) => callees(x, out),
+        EK::Binary(_, l, r) | EK::Index(l, r) => {
+            callees(l, out);
+            callees(r, out);
+        }
+        EK::Quant(_, _, lo, hi, b) => {
+            callees(lo, out);
+            callees(hi, out);
+            callees(b, out);
+        }
+        _ => {}
+    }
+}
+
+/// True if `from` can reach `target` through calls among the candidates.
+fn reaches(from: &str, target: &str, cand: &BTreeMap<String, Expr>, seen: &mut Vec<String>) -> bool {
+    let body = match cand.get(from) {
+        Some(b) => b,
+        None => return false,
+    };
+    let mut cs = Vec::new();
+    callees(body, &mut cs);
+    for c in cs {
+        if c == target {
+            return true;
+        }
+        if !seen.contains(&c) {
+            seen.push(c.clone());
+            if reaches(&c, target, cand, seen) {
+                return true;
+            }
+        }
+    }
+    false
 }
 
 pub fn compatible(got: &Ty, want: &Ty) -> bool {

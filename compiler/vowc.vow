@@ -203,7 +203,7 @@ fn main() uses console, fs, proc do
     end for
     return
   end if
-  let c = check_program(src.items)
+  let c = check_program(items: src.items, files: src.files)
   if len(c.errs) > 0 then
     report(diags: c.errs, files: src.files, json: json)
     exit(1)
