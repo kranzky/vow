@@ -13,7 +13,7 @@
 - [x] M7b: `docs/VOW_FOR_HUMANS.md`: how people benefit when their LLM colleagues write
       Vow (reviewing contracts instead of bodies, effects as an audit surface,
       counterexamples, holes as handoff points) and, honestly, what is not guaranteed
-- [ ] M8: Public GitHub repo (Unlicense), CI on macOS, Linux and Windows
+- [x] M8: Public GitHub repo (Unlicense), CI on macOS and Linux (Windows waits on M9)
 - [ ] M9: Distribution: ship the self-hosted compiler's generated `vowc.c` as the
       bootstrap seed (no Rust needed); prebuilt binaries for macOS arm64/x64, Linux
       x64/arm64 (static musl) and Windows x64 via GitHub Releases, Homebrew tap,
