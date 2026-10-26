@@ -14,11 +14,12 @@
       Vow (reviewing contracts instead of bodies, effects as an audit surface,
       counterexamples, holes as handoff points) and, honestly, what is not guaranteed
 - [x] M8: Public GitHub repo (Unlicense), CI on macOS and Linux (Windows waits on M9)
-- [ ] M9: Distribution: ship the self-hosted compiler's generated `vowc.c` as the
-      bootstrap seed (no Rust needed); prebuilt binaries for macOS arm64/x64, Linux
-      x64/arm64 (static musl) and Windows x64 via GitHub Releases, Homebrew tap,
-      install script and Scoop/winget; bundle Z3 (MIT); port `run()` to CreateProcess
-      on Windows; support `cc`, `clang`, MSVC and `zig cc` as the C backend
+- [x] M9a: Distribution for macOS and Linux: prebuilt binaries (macOS universal, Linux
+      x86-64 and arm64, static musl) attached to each release by the Release workflow,
+      `install.sh` (served at vow.kranzky.com/install.sh) and a Homebrew tap
+      (`kranzky/homebrew-vow`, builds from the C seed and depends on Z3)
+- [ ] M9b: Windows: port `run()` to CreateProcess and replace the compiler's use of
+      `mktemp`/`rm -rf` with built-ins; MSVC and `zig cc` as C backends; Scoop/winget
 - [x] M10: vow.kranzky.com: static site with the spec, the LLM guide, `llms.txt` and
       examples (GitHub Pages + CNAME)
 - [ ] M11: Backends beyond C, in order: `#line` directives so C-level errors and
