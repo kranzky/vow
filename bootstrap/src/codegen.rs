@@ -9,6 +9,7 @@ pub struct Gen<'a> {
     ind: usize,
     tmp: usize,
     strs: Vec<Vec<u8>>,
+    inout: Vec<String>,
 }
 
 fn c_string(bytes: &[u8]) -> String {
@@ -27,7 +28,7 @@ fn c_string(bytes: &[u8]) -> String {
 }
 
 pub fn generate(items: &[Item], info: &Info, files: &[String], verified: bool) -> String {
-    let mut g = Gen { info, files, out: Vec::new(), ind: 0, tmp: 0, strs: Vec::new() };
+    let mut g = Gen { info, files, out: Vec::new(), ind: 0, tmp: 0, strs: Vec::new(), inout: Vec::new() };
     let mut body = Vec::new();
     for it in items {
         if let Item::Fn(f) = it {
@@ -69,7 +70,8 @@ fn params(f: &FnDecl) -> String {
     if f.params.is_empty() {
         return "void".into();
     }
-    let ps: Vec<String> = f.params.iter().map(|p| format!("V l_{}", p.name)).collect();
+    let ps: Vec<String> =
+        f.params.iter().map(|p| format!("{} l_{}", if p.inout { "V *" } else { "V" }, p.name)).collect();
     ps.join(", ")
 }
 
@@ -106,7 +108,16 @@ impl<'a> Gen<'a> {
         format!("{}:{}", f, pos.line)
     }
 
+    fn var(&self, n: &str) -> String {
+        if self.inout.iter().any(|x| x == n) {
+            format!("(*l_{})", n)
+        } else {
+            format!("l_{}", n)
+        }
+    }
+
     fn function(&mut self, f: &FnDecl) {
+        self.inout = f.params.iter().filter(|p| p.inout).map(|p| p.name.clone()).collect();
         self.line(format!("static V f_{}({}) {{", f.name, params(f)));
         self.ind += 1;
         self.block(&f.body);
@@ -136,7 +147,8 @@ impl<'a> Gen<'a> {
             }
             SK::Set { name, value } => {
                 let v = self.expr(value);
-                self.line(format!("l_{} = {};", name, v));
+                let lv = self.var(name);
+                self.line(format!("{} = {};", lv, v));
             }
             SK::Return(None) => self.line("return 0;".into()),
             SK::Return(Some(e)) => {
@@ -277,7 +289,11 @@ impl<'a> Gen<'a> {
             EK::Int(n) => format!("(V)INT64_C({})", n),
             EK::Str(s) => self.str_lit(s),
             EK::Bool(b) => (if *b { "1" } else { "0" }).to_string(),
-            EK::Var(n) => format!("l_{}", n),
+            // Copied so that a later inout argument in the same call cannot change it.
+            EK::Var(n) => {
+                let v = self.var(n);
+                self.bind(v)
+            }
             EK::It | EK::Result | EK::Hole(_) => "0 /* spec-only */".into(),
             EK::Call(_, args) => self.call(e, args),
             EK::List(items) => {
@@ -395,7 +411,16 @@ impl<'a> Gen<'a> {
         // Evaluate arguments in written order, then pass them in parameter order.
         let mut vals: Vec<String> = Vec::new();
         for a in args {
-            let v = self.expr(&a.value);
+            let v = match (&a.value.kind, a.inout) {
+                (EK::Var(n), true) => {
+                    if self.inout.iter().any(|x| x == n) {
+                        format!("l_{}", n)
+                    } else {
+                        format!("&l_{}", n)
+                    }
+                }
+                _ => self.expr(&a.value),
+            };
             vals.push(v);
         }
         let p: Vec<String> = ci.order.iter().map(|i| vals[*i].clone()).collect();

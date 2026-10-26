@@ -1,0 +1,10 @@
+// error: 'a' is passed inout more than once in this call
+fn swap(x: inout Int, y: inout Int) do
+  let t = x
+  set x = y
+  set y = t
+end fn swap
+fn main() do
+  var a = 1
+  swap(x: inout a, y: inout a)
+end fn main

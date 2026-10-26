@@ -178,8 +178,9 @@ impl<'a> Parser<'a> {
         while !self.is(closer) {
             let (name, pos) = self.ident("for a field or parameter")?;
             self.expect(":", "after the field name")?;
+            let inout = self.accept("inout");
             let ty = self.parse_type()?;
-            fields.push(Field { name, ty, pos });
+            fields.push(Field { name, inout, ty, pos });
             if !self.accept(",") {
                 break;
             }
@@ -480,8 +481,14 @@ impl<'a> Parser<'a> {
             } else {
                 None
             };
-            let value = self.parse_expr()?;
-            args.push(Arg { name, value, pos: t.pos });
+            let inout = self.accept("inout");
+            let value = if inout {
+                let (v, vp) = self.ident("after 'inout'")?;
+                self.mk(vp, EK::Var(v))
+            } else {
+                self.parse_expr()?
+            };
+            args.push(Arg { name, inout, value, pos: t.pos });
             if !self.accept(",") {
                 break;
             }

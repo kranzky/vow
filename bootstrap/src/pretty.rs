@@ -20,9 +20,12 @@ fn quote(s: &str) -> String {
 fn args(a: &[Arg]) -> String {
     let parts: Vec<String> = a
         .iter()
-        .map(|x| match &x.name {
-            Some(n) => format!("{}: {}", n, expr(&x.value)),
-            None => expr(&x.value),
+        .map(|x| {
+            let v = if x.inout { format!("inout {}", expr(&x.value)) } else { expr(&x.value) };
+            match &x.name {
+                Some(n) => format!("{}: {}", n, v),
+                None => v,
+            }
         })
         .collect();
     parts.join(", ")
@@ -77,7 +80,8 @@ pub fn ty(t: &TypeExpr) -> String {
 }
 
 fn fields(fs: &[Field]) -> String {
-    let parts: Vec<String> = fs.iter().map(|f| format!("{}: {}", f.name, ty(&f.ty))).collect();
+    let parts: Vec<String> =
+        fs.iter().map(|f| format!("{}: {}{}", f.name, if f.inout { "inout " } else { "" }, ty(&f.ty))).collect();
     parts.join(", ")
 }
 

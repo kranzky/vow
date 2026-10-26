@@ -28,13 +28,14 @@ SMT solver, and nothing depends on counting or on context far away.
   capitalised by convention; this is not enforced.
 - Integers: decimal digits, `_` allowed as separator. No negative literals (use unary `-`).
 - Strings: `"..."` with escapes `\n \t \r \\ \" \0`.
+- Characters: `'a'`, `'\n'`, `'\''` are `Int` literals holding one byte.
 - Holes: `?name`.
 - Newlines are insignificant everywhere.
 
 Keywords:
 `fn end struct enum type let var set return if then elif else while for in do match case
 invariant requires ensures uses assert check break continue and or not implies true false
-with import it result where`
+with import it result where inout`
 
 ## Program structure
 
@@ -87,8 +88,24 @@ Every program has `fn main()` that takes no parameters and returns `Unit`.
 | `T where P` | refinement: values of `T` satisfying predicate `P` over `it` |
 | user `struct` / `enum` | nominal; enums may be recursive |
 
-All values are immutable. Local `var` bindings may be reassigned with `set`, which gives
-mutable-value semantics without aliasing. User code is monomorphic; only the built-in
+All values are immutable. Local `var` bindings may be reassigned with `set`, and a
+function may take `inout` parameters, which gives mutable-value semantics without
+aliasing:
+
+```
+fn emit(g: inout Gen, line: String) do
+  set g = g with (lines: push(list: g.lines, item: line))
+end fn emit
+
+emit(g: inout gen, line: "x")      // 'inout' is written at the call site too
+```
+
+An `inout` argument must be a `var` (or an `inout` parameter of the caller), and the same
+var may not be passed `inout` twice in one call. Semantically the callee receives the
+value and the caller's var receives the callee's final value when the call returns.
+In `ensures`, an `inout` parameter names its final value; in `requires`, its initial
+value. The parameter's refinement must hold whenever it is assigned and is assumed by
+the caller afterwards. User code is monomorphic; only the built-in
 types are generic.
 
 Refinements may appear on parameter types, return types, `let`/`var` annotations, struct
@@ -207,7 +224,7 @@ obligations to Z3 in SMT-LIB 2.
   preservation.
 - **Assumptions:** branch conditions; `match` tags; refinements of parameters, fields
   read and call results; callee `ensures`; `check`; invariants at loop heads.
-- Loops: variables assigned in the body are havocked at the loop head, then the
+- Loops: variables assigned in the body (by `set` or as `inout` arguments) are havocked at the loop head, then the
   invariants and loop condition are assumed. After a loop without `break`, the
   invariants and the negated condition hold.
 - Unknown or timed-out queries count as failures. Failed obligations are reported with

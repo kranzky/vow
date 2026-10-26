@@ -55,6 +55,7 @@ pub struct VariantInfo {
 pub struct FnInfo {
     pub name: String,
     pub params: Vec<(String, RTy)>,
+    pub inout: Vec<bool>,
     pub ret: RTy,
     pub uses: Vec<String>,
     pub requires: Vec<Expr>,
@@ -249,6 +250,7 @@ pub struct Checker {
     spec: bool,
     it_ty: Option<Ty>,
     result_ty: Option<Ty>,
+    inout_ok: bool,
 }
 
 pub fn check_program(items: &[Item]) -> (Info, Vec<Diag>) {
@@ -276,6 +278,7 @@ pub fn check_program(items: &[Item]) -> (Info, Vec<Diag>) {
         spec: false,
         it_ty: None,
         result_ty: None,
+        inout_ok: false,
     };
     c.run(items);
     let Checker { info, errs, .. } = c;
@@ -354,6 +357,9 @@ impl Checker {
                 Item::Struct(s) => {
                     let mut fields: Vec<(String, RTy)> = Vec::new();
                     for f in &s.fields {
+                        if f.inout {
+                            self.err(f.pos, "only function parameters can be inout");
+                        }
                         if fields.iter().any(|(n, _)| *n == f.name) {
                             self.err(f.pos, &format!("duplicate field '{}'", f.name));
                         }
@@ -370,6 +376,9 @@ impl Checker {
                         }
                         let mut fields: Vec<(String, RTy)> = Vec::new();
                         for f in &v.fields {
+                            if f.inout {
+                                self.err(f.pos, "only function parameters can be inout");
+                            }
                             if fields.iter().any(|(n, _)| *n == f.name) {
                                 self.err(f.pos, &format!("duplicate field '{}'", f.name));
                             }
@@ -405,6 +414,7 @@ impl Checker {
                 let fi = FnInfo {
                     name: f.name.clone(),
                     params,
+                    inout: f.params.iter().map(|p| p.inout).collect(),
                     ret,
                     uses,
                     requires: f.requires.clone(),
@@ -555,8 +565,8 @@ impl Checker {
     fn check_fn(&mut self, f: &FnDecl) {
         let fi = self.info.fns[&f.name].clone();
         self.scopes = vec![Vec::new()];
-        for (n, r) in &fi.params {
-            self.scopes[0].push(Local { name: n.clone(), ty: r.ty.clone(), mutable: false });
+        for (i, (n, r)) in fi.params.iter().enumerate() {
+            self.scopes[0].push(Local { name: n.clone(), ty: r.ty.clone(), mutable: fi.inout[i] });
         }
         self.uses = fi.uses.clone();
         self.ret = fi.ret.ty.clone();
@@ -816,7 +826,36 @@ impl Checker {
         }
     }
 
+    fn check_inout(&mut self, fname: &str, args: &[Arg], order: &[usize], inout: &[bool]) {
+        let mut seen: Vec<String> = Vec::new();
+        for (pi, ai) in order.iter().enumerate() {
+            let a = &args[*ai];
+            if inout[pi] && !a.inout {
+                self.err(a.pos, &format!("parameter of '{}' is inout; pass a var with 'inout'", fname));
+            } else if !inout[pi] && a.inout {
+                self.err(a.pos, &format!("parameter of '{}' is not inout", fname));
+            } else if a.inout {
+                if let EK::Var(v) = &a.value.kind {
+                    match self.lookup(v) {
+                        Some(l) if l.mutable => {}
+                        _ => self.err(a.pos, &format!("'{}' must be a var to be passed inout", v)),
+                    }
+                    if seen.contains(v) {
+                        self.err(a.pos, &format!("'{}' is passed inout more than once in this call", v));
+                    }
+                    seen.push(v.clone());
+                }
+            }
+        }
+    }
+
     fn match_args(&mut self, pos: Pos, what: &str, params: &[String], args: &[Arg]) -> Option<Vec<usize>> {
+        for a in args {
+            if a.inout && !self.inout_ok {
+                self.err(a.pos, &format!("{} takes no inout arguments", what));
+            }
+        }
+        self.inout_ok = false;
         if params.len() == 1 && args.len() == 1 && args[0].name.is_none() {
             return Some(vec![0]);
         }
@@ -1003,6 +1042,9 @@ impl Checker {
                 let fields = self.info.structs[&sn].clone();
                 let mut seen: Vec<String> = Vec::new();
                 for a in args {
+                    if a.inout {
+                        self.err(a.pos, "'with' takes no inout arguments");
+                    }
                     let n = a.name.clone().unwrap_or_default();
                     if seen.contains(&n) {
                         self.err(a.pos, &format!("field '{}' is updated twice", n));
@@ -1194,8 +1236,10 @@ impl Checker {
                 self.need_effect(e.pos, u, &format!("'{}'", name));
             }
             let names: Vec<String> = fi.params.iter().map(|(n, _)| n.clone()).collect();
+            self.inout_ok = true;
             if let Some(order) = self.match_args(e.pos, &format!("'{}'", name), &names, args) {
                 self.typed_args(args, &order, &fi.params);
+                self.check_inout(&name, args, &order, &fi.inout);
                 self.info.calls.insert(e.id, CallInfo { kind: CallKind::User(name.clone()), order });
             }
             return fi.ret.ty.clone();

@@ -109,25 +109,70 @@ fn int_lit(n: i64) -> String {
     }
 }
 
-/// Variables assigned with `set` anywhere in a block.
+fn assigned_expr(e: &Expr, out: &mut Vec<String>) {
+    match &e.kind {
+        EK::Call(c, args) | EK::With(c, args) => {
+            assigned_expr(c, out);
+            for a in args {
+                if let (true, EK::Var(n)) = (a.inout, &a.value.kind) {
+                    if !out.contains(n) {
+                        out.push(n.clone());
+                    }
+                }
+                assigned_expr(&a.value, out);
+            }
+        }
+        EK::List(items) => {
+            for i in items {
+                assigned_expr(i, out);
+            }
+        }
+        EK::Index(a, b) | EK::Binary(_, a, b) => {
+            assigned_expr(a, out);
+            assigned_expr(b, out);
+        }
+        EK::Field(a, _) | EK::Unary(_, a) => assigned_expr(a, out),
+        _ => {}
+    }
+}
+
+/// Variables assigned with `set`, or passed inout, anywhere in a block.
 fn assigned(stmts: &[Stmt], out: &mut Vec<String>) {
     for s in stmts {
         match &s.kind {
-            SK::Set { name, .. } => {
+            SK::Set { name, value } => {
                 if !out.contains(name) {
                     out.push(name.clone());
                 }
+                assigned_expr(value, out);
+            }
+            SK::Let { value, .. } | SK::Return(Some(value)) | SK::Expr(value) | SK::Check(value) => {
+                assigned_expr(value, out)
             }
             SK::If { arms, els } => {
-                for (_, b) in arms {
+                for (c, b) in arms {
+                    assigned_expr(c, out);
                     assigned(b, out);
                 }
                 if let Some(b) = els {
                     assigned(b, out);
                 }
             }
-            SK::While { body, .. } | SK::ForRange { body, .. } | SK::ForEach { body, .. } => assigned(body, out),
-            SK::Match { cases, els, .. } => {
+            SK::While { cond, body, .. } => {
+                assigned_expr(cond, out);
+                assigned(body, out);
+            }
+            SK::ForRange { lo, hi, body, .. } => {
+                assigned_expr(lo, out);
+                assigned_expr(hi, out);
+                assigned(body, out);
+            }
+            SK::ForEach { list, body, .. } => {
+                assigned_expr(list, out);
+                assigned(body, out);
+            }
+            SK::Match { scrut, cases, els } => {
+                assigned_expr(scrut, out);
                 for c in cases {
                     assigned(&c.body, out);
                 }
@@ -250,7 +295,8 @@ impl<'a> Verifier<'a> {
                 st.facts.push(t);
                 st.src.push(format!("{} where {}", pname, pretty::expr(p)));
             }
-            st.env.insert(pname.clone(), Var { term: v, ty: r.ty.clone(), preds: Vec::new() });
+            let preds = if fi.inout[st.env.len()] { r.preds.clone() } else { Vec::new() };
+            st.env.insert(pname.clone(), Var { term: v, ty: r.ty.clone(), preds });
         }
         for r in &fi.requires {
             let t = self.spec_term(r, &st, None, None);
@@ -853,6 +899,28 @@ impl<'a> Verifier<'a> {
                     let g = self.spec_with(r, binds.clone(), None);
                     self.obligation(st, e.pos, format!("precondition of '{}': {}", name, pretty::expr(r)), g);
                 }
+                // Each inout argument's var receives a new value.
+                let mut post = binds.clone();
+                let mut updated: Vec<(String, String)> = Vec::new();
+                for (i, (pname, r)) in fi.params.iter().enumerate() {
+                    if fi.inout[i] {
+                        let nv = self.fresh(sort(&r.ty));
+                        post.insert(pname.clone(), nv.clone());
+                        if let EK::Var(vn) = &pe[i].kind {
+                            updated.push((vn.clone(), nv));
+                        }
+                    }
+                }
+                for (i, (_, r)) in fi.params.iter().enumerate() {
+                    if fi.inout[i] {
+                        let nv = post[&fi.params[i].0].clone();
+                        for pr in &r.preds {
+                            let t = self.spec_with(pr, post.clone(), Some(nv.clone()));
+                            st.facts.push(t);
+                        }
+                    }
+                }
+                let binds = post;
                 let res = self.fresh(sort(&fi.ret.ty));
                 for pr in &fi.ret.preds {
                     let t = self.spec_with(pr, binds.clone(), Some(res.clone()));
@@ -862,6 +930,13 @@ impl<'a> Verifier<'a> {
                     let sp = Spec { binds: binds.clone(), it: None, result: Some(res.clone()) };
                     let t = self.sexpr(en, &sp);
                     st.facts.push(t);
+                }
+                for (vn, nv) in updated {
+                    let mut var = st.env[&vn].clone();
+                    let preds = var.preds.clone();
+                    self.check_preds(st, e.pos, &vn, &preds, &nv);
+                    var.term = nv;
+                    st.env.insert(vn, var);
                 }
                 res
             }

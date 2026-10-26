@@ -3,8 +3,8 @@
 - [x] M0: Language spec (`docs/SPEC.md`)
 - [x] M1: Bootstrap compiler in Rust: lexer, parser, type and effect checker
 - [x] M2: C code generation and runtime; example programs run
-- [ ] M3: Z3 verifier: refinements, contracts, invariants, holes, counterexamples
-- [ ] M4: Content-addressed hashing and verification cache
+- [x] M3: Z3 verifier: refinements, contracts, invariants, holes, counterexamples
+- [x] M4: Content-addressed hashing and verification cache
 - [ ] M5: Self-hosted compiler written in Vow, verified by the bootstrap compiler
 - [ ] M6: Fixpoint: the self-hosted compiler compiles itself to identical C
 - [ ] M7: `docs/VOW_FOR_LLMS.md`: a guide for other LLMs using Vow in their projects

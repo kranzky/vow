@@ -1,0 +1,33 @@
+// Binary search. Every index is proved in bounds from the loop invariants, so the
+// compiled code has no bounds checks at all.
+
+fn search(xs: List<Int>, target: Int) -> Int
+  ensures result >= -1
+  ensures result < len(xs)
+do
+  var lo = 0
+  var hi = len(xs)
+  while lo < hi
+    invariant 0 <= lo
+    invariant lo <= hi
+    invariant hi <= len(xs)
+  do
+    let mid = lo + ((hi - lo) / 2)
+    let x = xs[mid]
+    if x == target then
+      return mid
+    elif x < target then
+      set lo = mid + 1
+    else
+      set hi = mid
+    end if
+  end while
+  return -1
+end fn search
+
+fn main() uses console do
+  let xs = [1, 3, 5, 7, 9, 11, 13]
+  for t in [7, 1, 13, 4] do
+    print(int_to_str(t) ++ " -> " ++ int_to_str(search(xs: xs, target: t)) ++ "\n")
+  end for
+end fn main

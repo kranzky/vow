@@ -2,6 +2,7 @@ mod ast;
 mod check;
 mod codegen;
 mod diag;
+mod hash;
 mod lexer;
 mod parser;
 mod pretty;
@@ -106,12 +107,14 @@ fn main() {
     let file = argv[1].clone();
     let mut json = false;
     let mut no_verify = false;
+    let mut no_cache = false;
     let mut out: Option<String> = None;
     let mut i = 2;
     while i < argv.len() {
         match argv[i].as_str() {
             "--json" => json = true,
             "--no-verify" => no_verify = true,
+            "--no-cache" => no_cache = true,
             "-o" if i + 1 < argv.len() => {
                 out = Some(argv[i + 1].clone());
                 i += 1;
@@ -143,18 +146,38 @@ fn main() {
     // Holes and verification. Holes are reported together with the facts the verifier
     // knows at that point, so the verifier runs even when there are holes.
     let mut verified = false;
+    if cmd == "hash" {
+        for h in hash::hash_program(&src.items, &info) {
+            println!("{}  body={} contract={} key={}", h.name, h.body, h.contract, h.key);
+        }
+        return;
+    }
     if !no_verify || !info.holes.is_empty() {
+        let hashes = hash::hash_program(&src.items, &info);
+        let cache_path = format!("{}.vowcache", file);
+        let cached: Vec<String> = if no_cache {
+            Vec::new()
+        } else {
+            std::fs::read_to_string(&cache_path)
+                .map(|s| s.lines().filter_map(|l| l.split_whitespace().next().map(|k| k.to_string())).collect())
+                .unwrap_or_default()
+        };
         let mut v = verify::Verifier::new(&info);
         let mut vcs = Vec::new();
         for it in &src.items {
             if let Item::Fn(f) = it {
+                let key = &hashes.iter().find(|h| h.name == f.name).unwrap().key;
+                let has_hole = info.holes.iter().any(|_| true);
+                if cached.contains(key) && !has_hole {
+                    continue;
+                }
                 vcs.push(v.function(f));
             }
         }
         if !info.holes.is_empty() {
             let mut diags = Vec::new();
             for h in &info.holes {
-                let mut d = Diag::new(h.pos, &format!("hole ?{} needs a value of type {}", h.name, h.expected.show()));
+                let mut d = Diag::new(h.pos, &format!("?{} needs a value of type {}", h.name, h.expected.show()));
                 d.kind = "hole";
                 let locals: Vec<String> = h.locals.iter().map(|(n, t)| format!("{}: {}", n, t.show())).collect();
                 d = d.note(&format!("in scope: {}", if locals.is_empty() { "(nothing)".into() } else { locals.join(", ") }));
@@ -176,6 +199,15 @@ fn main() {
                 exit(1);
             }
             Ok(fails) => {
+                if !no_cache {
+                    let mut lines = String::new();
+                    for h in &hashes {
+                        if !fails.iter().any(|f| f.fn_name == h.name) {
+                            lines.push_str(&format!("{} {}\n", h.key, h.name));
+                        }
+                    }
+                    let _ = std::fs::write(&cache_path, lines);
+                }
                 if !fails.is_empty() {
                     let diags: Vec<Diag> = fails.iter().map(verify::failure_diag).collect();
                     report(&diags, &src.files, json);

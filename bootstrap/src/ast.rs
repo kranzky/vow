@@ -31,6 +31,7 @@ pub enum EK {
 #[derive(Clone, Debug)]
 pub struct Arg {
     pub name: Option<String>,
+    pub inout: bool,
     pub value: Expr,
     pub pos: Pos,
 }
@@ -46,6 +47,7 @@ pub struct TypeExpr {
 #[derive(Clone, Debug)]
 pub struct Field {
     pub name: String,
+    pub inout: bool,
     pub ty: TypeExpr,
     pub pos: Pos,
 }

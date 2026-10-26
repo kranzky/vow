@@ -1,0 +1,34 @@
+// inout parameters: mutable value semantics without aliasing.
+
+struct Gen
+  lines: List<String>,
+  count: Int where it >= 0,
+end struct Gen
+
+fn emit(g: inout Gen, line: String)
+  ensures g.count >= 1
+do
+  set g = g with (lines: push(list: g.lines, item: line), count: g.count + 1)
+end fn emit
+
+fn bump(n: inout Int where it >= 0) do
+  set n = n + 1
+end fn bump
+
+fn main() uses console do
+  var g = Gen(lines: [], count: 0)
+  let before = g
+  emit(g: inout g, line: "first")
+  emit(g: inout g, line: "second")
+  for i in 0..3 invariant g.count >= 1 do
+    emit(g: inout g, line: "loop " ++ int_to_str(i))
+  end for
+  assert g.count >= 1
+  print(join(parts: g.lines, sep: "\n") ++ "\n")
+  print("count " ++ int_to_str(g.count) ++ ", before " ++ int_to_str(before.count) ++ "\n")
+  var k: Int where it >= 0 = 0
+  bump(inout k)
+  bump(inout k)
+  let seen = k
+  print("k " ++ int_to_str(seen) ++ "\n")
+end fn main

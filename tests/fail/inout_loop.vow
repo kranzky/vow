@@ -1,0 +1,11 @@
+// error: cannot prove assertion: n == 0
+fn inc(x: inout Int) do
+  set x = x + 1
+end fn inc
+fn main() do
+  var n = 0
+  for i in 0..3 do
+    inc(inout n)
+  end for
+  assert n == 0
+end fn main

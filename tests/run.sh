@@ -2,8 +2,8 @@
 # Runs every tests/run/*.vow and compares stdout with the matching .out file, and
 # checks that every tests/fail/*.vow is rejected with the message in its first line
 # ("// error: <text>").
-VOWC=${VOWC:-"$(dirname "$0")/../bootstrap/target/debug/vowc"}
 cd "$(dirname "$0")" || exit 1
+VOWC=${VOWC:-"$(pwd)/../bootstrap/target/debug/vowc"}
 pass=0
 fail=0
 for f in run/*.vow; do
