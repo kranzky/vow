@@ -13,7 +13,7 @@ use diag::{Diag, Pos};
 use std::path::{Path, PathBuf};
 use std::process::exit;
 
-pub const VERSION: &str = "0.2.0";
+pub const VERSION: &str = "0.3.0";
 
 const USAGE: &str = "usage: vowc <command> <file.vow> [options]
 
