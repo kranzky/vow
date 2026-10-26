@@ -25,7 +25,8 @@
       debuggers point at `.vow` lines; bundled `zig cc` to remove the C toolchain
       dependency; a WebAssembly backend (powers a browser playground on the site);
       QBE only if compile speed becomes the bottleneck; a native backend last, if ever
-- [ ] M12: Flagship example: `vowsite`, a static site generator written in Vow that
+- [ ] M12 (assigned to another model as an experiment; brief in
+      `docs/tasks/M12-vowsite.md`): `vowsite`, a static site generator written in Vow that
       builds vow.kranzky.com from a defined Markdown subset. `uses fs` only; proofs
       for bounds, HTML escaping and balanced tags. Runner-up once floats exist: a JSON
       toolkit tested against JSONTestSuite
