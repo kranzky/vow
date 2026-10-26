@@ -57,7 +57,7 @@ static __attribute__((noreturn)) void vow_panic(const char *msg) {
 
 // ---- objects ----
 
-enum { VK_FIELDS, VK_STR, VK_LIST, VK_BUF, VK_NODE };
+enum { VK_FIELDS, VK_STR, VK_LIST, VK_BUF, VK_NODE, VK_HASH };
 
 typedef struct {
     int32_t rc;     // reference count; -1 for immortal objects (literals, None)
@@ -188,7 +188,7 @@ typedef struct {
 #define VL(x) ((VList *)(uintptr_t)(x))
 #define VB(x) ((VBuf *)(uintptr_t)(x))
 
-// ---- maps: persistent AVL trees whose unshared nodes are reused ----
+// ---- maps: persistent AVL trees, updated in place where unshared ----
 
 typedef struct {
     V key, val, left, right;
@@ -200,12 +200,26 @@ typedef struct {
 #define VN_VAL_HEAP 2
 #define VN_STR_KEYS 4
 
+// ---- hash maps: open addressing; the header is followed by the hashes (0 marks an
+// empty slot), the keys and the values, each `cap` long ----
+
+typedef struct {
+    int64_t count;
+    int64_t cap;
+} VHash;
+
+#define VHM(x) ((VHash *)(uintptr_t)(x))
+static inline uint64_t *vhm_hashes(V h) { return (uint64_t *)((char *)(uintptr_t)h + sizeof(VHash)); }
+static inline V *vhm_keyarr(V h) { return (V *)(vhm_hashes(h) + VHM(h)->cap); }
+static inline V *vhm_valarr(V h) { return vhm_keyarr(h) + VHM(h)->cap; }
+
 static size_t vow_size(VHdr *h, V x) {
     switch (h->kind) {
     case VK_FIELDS: return vow_round(sizeof(VHdr) + (size_t)(h->words > 0 ? h->words : 1) * sizeof(V));
     case VK_STR: return vow_round(sizeof(VHdr) + sizeof(VStr) + (size_t)VS(x)->len + 1);
     case VK_LIST: return vow_round(sizeof(VHdr) + sizeof(VList));
     case VK_BUF: return vow_round(sizeof(VHdr) + sizeof(VBuf) + (size_t)VB(x)->cap * sizeof(V));
+    case VK_HASH: return vow_round(sizeof(VHdr) + sizeof(VHash) + (size_t)VHM(x)->cap * 3 * sizeof(V));
     default: return vow_round(sizeof(VHdr) + sizeof(VNode));
     }
 }
@@ -258,6 +272,13 @@ static void vow_destroy(V x) {
             if (h->flags & VN_VAL_HEAP) vow_release(VN(y)->val);
             vow_release(VN(y)->left);
             vow_release(VN(y)->right);
+            break;
+        case VK_HASH:
+            for (int64_t i = 0; i < VHM(y)->cap; i++) {
+                if (!vhm_hashes(y)[i]) continue;
+                if (h->flags & VN_KEY_HEAP) vow_release(vhm_keyarr(y)[i]);
+                if (h->flags & VN_VAL_HEAP) vow_release(vhm_valarr(y)[i]);
+            }
             break;
         default: break;
         }
@@ -393,6 +414,17 @@ static V vow_with(V base) {
         if (h->mask & ((uint64_t)1 << i)) vdup(VP(r)[i]);
     vdrop(base);
     return r;
+}
+
+// Takes field i out of base for an update that `with` will write back: when base is
+// unshared the field is moved out (its slot left empty), otherwise duplicated.
+static V vow_steal(V base, int64_t i) {
+    if (VH(base)->rc == 1) {
+        V x = VP(base)[i];
+        VP(base)[i] = 0;
+        return x;
+    }
+    return vdup(VP(base)[i]);
 }
 
 static V vow_variant0(int64_t tag) {
@@ -611,66 +643,78 @@ static V vn_make(V k, V v, V l, V r, int flags) {
     return n;
 }
 
-// Consumes n and hands its parts to the caller: an unshared node's shell is freed and
-// its parts moved; a shared node's parts are duplicated.
-static void vn_open(V n, V *k, V *v, V *l, V *r) {
-    int flags = VH(n)->flags;
-    *k = VN(n)->key;
-    *v = VN(n)->val;
-    *l = VN(n)->left;
-    *r = VN(n)->right;
-    if (VH(n)->rc == 1) {
-        vow_free_shell(n);
-        return;
-    }
-    if (flags & VN_KEY_HEAP) vdup(*k);
-    if (flags & VN_VAL_HEAP) vdup(*v);
-    vdup(*l);
-    vdup(*r);
-    vdrop(n);
+static void vn_fix(V n) {
+    VNode *x = VN(n);
+    int64_t hl = vn_h(x->left), hr = vn_h(x->right);
+    x->height = (hl > hr ? hl : hr) + 1;
+    x->size = vn_s(x->left) + vn_s(x->right) + 1;
 }
 
-// Consumes all four parts.
-static V vn_balance(V k, V v, V l, V r, int flags) {
-    int64_t hl = vn_h(l), hr = vn_h(r);
-    V ak, av, al, ar, bk, bv, bl, br;
+// Consumes n; returns a node with the same contents that the caller owns exclusively:
+// n itself when unshared, otherwise a copy (so updates copy only the path they touch).
+static V vn_unshare(V n) {
+    if (VH(n)->rc == 1) return n;
+    int f = VH(n)->flags;
+    VNode *x = VN(n);
+    V m = vn_make((f & VN_KEY_HEAP) ? vdup(x->key) : x->key, (f & VN_VAL_HEAP) ? vdup(x->val) : x->val,
+                  vdup(x->left), vdup(x->right), f);
+    vdrop(n);
+    return m;
+}
+
+// Rotations relink nodes in place; n must be exclusively owned.
+static V vn_rot_right(V n) {
+    V l = vn_unshare(VN(n)->left);
+    VN(n)->left = VN(l)->right;
+    vn_fix(n);
+    VN(l)->right = n;
+    vn_fix(l);
+    return l;
+}
+
+static V vn_rot_left(V n) {
+    V r = vn_unshare(VN(n)->right);
+    VN(n)->right = VN(r)->left;
+    vn_fix(n);
+    VN(r)->left = n;
+    vn_fix(r);
+    return r;
+}
+
+static V vn_rebalance(V n) {
+    VNode *x = VN(n);
+    int64_t hl = vn_h(x->left), hr = vn_h(x->right);
     if (hl > hr + 1) {
-        if (vn_h(VN(l)->left) >= vn_h(VN(l)->right)) {
-            vn_open(l, &ak, &av, &al, &ar);
-            return vn_make(ak, av, al, vn_make(k, v, ar, r, flags), flags);
-        }
-        vn_open(l, &ak, &av, &al, &ar);
-        vn_open(ar, &bk, &bv, &bl, &br);
-        return vn_make(bk, bv, vn_make(ak, av, al, bl, flags), vn_make(k, v, br, r, flags), flags);
+        if (vn_h(VN(x->left)->left) < vn_h(VN(x->left)->right)) x->left = vn_rot_left(vn_unshare(x->left));
+        return vn_rot_right(n);
     }
     if (hr > hl + 1) {
-        if (vn_h(VN(r)->right) >= vn_h(VN(r)->left)) {
-            vn_open(r, &ak, &av, &al, &ar);
-            return vn_make(ak, av, vn_make(k, v, l, al, flags), ar, flags);
-        }
-        vn_open(r, &ak, &av, &al, &ar);
-        vn_open(al, &bk, &bv, &bl, &br);
-        return vn_make(bk, bv, vn_make(k, v, l, bl, flags), vn_make(ak, av, br, ar, flags), flags);
+        if (vn_h(VN(x->right)->right) < vn_h(VN(x->right)->left)) x->right = vn_rot_right(vn_unshare(x->right));
+        return vn_rot_left(n);
     }
-    return vn_make(k, v, l, r, flags);
+    vn_fix(n);
+    return n;
 }
 
-// Consumes n, k and v.
+// Consumes n, k and v. Unshared nodes on the path are updated in place; shared ones
+// are copied first.
 static V vn_insert(V n, V k, V v, int flags) {
     if (!n) return vn_make(k, v, 0, 0, flags);
     int c = vkey_cmp(k, VN(n)->key, flags);
-    V nk, nv, nl, nr;
-    vn_open(n, &nk, &nv, &nl, &nr);
+    n = vn_unshare(n);
+    VNode *x = VN(n);
     if (c == 0) {
-        if (flags & VN_KEY_HEAP) vdrop(nk);
-        if (flags & VN_VAL_HEAP) vdrop(nv);
-        return vn_make(k, v, nl, nr, flags);
+        if (flags & VN_KEY_HEAP) vdrop(x->key);
+        if (flags & VN_VAL_HEAP) vdrop(x->val);
+        x->key = k;
+        x->val = v;
+        return n;
     }
     if (c < 0)
-        nl = vn_insert(nl, k, v, flags);
+        x->left = vn_insert(x->left, k, v, flags);
     else
-        nr = vn_insert(nr, k, v, flags);
-    return vn_balance(nk, nv, nl, nr, flags);
+        x->right = vn_insert(x->right, k, v, flags);
+    return vn_rebalance(n);
 }
 
 static V vmap_empty(void) { return 0; }
@@ -708,6 +752,134 @@ static V vn_keys(V n, V acc, int flags) {
 }
 
 static V vmap_keys(V m, int flags) { return vn_keys(m, vlist_empty(flags & VN_KEY_HEAP), flags); }
+
+// ---- hash maps ----
+
+static int vow_name_cmp(const void *a, const void *b);
+
+static uint64_t vhm_hash(V k, int flags) {
+    uint64_t h;
+    if (flags & VN_STR_KEYS) {
+        h = 14695981039346656037ull;
+        for (int64_t i = 0; i < VS(k)->len; i++) {
+            h ^= (unsigned char)VS(k)->data[i];
+            h *= 1099511628211ull;
+        }
+    } else {
+        h = k;
+        h ^= h >> 30;
+        h *= 0xbf58476d1ce4e5b9ull;
+        h ^= h >> 27;
+        h *= 0x94d049bb133111ebull;
+        h ^= h >> 31;
+    }
+    return h ? h : 1;
+}
+
+static inline int vhm_eq(V a, V b, int flags) { return (flags & VN_STR_KEYS) ? (int)vstr_eq(a, b) : a == b; }
+
+static V vhm_new(int64_t cap, int flags) {
+    V h = vow_obj(VK_HASH, (uint8_t)flags, 0, 0, sizeof(VHash) + (size_t)cap * 3 * sizeof(V));
+    VHM(h)->count = 0;
+    VHM(h)->cap = cap;
+    memset(vhm_hashes(h), 0, (size_t)cap * sizeof(uint64_t));
+    return h;
+}
+
+// Consumes k and v; h must be exclusively owned and have a free slot.
+static void vhm_place(V h, uint64_t hh, V k, V v, int flags) {
+    int64_t cap = VHM(h)->cap, i = (int64_t)(hh & (uint64_t)(cap - 1));
+    uint64_t *hs = vhm_hashes(h);
+    V *ks = vhm_keyarr(h), *vs = vhm_valarr(h);
+    while (hs[i]) {
+        if (hs[i] == hh && vhm_eq(ks[i], k, flags)) {
+            if (flags & VN_KEY_HEAP) vdrop(k);
+            if (flags & VN_VAL_HEAP) vdrop(vs[i]);
+            vs[i] = v;
+            return;
+        }
+        i = (i + 1) & (cap - 1);
+    }
+    hs[i] = hh;
+    ks[i] = k;
+    vs[i] = v;
+    VHM(h)->count++;
+}
+
+// Consumes h (exclusively owned): moves its entries into a table of capacity cap.
+static V vhm_grow(V h, int64_t cap, int flags) {
+    V n = vhm_new(cap, flags);
+    for (int64_t i = 0; i < VHM(h)->cap; i++)
+        if (vhm_hashes(h)[i]) vhm_place(n, vhm_hashes(h)[i], vhm_keyarr(h)[i], vhm_valarr(h)[i], flags);
+    vow_free_shell(h);
+    return n;
+}
+
+// Consumes h, k and v. An unshared table is updated in place; a shared one is copied
+// first (so value semantics hold).
+static V vhm_insert(V h, V k, V v, int flags) {
+    uint64_t hh = vhm_hash(k, flags);
+    if (!h) {
+        h = vhm_new(8, flags);
+    } else if (VH(h)->rc != 1) {
+        int64_t cap = VHM(h)->cap;
+        V c = vhm_new(cap, flags);
+        memcpy(vhm_hashes(c), vhm_hashes(h), (size_t)cap * 3 * sizeof(V));
+        VHM(c)->count = VHM(h)->count;
+        for (int64_t i = 0; i < cap; i++) {
+            if (!vhm_hashes(c)[i]) continue;
+            if (flags & VN_KEY_HEAP) vdup(vhm_keyarr(c)[i]);
+            if (flags & VN_VAL_HEAP) vdup(vhm_valarr(c)[i]);
+        }
+        vdrop(h);
+        h = c;
+    }
+    if ((VHM(h)->count + 1) * 4 > VHM(h)->cap * 3) h = vhm_grow(h, VHM(h)->cap * 2, flags);
+    vhm_place(h, hh, k, v, flags);
+    return h;
+}
+
+static int64_t vhm_find(V h, V k, int flags) {
+    if (!h) return -1;
+    uint64_t hh = vhm_hash(k, flags);
+    int64_t cap = VHM(h)->cap, i = (int64_t)(hh & (uint64_t)(cap - 1));
+    while (vhm_hashes(h)[i]) {
+        if (vhm_hashes(h)[i] == hh && vhm_eq(vhm_keyarr(h)[i], k, flags)) return i;
+        i = (i + 1) & (cap - 1);
+    }
+    return -1;
+}
+
+// Borrows h and k; the result owns a reference to the value.
+static V vhm_lookup(V h, V k, int flags) {
+    int64_t i = vhm_find(h, k, flags);
+    if (i < 0) return vnone();
+    V v = vhm_valarr(h)[i];
+    if (flags & VN_VAL_HEAP) vdup(v);
+    return vsome(v, flags & VN_VAL_HEAP);
+}
+
+static V vhm_has(V h, V k, int flags) { return (V)(vhm_find(h, k, flags) >= 0); }
+static inline V vhm_len(V h) { return h ? (V)VHM(h)->count : 0; }
+
+static int vow_int_cmp(const void *a, const void *b) {
+    int64_t x = VI(*(const V *)a), y = VI(*(const V *)b);
+    return x < y ? -1 : (x > y ? 1 : 0);
+}
+
+// The keys in ascending order, so programs stay deterministic.
+static V vhm_keys(V h, int flags) {
+    V l = vlist_empty(flags & VN_KEY_HEAP);
+    if (!h) return l;
+    int64_t n = 0;
+    V *ks = (V *)malloc(sizeof(V) * (size_t)(VHM(h)->count + 1));
+    for (int64_t i = 0; i < VHM(h)->cap; i++)
+        if (vhm_hashes(h)[i]) ks[n++] = vhm_keyarr(h)[i];
+    qsort(ks, (size_t)n, sizeof(V), (flags & VN_STR_KEYS) ? vow_name_cmp : vow_int_cmp);
+    for (int64_t i = 0; i < n; i++) l = vlist_push(l, (flags & VN_KEY_HEAP) ? vdup(ks[i]) : ks[i]);
+    free(ks);
+    return l;
+}
 
 // ---- effects (all borrow their arguments) ----
 

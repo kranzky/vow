@@ -88,7 +88,8 @@ Every program has `fn main()` that takes no parameters and returns `Unit`.
 | `String` | immutable byte string |
 | `Unit` | the empty value; the return type of functions without `->` |
 | `List<T>` | immutable list |
-| `Map<K, V>` | immutable ordered map; `K` is `Int` or `String` |
+| `Map<K, V>` | immutable ordered map (a balanced tree); `K` is `Int` or `String` |
+| `HashMap<K, V>` | the same values as `Map`, stored in a hash table; `K` is `Int` or `String` |
 | `Option<T>` | built-in enum: `Some(value: T)` and `None` |
 | `Output` | built-in struct: `code: Int, out: String` (result of `run`) |
 | `T where P` | refinement: values of `T` satisfying predicate `P` over `it` |
@@ -212,7 +213,7 @@ SMT-LIB. The divisor must be provably non-zero.
 
 | Function | Notes |
 |---|---|
-| `len(x) -> Int where it >= 0` | List, String or Map |
+| `len(x) -> Int where it >= 0` | List, String, Map or HashMap |
 | `push(list: xs, item: x) -> List<T>` | amortised O(1) |
 | `set_at(list: xs, at: i, value: v) -> List<T>` | `xs` with element `i` replaced; requires `0 <= i < len(xs)`; in place when `xs` is unshared |
 | `slice(of: x, from: a, to: b)` | List or String; requires `0 <= a <= b <= len(x)` |
@@ -220,10 +221,10 @@ SMT-LIB. The divisor must be provably non-zero.
 | `int_to_str(n) -> String` | |
 | `str_to_int(s) -> Option<Int>` | |
 | `char(code) -> String` | requires `0 <= code < 256` |
-| `insert(map: m, key: k, value: v) -> Map<K, V>` | |
+| `insert(map: m, key: k, value: v) -> M` | `M` is `Map<K, V>` or `HashMap<K, V>`, as `m` |
 | `lookup(map: m, key: k) -> Option<V>` | |
 | `has(map: m, key: k) -> Bool` | |
-| `keys(m) -> List<K>` | ascending order |
+| `keys(m) -> List<K>` | ascending order, for both map types |
 | `hash(s) -> String` | FNV-1a 64-bit, 16 hex digits |
 | `panic(msg)` | aborts; never returns |
 | `print(s)`, `eprint(s)` | `uses console`; no newline is added |
@@ -304,4 +305,11 @@ count. An object is freed as soon as nothing refers to it (cycles cannot occur, 
 values are immutable). When an object has a single reference, `with`, `push`, `set_at`
 and `insert` update it in place instead of copying; nothing else can observe the
 difference, so value semantics are preserved. In `set x = op(x, ...)`, the old value of
-`x` is moved into `op`, which is what makes such updates in place.
+`x` is moved into `op`, which is what makes such updates in place. In
+`set s = s with (f: op(s.f, ...))`, where `s.f` is read only once, the field is moved
+out of `s` as well, so a list or map held in a struct is updated in place too.
+
+A `Map` is a balanced tree: a shared map copies only the path to the changed key, so
+snapshots are cheap. A `HashMap` is an open-addressing hash table: lookups and inserts
+are faster, but an insert into a shared table copies the whole table. The two types
+hold the same values and are verified identically; only their cost differs.

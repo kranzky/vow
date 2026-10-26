@@ -115,9 +115,9 @@ on an Apple M1 Pro; memory is the peak footprint.
 
 | Benchmark | Vow | C | Rust | Go | JavaScript | Python |
 |---|---|---|---|---|---|---|
-| binary-trees, depth 18 (allocation) | **0.92 s**, 49 MB | 1.14 s, 17 MB | 1.19 s, 17 MB | 1.58 s, 42 MB | 0.59 s, 427 MB | 5.60 s, 38 MB |
-| fannkuch-redux, n = 10 (array updates) | 0.39 s, 1 MB | 0.18 s, 1 MB | 0.19 s, 1 MB | 0.18 s, 2 MB | 0.24 s, 12 MB | 4.55 s, 6 MB |
-| k-nucleotide, 500k bases (hash maps) | 1.11 s, 21 MB | 0.06 s, 18 MB | 0.11 s, 15 MB | 0.11 s, 31 MB | 0.35 s, 69 MB | 0.56 s, 23 MB |
+| binary-trees, depth 18 (allocation) | **0.96 s**, 49 MB | 1.15 s, 17 MB | 1.23 s, 17 MB | 1.62 s, 37 MB | 0.62 s, 427 MB | 5.67 s, 38 MB |
+| fannkuch-redux, n = 10 (array updates) | 0.39 s, 1 MB | 0.18 s, 1 MB | 0.19 s, 1 MB | 0.18 s, 3 MB | 0.24 s, 13 MB | 4.54 s, 6 MB |
+| k-nucleotide, 500k bases (hash maps) | 0.21 s, 26 MB | 0.07 s, 22 MB | 0.11 s, 16 MB | 0.12 s, 31 MB | 0.34 s, 69 MB | 0.53 s, 25 MB |
 
 Full results, toolchain versions and the programs are in
 [the benchmark results](../bench/RESULTS.md); `bench/run.py` reproduces them.
@@ -132,8 +132,9 @@ What the numbers say:
   fannkuch-redux, which swaps elements millions of times, runs about twice as long as C.
 - **Allocation is fast.** binary-trees, which allocates and frees millions of small
   objects, runs faster than C's `malloc`/`free`, thanks to a size-class allocator.
-- **Maps are persistent trees, not hash tables.** k-nucleotide is 18 times slower than
-  C and twice as slow as Python. A hash map is on the [roadmap](../ROADMAP.md).
+- **Hash maps are competitive.** k-nucleotide, which counts substrings in a
+  `HashMap`, runs about three times as long as C and faster than JavaScript and
+  Python. The ordered `Map`, a persistent tree with cheap snapshots, took 1.04 s.
 - **Proofs remove bounds checks**, so verified indexing costs nothing at runtime.
 - **Floating-point benchmarks can't run yet:** n-body, spectral-norm and mandelbrot
   need `Float`, which Vow doesn't have.
@@ -165,7 +166,6 @@ Today, for most things. Vow v0 is an experiment:
 - no package ecosystem;
 - termination and overflow are not proved unless you ask for them (`decreases`) or
   check them at runtime (overflow traps);
-- programs built around large maps are slow (see Performance above).
 
 Use Python or TypeScript for breadth, Go or Rust for production systems, and Dafny or
 SPARK when you need machine-checked proofs today. Use Vow to explore what a language

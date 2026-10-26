@@ -10,6 +10,7 @@ enum Ty
   TUnit,
   TList(elem: Ty),
   TMap(key: Ty, val: Ty),
+  THashMap(key: Ty, val: Ty),
   TOpt(inner: Ty),
   TStruct(name: String),
   TEnum(name: String),
@@ -30,6 +31,8 @@ fn ty_show(t: Ty) -> String do
     return "List<" ++ ty_show(e) ++ ">"
   case TMap(key: k, val: v) then
     return "Map<" ++ ty_show(k) ++ ", " ++ ty_show(v) ++ ">"
+  case THashMap(key: k, val: v) then
+    return "HashMap<" ++ ty_show(k) ++ ", " ++ ty_show(v) ++ ">"
   case TOpt(inner: x) then
     return "Option<" ++ ty_show(x) ++ ">"
   case TStruct(name: n) then
@@ -313,7 +316,7 @@ fn resolve_type(info: Info, te: TypeExpr, errs: inout List<Diag>) -> RTy do
         set base = plain(Ty.TOpt(inner: a))
       end if
     end if
-  elif te.name == "Map" then
+  elif (te.name == "Map") or (te.name == "HashMap") then
     if n != 2 then
       set errs = push(list: errs, item: diag(pos: te.pos, msg: msg ++ "2 type argument(s), got " ++ int_to_str(n)))
     else
@@ -323,7 +326,11 @@ fn resolve_type(info: Info, te: TypeExpr, errs: inout List<Diag>) -> RTy do
       if (ks != "Int") and (ks != "String") and (ks != "?") then
         set errs = push(list: errs, item: diag(pos: te.args[0].pos, msg: "map keys must be Int or String"))
       end if
-      set base = plain(Ty.TMap(key: k, val: v))
+      if te.name == "Map" then
+        set base = plain(Ty.TMap(key: k, val: v))
+      else
+        set base = plain(Ty.THashMap(key: k, val: v))
+      end if
     end if
   elif has(map: info.structs, key: te.name) then
     if n != 0 then
@@ -505,7 +512,7 @@ fn alias_ready(info: Info, te: TypeExpr, alias_names: List<String>) -> Bool do
 end fn alias_ready
 
 fn primitive_types() -> List<String> do
-  return ["Int", "Bool", "String", "Unit", "List", "Map", "Option", "Output"]
+  return ["Int", "Bool", "String", "Unit", "List", "Map", "HashMap", "Option", "Output"]
 end fn primitive_types
 
 fn check_program(items: List<Item>, files: List<String>) -> Checker do
@@ -1670,6 +1677,8 @@ fn check_expr_inner(c: inout Checker, e: Expr, expected: Option<Ty>) -> Ty do
       match x
       case TMap(key: k, val: v) then
         return x
+      case THashMap(key: k, val: v) then
+        return x
       else
       end match
     case None then
@@ -1998,6 +2007,7 @@ fn builtin_call(c: inout Checker, e: Expr, name: String, a: List<Expr> where len
     case TList(elem: x) then
     case TStr then
     case TMap(key: k, val: v) then
+    case THashMap(key: k, val: v) then
     case TUnknown then
     else
       err(c: inout c, pos: a[0].pos, msg: "'len' needs a List, String or Map, not " ++ ty_show(t))
@@ -2158,6 +2168,9 @@ fn map_builtin(c: inout Checker, e: Expr, name: String, a: List<Expr> where len(
   var v = Ty.TUnknown
   match mt
   case TMap(key: kk, val: vv) then
+    set k = kk
+    set v = vv
+  case THashMap(key: kk, val: vv) then
     set k = kk
     set v = vv
   case TUnknown then

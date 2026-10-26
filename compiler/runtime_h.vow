@@ -60,7 +60,7 @@ fn runtime_header() -> String do
     "\n" ++
     "// ---- objects ----\n" ++
     "\n" ++
-    "enum { VK_FIELDS, VK_STR, VK_LIST, VK_BUF, VK_NODE };\n" ++
+    "enum { VK_FIELDS, VK_STR, VK_LIST, VK_BUF, VK_NODE, VK_HASH };\n" ++
     "\n" ++
     "typedef struct {\n" ++
     "    int32_t rc;     // reference count; -1 for immortal objects (literals, None)\n" ++
@@ -191,7 +191,7 @@ fn runtime_header() -> String do
     "#define VL(x) ((VList *)(uintptr_t)(x))\n" ++
     "#define VB(x) ((VBuf *)(uintptr_t)(x))\n" ++
     "\n" ++
-    "// ---- maps: persistent AVL trees whose unshared nodes are reused ----\n" ++
+    "// ---- maps: persistent AVL trees, updated in place where unshared ----\n" ++
     "\n" ++
     "typedef struct {\n" ++
     "    V key, val, left, right;\n" ++
@@ -203,12 +203,26 @@ fn runtime_header() -> String do
     "#define VN_VAL_HEAP 2\n" ++
     "#define VN_STR_KEYS 4\n" ++
     "\n" ++
+    "// ---- hash maps: open addressing; the header is followed by the hashes (0 marks an\n" ++
+    "// empty slot), the keys and the values, each `cap` long ----\n" ++
+    "\n" ++
+    "typedef struct {\n" ++
+    "    int64_t count;\n" ++
+    "    int64_t cap;\n" ++
+    "} VHash;\n" ++
+    "\n" ++
+    "#define VHM(x) ((VHash *)(uintptr_t)(x))\n" ++
+    "static inline uint64_t *vhm_hashes(V h) { return (uint64_t *)((char *)(uintptr_t)h + sizeof(VHash)); }\n" ++
+    "static inline V *vhm_keyarr(V h) { return (V *)(vhm_hashes(h) + VHM(h)->cap); }\n" ++
+    "static inline V *vhm_valarr(V h) { return vhm_keyarr(h) + VHM(h)->cap; }\n" ++
+    "\n" ++
     "static size_t vow_size(VHdr *h, V x) {\n" ++
     "    switch (h->kind) {\n" ++
     "    case VK_FIELDS: return vow_round(sizeof(VHdr) + (size_t)(h->words > 0 ? h->words : 1) * sizeof(V));\n" ++
     "    case VK_STR: return vow_round(sizeof(VHdr) + sizeof(VStr) + (size_t)VS(x)->len + 1);\n" ++
     "    case VK_LIST: return vow_round(sizeof(VHdr) + sizeof(VList));\n" ++
     "    case VK_BUF: return vow_round(sizeof(VHdr) + sizeof(VBuf) + (size_t)VB(x)->cap * sizeof(V));\n" ++
+    "    case VK_HASH: return vow_round(sizeof(VHdr) + sizeof(VHash) + (size_t)VHM(x)->cap * 3 * sizeof(V));\n" ++
     "    default: return vow_round(sizeof(VHdr) + sizeof(VNode));\n" ++
     "    }\n" ++
     "}\n" ++
@@ -261,6 +275,13 @@ fn runtime_header() -> String do
     "            if (h->flags & VN_VAL_HEAP) vow_release(VN(y)->val);\n" ++
     "            vow_release(VN(y)->left);\n" ++
     "            vow_release(VN(y)->right);\n" ++
+    "            break;\n" ++
+    "        case VK_HASH:\n" ++
+    "            for (int64_t i = 0; i < VHM(y)->cap; i++) {\n" ++
+    "                if (!vhm_hashes(y)[i]) continue;\n" ++
+    "                if (h->flags & VN_KEY_HEAP) vow_release(vhm_keyarr(y)[i]);\n" ++
+    "                if (h->flags & VN_VAL_HEAP) vow_release(vhm_valarr(y)[i]);\n" ++
+    "            }\n" ++
     "            break;\n" ++
     "        default: break;\n" ++
     "        }\n" ++
@@ -396,6 +417,17 @@ fn runtime_header() -> String do
     "        if (h->mask & ((uint64_t)1 << i)) vdup(VP(r)[i]);\n" ++
     "    vdrop(base);\n" ++
     "    return r;\n" ++
+    "}\n" ++
+    "\n" ++
+    "// Takes field i out of base for an update that `with` will write back: when base is\n" ++
+    "// unshared the field is moved out (its slot left empty), otherwise duplicated.\n" ++
+    "static V vow_steal(V base, int64_t i) {\n" ++
+    "    if (VH(base)->rc == 1) {\n" ++
+    "        V x = VP(base)[i];\n" ++
+    "        VP(base)[i] = 0;\n" ++
+    "        return x;\n" ++
+    "    }\n" ++
+    "    return vdup(VP(base)[i]);\n" ++
     "}\n" ++
     "\n" ++
     "static V vow_variant0(int64_t tag) {\n" ++
@@ -614,66 +646,78 @@ fn runtime_header() -> String do
     "    return n;\n" ++
     "}\n" ++
     "\n" ++
-    "// Consumes n and hands its parts to the caller: an unshared node's shell is freed and\n" ++
-    "// its parts moved; a shared node's parts are duplicated.\n" ++
-    "static void vn_open(V n, V *k, V *v, V *l, V *r) {\n" ++
-    "    int flags = VH(n)->flags;\n" ++
-    "    *k = VN(n)->key;\n" ++
-    "    *v = VN(n)->val;\n" ++
-    "    *l = VN(n)->left;\n" ++
-    "    *r = VN(n)->right;\n" ++
-    "    if (VH(n)->rc == 1) {\n" ++
-    "        vow_free_shell(n);\n" ++
-    "        return;\n" ++
-    "    }\n" ++
-    "    if (flags & VN_KEY_HEAP) vdup(*k);\n" ++
-    "    if (flags & VN_VAL_HEAP) vdup(*v);\n" ++
-    "    vdup(*l);\n" ++
-    "    vdup(*r);\n" ++
-    "    vdrop(n);\n" ++
+    "static void vn_fix(V n) {\n" ++
+    "    VNode *x = VN(n);\n" ++
+    "    int64_t hl = vn_h(x->left), hr = vn_h(x->right);\n" ++
+    "    x->height = (hl > hr ? hl : hr) + 1;\n" ++
+    "    x->size = vn_s(x->left) + vn_s(x->right) + 1;\n" ++
     "}\n" ++
     "\n" ++
-    "// Consumes all four parts.\n" ++
-    "static V vn_balance(V k, V v, V l, V r, int flags) {\n" ++
-    "    int64_t hl = vn_h(l), hr = vn_h(r);\n" ++
-    "    V ak, av, al, ar, bk, bv, bl, br;\n" ++
+    "// Consumes n; returns a node with the same contents that the caller owns exclusively:\n" ++
+    "// n itself when unshared, otherwise a copy (so updates copy only the path they touch).\n" ++
+    "static V vn_unshare(V n) {\n" ++
+    "    if (VH(n)->rc == 1) return n;\n" ++
+    "    int f = VH(n)->flags;\n" ++
+    "    VNode *x = VN(n);\n" ++
+    "    V m = vn_make((f & VN_KEY_HEAP) ? vdup(x->key) : x->key, (f & VN_VAL_HEAP) ? vdup(x->val) : x->val,\n" ++
+    "                  vdup(x->left), vdup(x->right), f);\n" ++
+    "    vdrop(n);\n" ++
+    "    return m;\n" ++
+    "}\n" ++
+    "\n" ++
+    "// Rotations relink nodes in place; n must be exclusively owned.\n" ++
+    "static V vn_rot_right(V n) {\n" ++
+    "    V l = vn_unshare(VN(n)->left);\n" ++
+    "    VN(n)->left = VN(l)->right;\n" ++
+    "    vn_fix(n);\n" ++
+    "    VN(l)->right = n;\n" ++
+    "    vn_fix(l);\n" ++
+    "    return l;\n" ++
+    "}\n" ++
+    "\n" ++
+    "static V vn_rot_left(V n) {\n" ++
+    "    V r = vn_unshare(VN(n)->right);\n" ++
+    "    VN(n)->right = VN(r)->left;\n" ++
+    "    vn_fix(n);\n" ++
+    "    VN(r)->left = n;\n" ++
+    "    vn_fix(r);\n" ++
+    "    return r;\n" ++
+    "}\n" ++
+    "\n" ++
+    "static V vn_rebalance(V n) {\n" ++
+    "    VNode *x = VN(n);\n" ++
+    "    int64_t hl = vn_h(x->left), hr = vn_h(x->right);\n" ++
     "    if (hl > hr + 1) {\n" ++
-    "        if (vn_h(VN(l)->left) >= vn_h(VN(l)->right)) {\n" ++
-    "            vn_open(l, &ak, &av, &al, &ar);\n" ++
-    "            return vn_make(ak, av, al, vn_make(k, v, ar, r, flags), flags);\n" ++
-    "        }\n" ++
-    "        vn_open(l, &ak, &av, &al, &ar);\n" ++
-    "        vn_open(ar, &bk, &bv, &bl, &br);\n" ++
-    "        return vn_make(bk, bv, vn_make(ak, av, al, bl, flags), vn_make(k, v, br, r, flags), flags);\n" ++
+    "        if (vn_h(VN(x->left)->left) < vn_h(VN(x->left)->right)) x->left = vn_rot_left(vn_unshare(x->left));\n" ++
+    "        return vn_rot_right(n);\n" ++
     "    }\n" ++
     "    if (hr > hl + 1) {\n" ++
-    "        if (vn_h(VN(r)->right) >= vn_h(VN(r)->left)) {\n" ++
-    "            vn_open(r, &ak, &av, &al, &ar);\n" ++
-    "            return vn_make(ak, av, vn_make(k, v, l, al, flags), ar, flags);\n" ++
-    "        }\n" ++
-    "        vn_open(r, &ak, &av, &al, &ar);\n" ++
-    "        vn_open(al, &bk, &bv, &bl, &br);\n" ++
-    "        return vn_make(bk, bv, vn_make(k, v, l, bl, flags), vn_make(ak, av, br, ar, flags), flags);\n" ++
+    "        if (vn_h(VN(x->right)->right) < vn_h(VN(x->right)->left)) x->right = vn_rot_right(vn_unshare(x->right));\n" ++
+    "        return vn_rot_left(n);\n" ++
     "    }\n" ++
-    "    return vn_make(k, v, l, r, flags);\n" ++
+    "    vn_fix(n);\n" ++
+    "    return n;\n" ++
     "}\n" ++
     "\n" ++
-    "// Consumes n, k and v.\n" ++
+    "// Consumes n, k and v. Unshared nodes on the path are updated in place; shared ones\n" ++
+    "// are copied first.\n" ++
     "static V vn_insert(V n, V k, V v, int flags) {\n" ++
     "    if (!n) return vn_make(k, v, 0, 0, flags);\n" ++
     "    int c = vkey_cmp(k, VN(n)->key, flags);\n" ++
-    "    V nk, nv, nl, nr;\n" ++
-    "    vn_open(n, &nk, &nv, &nl, &nr);\n" ++
+    "    n = vn_unshare(n);\n" ++
+    "    VNode *x = VN(n);\n" ++
     "    if (c == 0) {\n" ++
-    "        if (flags & VN_KEY_HEAP) vdrop(nk);\n" ++
-    "        if (flags & VN_VAL_HEAP) vdrop(nv);\n" ++
-    "        return vn_make(k, v, nl, nr, flags);\n" ++
+    "        if (flags & VN_KEY_HEAP) vdrop(x->key);\n" ++
+    "        if (flags & VN_VAL_HEAP) vdrop(x->val);\n" ++
+    "        x->key = k;\n" ++
+    "        x->val = v;\n" ++
+    "        return n;\n" ++
     "    }\n" ++
     "    if (c < 0)\n" ++
-    "        nl = vn_insert(nl, k, v, flags);\n" ++
+    "        x->left = vn_insert(x->left, k, v, flags);\n" ++
     "    else\n" ++
-    "        nr = vn_insert(nr, k, v, flags);\n" ++
-    "    return vn_balance(nk, nv, nl, nr, flags);\n" ++
+    "        x->right = vn_insert(x->right, k, v, flags);\n" ++
+    "    return vn_rebalance(n);\n" ++
     "}\n" ++
     "\n" ++
     "static V vmap_empty(void) { return 0; }\n" ++
@@ -711,6 +755,134 @@ fn runtime_header() -> String do
     "}\n" ++
     "\n" ++
     "static V vmap_keys(V m, int flags) { return vn_keys(m, vlist_empty(flags & VN_KEY_HEAP), flags); }\n" ++
+    "\n" ++
+    "// ---- hash maps ----\n" ++
+    "\n" ++
+    "static int vow_name_cmp(const void *a, const void *b);\n" ++
+    "\n" ++
+    "static uint64_t vhm_hash(V k, int flags) {\n" ++
+    "    uint64_t h;\n" ++
+    "    if (flags & VN_STR_KEYS) {\n" ++
+    "        h = 14695981039346656037ull;\n" ++
+    "        for (int64_t i = 0; i < VS(k)->len; i++) {\n" ++
+    "            h ^= (unsigned char)VS(k)->data[i];\n" ++
+    "            h *= 1099511628211ull;\n" ++
+    "        }\n" ++
+    "    } else {\n" ++
+    "        h = k;\n" ++
+    "        h ^= h >> 30;\n" ++
+    "        h *= 0xbf58476d1ce4e5b9ull;\n" ++
+    "        h ^= h >> 27;\n" ++
+    "        h *= 0x94d049bb133111ebull;\n" ++
+    "        h ^= h >> 31;\n" ++
+    "    }\n" ++
+    "    return h ? h : 1;\n" ++
+    "}\n" ++
+    "\n" ++
+    "static inline int vhm_eq(V a, V b, int flags) { return (flags & VN_STR_KEYS) ? (int)vstr_eq(a, b) : a == b; }\n" ++
+    "\n" ++
+    "static V vhm_new(int64_t cap, int flags) {\n" ++
+    "    V h = vow_obj(VK_HASH, (uint8_t)flags, 0, 0, sizeof(VHash) + (size_t)cap * 3 * sizeof(V));\n" ++
+    "    VHM(h)->count = 0;\n" ++
+    "    VHM(h)->cap = cap;\n" ++
+    "    memset(vhm_hashes(h), 0, (size_t)cap * sizeof(uint64_t));\n" ++
+    "    return h;\n" ++
+    "}\n" ++
+    "\n" ++
+    "// Consumes k and v; h must be exclusively owned and have a free slot.\n" ++
+    "static void vhm_place(V h, uint64_t hh, V k, V v, int flags) {\n" ++
+    "    int64_t cap = VHM(h)->cap, i = (int64_t)(hh & (uint64_t)(cap - 1));\n" ++
+    "    uint64_t *hs = vhm_hashes(h);\n" ++
+    "    V *ks = vhm_keyarr(h), *vs = vhm_valarr(h);\n" ++
+    "    while (hs[i]) {\n" ++
+    "        if (hs[i] == hh && vhm_eq(ks[i], k, flags)) {\n" ++
+    "            if (flags & VN_KEY_HEAP) vdrop(k);\n" ++
+    "            if (flags & VN_VAL_HEAP) vdrop(vs[i]);\n" ++
+    "            vs[i] = v;\n" ++
+    "            return;\n" ++
+    "        }\n" ++
+    "        i = (i + 1) & (cap - 1);\n" ++
+    "    }\n" ++
+    "    hs[i] = hh;\n" ++
+    "    ks[i] = k;\n" ++
+    "    vs[i] = v;\n" ++
+    "    VHM(h)->count++;\n" ++
+    "}\n" ++
+    "\n" ++
+    "// Consumes h (exclusively owned): moves its entries into a table of capacity cap.\n" ++
+    "static V vhm_grow(V h, int64_t cap, int flags) {\n" ++
+    "    V n = vhm_new(cap, flags);\n" ++
+    "    for (int64_t i = 0; i < VHM(h)->cap; i++)\n" ++
+    "        if (vhm_hashes(h)[i]) vhm_place(n, vhm_hashes(h)[i], vhm_keyarr(h)[i], vhm_valarr(h)[i], flags);\n" ++
+    "    vow_free_shell(h);\n" ++
+    "    return n;\n" ++
+    "}\n" ++
+    "\n" ++
+    "// Consumes h, k and v. An unshared table is updated in place; a shared one is copied\n" ++
+    "// first (so value semantics hold).\n" ++
+    "static V vhm_insert(V h, V k, V v, int flags) {\n" ++
+    "    uint64_t hh = vhm_hash(k, flags);\n" ++
+    "    if (!h) {\n" ++
+    "        h = vhm_new(8, flags);\n" ++
+    "    } else if (VH(h)->rc != 1) {\n" ++
+    "        int64_t cap = VHM(h)->cap;\n" ++
+    "        V c = vhm_new(cap, flags);\n" ++
+    "        memcpy(vhm_hashes(c), vhm_hashes(h), (size_t)cap * 3 * sizeof(V));\n" ++
+    "        VHM(c)->count = VHM(h)->count;\n" ++
+    "        for (int64_t i = 0; i < cap; i++) {\n" ++
+    "            if (!vhm_hashes(c)[i]) continue;\n" ++
+    "            if (flags & VN_KEY_HEAP) vdup(vhm_keyarr(c)[i]);\n" ++
+    "            if (flags & VN_VAL_HEAP) vdup(vhm_valarr(c)[i]);\n" ++
+    "        }\n" ++
+    "        vdrop(h);\n" ++
+    "        h = c;\n" ++
+    "    }\n" ++
+    "    if ((VHM(h)->count + 1) * 4 > VHM(h)->cap * 3) h = vhm_grow(h, VHM(h)->cap * 2, flags);\n" ++
+    "    vhm_place(h, hh, k, v, flags);\n" ++
+    "    return h;\n" ++
+    "}\n" ++
+    "\n" ++
+    "static int64_t vhm_find(V h, V k, int flags) {\n" ++
+    "    if (!h) return -1;\n" ++
+    "    uint64_t hh = vhm_hash(k, flags);\n" ++
+    "    int64_t cap = VHM(h)->cap, i = (int64_t)(hh & (uint64_t)(cap - 1));\n" ++
+    "    while (vhm_hashes(h)[i]) {\n" ++
+    "        if (vhm_hashes(h)[i] == hh && vhm_eq(vhm_keyarr(h)[i], k, flags)) return i;\n" ++
+    "        i = (i + 1) & (cap - 1);\n" ++
+    "    }\n" ++
+    "    return -1;\n" ++
+    "}\n" ++
+    "\n" ++
+    "// Borrows h and k; the result owns a reference to the value.\n" ++
+    "static V vhm_lookup(V h, V k, int flags) {\n" ++
+    "    int64_t i = vhm_find(h, k, flags);\n" ++
+    "    if (i < 0) return vnone();\n" ++
+    "    V v = vhm_valarr(h)[i];\n" ++
+    "    if (flags & VN_VAL_HEAP) vdup(v);\n" ++
+    "    return vsome(v, flags & VN_VAL_HEAP);\n" ++
+    "}\n" ++
+    "\n" ++
+    "static V vhm_has(V h, V k, int flags) { return (V)(vhm_find(h, k, flags) >= 0); }\n" ++
+    "static inline V vhm_len(V h) { return h ? (V)VHM(h)->count : 0; }\n" ++
+    "\n" ++
+    "static int vow_int_cmp(const void *a, const void *b) {\n" ++
+    "    int64_t x = VI(*(const V *)a), y = VI(*(const V *)b);\n" ++
+    "    return x < y ? -1 : (x > y ? 1 : 0);\n" ++
+    "}\n" ++
+    "\n" ++
+    "// The keys in ascending order, so programs stay deterministic.\n" ++
+    "static V vhm_keys(V h, int flags) {\n" ++
+    "    V l = vlist_empty(flags & VN_KEY_HEAP);\n" ++
+    "    if (!h) return l;\n" ++
+    "    int64_t n = 0;\n" ++
+    "    V *ks = (V *)malloc(sizeof(V) * (size_t)(VHM(h)->count + 1));\n" ++
+    "    for (int64_t i = 0; i < VHM(h)->cap; i++)\n" ++
+    "        if (vhm_hashes(h)[i]) ks[n++] = vhm_keyarr(h)[i];\n" ++
+    "    qsort(ks, (size_t)n, sizeof(V), (flags & VN_STR_KEYS) ? vow_name_cmp : vow_int_cmp);\n" ++
+    "    for (int64_t i = 0; i < n; i++) l = vlist_push(l, (flags & VN_KEY_HEAP) ? vdup(ks[i]) : ks[i]);\n" ++
+    "    free(ks);\n" ++
+    "    return l;\n" ++
+    "}\n" ++
     "\n" ++
     "// ---- effects (all borrow their arguments) ----\n" ++
     "\n" ++

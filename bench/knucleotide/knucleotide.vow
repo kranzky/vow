@@ -8,8 +8,8 @@ struct Freq
   count: Int,
 end struct Freq
 
-fn counts(seq: String, k: Int where it >= 1) -> Map<String, Int> do
-  var table: Map<String, Int> = {}
+fn counts(seq: String, k: Int where it >= 1) -> HashMap<String, Int> do
+  var table: HashMap<String, Int> = {}
   let last = (len(seq) - k) + 1
   for i in 0..last do
     let key = slice(of: seq, from: i, to: i + k)

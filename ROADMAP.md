@@ -52,7 +52,8 @@ Must-have, runtime and portability:
 - [x] Memory reclamation: reference counting, with in-place updates of uniquely
       referenced values (as in Koka's Perceus, Lean 4 and Swift's copy-on-write), and
       `set_at`; fannkuch-redux went from 4.34 s and 19.7 GB to 0.39 s and 1 MB
-- [ ] A hash map alongside the persistent ordered `Map`
+- [x] `HashMap` alongside the persistent ordered `Map`, tree inserts in place, and
+      fields moved out of structs on update; k-nucleotide went from 1.11 s to 0.21 s
 - [ ] Windows `run()`, `#line` mapping, readable panics
 - [x] `std/text.vow` (verified text library), `make_dir`, `list_dir`
 - [ ] More standard modules and a C FFI; `net`/`time`/`random` effects

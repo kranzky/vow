@@ -9,6 +9,13 @@ struct Box
   items: List<String>,
 end struct Box
 
+struct Store
+  label: String,
+  counts: HashMap<String, Int>,
+  log: List<String>,
+  inner: Box,
+end struct Store
+
 fn show(xs: List<String>) -> String do
   return "[" ++ join(parts: xs, sep: ",") ++ "]"
 end fn show
@@ -117,6 +124,21 @@ fn main() uses console do
 
   // early exits holding owned values
   print(first_long(["ab", "abcd", "xyz"]) ++ " " ++ int_to_str(count_until(xs: ["a", "bbbbb", "c", "stop", "d"], stop: "stop")) ++ "\n")
+
+  // fields moved out for an update and written back, with a snapshot in between
+  var st = Store(label: "st", counts: {}, log: [], inner: Box(name: "in", items: []))
+  for i in 0..4 do
+    let k = "k" ++ int_to_str(i % 2)
+    set st = st with (counts: insert(map: st.counts, key: k, value: value_or(opt: lookup(map: st.counts, key: k), default: 0) + 1))
+    set st = st with (log: push(list: st.log, item: st.label ++ int_to_str(i)))
+  end for
+  let snap = st
+  set st = st with (counts: insert(map: st.counts, key: "k9", value: 9), log: push(list: st.log, item: "late"))
+  set st = st with (inner: st.inner with (items: push(list: st.inner.items, item: "deep")))
+  // reads the field twice: must not be moved out
+  set st = st with (log: push(list: st.log, item: int_to_str(len(st.log))))
+  print(int_to_str(len(st.counts)) ++ " " ++ int_to_str(value_or(opt: lookup(map: st.counts, key: "k0"), default: -1)) ++ " " ++ show(st.log) ++ " " ++ show(st.inner.items) ++ "\n")
+  print(int_to_str(len(snap.counts)) ++ " " ++ show(snap.log) ++ " " ++ show(snap.inner.items) ++ "\n")
 
   // a value moved into an update while another statement still holds it
   var s = ["base"]

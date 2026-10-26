@@ -39,6 +39,8 @@ struct Gen
   moved: Bool,
   // Variables passed inout somewhere in the current statement.
   inout_vars: List<String>,
+  // Field reads `x.f` whose value `set x = x with (f: op(x.f, ...))` moves out of x.
+  steal_ids: List<Int>,
 end struct Gen
 
 fn c_string(s: String) -> String do
@@ -79,7 +81,7 @@ end fn c_params
 fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool) -> String do
   var g = Gen(info: info, files: files, out: [], ind: 0, tmp: 0, strs: [], str_index: {}, io_params: [],
     owned_vars: [], scope_marks: [], loop_marks: [], temps: [], temp_marks: [], move_id: -1,
-    moved: false, inout_vars: [])
+    moved: false, inout_vars: [], steal_ids: [])
   var body: List<String> = []
   for item in items do
     match item
@@ -384,6 +386,124 @@ fn move_candidate(g: Gen, value: Expr, name: String) -> Int do
   end match
 end fn move_candidate
 
+// The operand a consuming operation consumes (the list of push/set_at/++, the map of
+// insert, the base of with), if e is such an operation.
+fn consumed_operand(g: Gen, e: Expr) -> Option<Expr> do
+  match e.kind
+  case With(obj: o, args: args) then
+    return Option.Some(value: o)
+  case Binary(op: op, l: l, r: r) then
+    if (op == "++") and (ty_show(type_of(info: g.info, e: l)) != "String") then
+      return Option.Some(value: l)
+    end if
+    return Option.None
+  case Call(callee: c, args: args) then
+    match call_info(info: g.info, e: e)
+    case Some(value: ci) then
+      if (ci.kind == "builtin") and contains_str(xs: ["push", "set_at", "insert"], x: ci.name) and (len(ci.order) > 0) then
+        let i = ci.order[0]
+        if (i >= 0) and (i < len(args)) then
+          return Option.Some(value: args[i].value)
+        end if
+      end if
+      return Option.None
+    case None then
+      return Option.None
+    end match
+  else
+    return Option.None
+  end match
+end fn consumed_operand
+
+// Every use of variable name in e: "var" for a bare use, "field:f" for a read of name.f.
+fn uses_of(e: Expr, name: String, out: inout List<String>) do
+  match e.kind
+  case Var(name: n) then
+    if n == name then
+      set out = push(list: out, item: "var")
+    end if
+  case Field(obj: o, name: f) then
+    match o.kind
+    case Var(name: n) then
+      if n == name then
+        set out = push(list: out, item: "field:" ++ f)
+      end if
+    else
+      uses_of(e: o, name: name, out: inout out)
+    end match
+  case Call(callee: c, args: args) then
+    uses_of(e: c, name: name, out: inout out)
+    for a in args do
+      uses_of(e: a.value, name: name, out: inout out)
+    end for
+  case With(obj: o, args: args) then
+    uses_of(e: o, name: name, out: inout out)
+    for a in args do
+      uses_of(e: a.value, name: name, out: inout out)
+    end for
+  case ListLit(items: items) then
+    for x in items do
+      uses_of(e: x, name: name, out: inout out)
+    end for
+  case Index(obj: a, idx: b) then
+    uses_of(e: a, name: name, out: inout out)
+    uses_of(e: b, name: name, out: inout out)
+  case Binary(op: op, l: a, r: b) then
+    uses_of(e: a, name: name, out: inout out)
+    uses_of(e: b, name: name, out: inout out)
+  case Unary(op: op, x: a) then
+    uses_of(e: a, name: name, out: inout out)
+  case Quant(q: q, name: n, lo: lo, hi: hi, body: b) then
+    uses_of(e: lo, name: name, out: inout out)
+    uses_of(e: hi, name: name, out: inout out)
+    uses_of(e: b, name: name, out: inout out)
+  else
+  end match
+end fn uses_of
+
+fn count_str(xs: List<String>, x: String) -> Int do
+  var n = 0
+  for y in xs do
+    if y == x then
+      set n = n + 1
+    end if
+  end for
+  return n
+end fn count_str
+
+// In `set name = name with (f: op(name.f, ...), ...)`, the reads name.f that can be
+// moved out of name: op consumes name.f and writes it back as field f, and the right
+// side uses name nowhere else except reads of other fields.
+fn steal_candidates(g: Gen, value: Expr, name: String) -> List<Int> do
+  var ids: List<Int> = []
+  match value.kind
+  case With(obj: o, args: args) then
+    var all_uses: List<String> = []
+    for a in args do
+      uses_of(e: a.value, name: name, out: inout all_uses)
+    end for
+    if contains_str(xs: all_uses, x: "var") then
+      return ids
+    end if
+    for a in args do
+      match consumed_operand(g: g, e: a.value)
+      case Some(value: op) then
+        match op.kind
+        case Field(obj: fo, name: f) then
+          if (f == a.name) and (var_id(e: fo, name: name) >= 0) and (count_str(xs: all_uses, x: "field:" ++ f) == 1) and heap_of(g: g, e: op) then
+            set ids = push(list: ids, item: op.id)
+          end if
+        else
+        end match
+      case None then
+      end match
+    end for
+    return ids
+  else
+    return ids
+  end match
+end fn steal_candidates
+
 fn var_id(e: Expr, name: String) -> Int do
   match e.kind
   case Var(name: n) then
@@ -471,11 +591,15 @@ fn gen_stmt(g: inout Gen, s: Stmt) do
     let lv = cvar(g: g, n: name)
     let heap = heap_of(g: g, e: value)
     if heap then
-      set g = g with (move_id: move_candidate(g: g, value: value, name: name), moved: false)
+      let mid = move_candidate(g: g, value: value, name: name)
+      set g = g with (move_id: mid, moved: false)
+      if mid >= 0 then
+        set g = g with (steal_ids: steal_candidates(g: g, value: value, name: name))
+      end if
     end if
     let v = gen_top(g: inout g, e: value)
     let moved = g.moved
-    set g = g with (move_id: -1, moved: false)
+    set g = g with (move_id: -1, moved: false, steal_ids: [])
     let c = take(g: inout g, v: v, heap: heap)
     if heap and not moved then
       line(g: inout g, s: "vdrop(" ++ lv ++ ");")
@@ -675,20 +799,37 @@ end fn elem_heap
 
 // Runtime flags for a map type: 1 heap keys, 2 heap values, 4 string keys.
 fn map_flags(t: Ty) -> String do
+  var k = Ty.TUnknown
+  var v = Ty.TUnknown
   match t
-  case TMap(key: k, val: v) then
-    var f = 0
-    if ty_show(k) == "String" then
-      set f = 5
-    end if
-    if is_heap(v) then
-      set f = f + 2
-    end if
-    return int_to_str(f)
+  case TMap(key: kk, val: vv) then
+    set k = kk
+    set v = vv
+  case THashMap(key: kk, val: vv) then
+    set k = kk
+    set v = vv
   else
     return "0"
   end match
+  var f = 0
+  if ty_show(k) == "String" then
+    set f = 5
+  end if
+  if is_heap(v) then
+    set f = f + 2
+  end if
+  return int_to_str(f)
 end fn map_flags
+
+// The runtime function prefix for a map type: ordered trees or hash tables.
+fn map_ops(t: Ty) -> String do
+  match t
+  case THashMap(key: k, val: v) then
+    return "vhm"
+  else
+    return "vmap"
+  end match
+end fn map_ops
 
 fn flag(b: Bool) -> String do
   if b then
@@ -777,7 +918,6 @@ fn gen_expr(g: inout Gen, e: Expr) -> Val do
       end if
     case None then
     end match
-    let ov = gen_expr(g: inout g, e: o)
     var sn = ""
     match type_of(info: g.info, e: o)
     case TStruct(name: n) then
@@ -785,6 +925,15 @@ fn gen_expr(g: inout Gen, e: Expr) -> Val do
     else
     end match
     let fi = find_field(fields: struct_fields(info: g.info, name: sn), name: f)
+    if int_list_contains(xs: g.steal_ids, x: e.id) then
+      match o.kind
+      case Var(name: n) then
+        // Moved out of the variable for an update that writes it back (see steal_candidates).
+        return owned_tmp(g: inout g, rhs: "vow_steal(" ++ cvar(g: g, n: n) ++ ", " ++ int_to_str(fi) ++ ")", heap: true)
+      else
+      end match
+    end if
+    let ov = gen_expr(g: inout g, e: o)
     return plain_val(bind(g: inout g, rhs: "VP(" ++ ov.c ++ ")[" ++ int_to_str(fi) ++ "]"))
   case With(obj: o, args: args) then
     let ov = gen_expr(g: inout g, e: o)
@@ -1019,8 +1168,8 @@ fn gen_builtin(g: inout Gen, e: Expr, name: String, p: List<Val>, pe: List<Expr>
   case "len" then
     if s0 == "String" then
       return plain_val(bind(g: inout g, rhs: "vstr_len(" ++ v0.c ++ ")"))
-    elif starts_with(s: s0, p: "Map<") then
-      return plain_val(bind(g: inout g, rhs: "vmap_len(" ++ v0.c ++ ")"))
+    elif starts_with(s: s0, p: "Map<") or starts_with(s: s0, p: "HashMap<") then
+      return plain_val(bind(g: inout g, rhs: map_ops(t0) ++ "_len(" ++ v0.c ++ ")"))
     end if
     return plain_val(bind(g: inout g, rhs: "vlist_len(" ++ v0.c ++ ")"))
   case "push" then
@@ -1054,18 +1203,21 @@ fn gen_builtin(g: inout Gen, e: Expr, name: String, p: List<Val>, pe: List<Expr>
     case TMap(key: k, val: v) then
       set kh = is_heap(k)
       set vh = is_heap(v)
+    case THashMap(key: k, val: v) then
+      set kh = is_heap(k)
+      set vh = is_heap(v)
     else
     end match
     let m = take(g: inout g, v: v0, heap: true)
     let k = take(g: inout g, v: v1, heap: kh)
     let x = take(g: inout g, v: v2, heap: vh)
-    return owned_tmp(g: inout g, rhs: "vmap_insert(" ++ m ++ ", " ++ k ++ ", " ++ x ++ ", " ++ f ++ ")", heap: true)
+    return owned_tmp(g: inout g, rhs: map_ops(t0) ++ "_insert(" ++ m ++ ", " ++ k ++ ", " ++ x ++ ", " ++ f ++ ")", heap: true)
   case "lookup" then
-    return owned_tmp(g: inout g, rhs: "vmap_lookup(" ++ v0.c ++ ", " ++ v1.c ++ ", " ++ map_flags(t0) ++ ")", heap: true)
+    return owned_tmp(g: inout g, rhs: map_ops(t0) ++ "_lookup(" ++ v0.c ++ ", " ++ v1.c ++ ", " ++ map_flags(t0) ++ ")", heap: true)
   case "has" then
-    return plain_val(bind(g: inout g, rhs: "vmap_has(" ++ v0.c ++ ", " ++ v1.c ++ ", " ++ map_flags(t0) ++ ")"))
+    return plain_val(bind(g: inout g, rhs: map_ops(t0) ++ "_has(" ++ v0.c ++ ", " ++ v1.c ++ ", " ++ map_flags(t0) ++ ")"))
   case "keys" then
-    return owned_tmp(g: inout g, rhs: "vmap_keys(" ++ v0.c ++ ", " ++ map_flags(t0) ++ ")", heap: true)
+    return owned_tmp(g: inout g, rhs: map_ops(t0) ++ "_keys(" ++ v0.c ++ ", " ++ map_flags(t0) ++ ")", heap: true)
   case "panic" then
     line(g: inout g, s: "vow_panic(VS(" ++ v0.c ++ ")->data);")
     return plain_val("0")

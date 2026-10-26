@@ -334,6 +334,8 @@ fn obligation(v: inout Verifier, st: St, pos: Pos, what: String, goal: String) d
         set show = push(list: show, item: Shown(name: "len(" ++ n ++ ")", term: "(len " ++ x.term ++ ")"))
       case TMap(key: k, val: vv) then
         set show = push(list: show, item: Shown(name: "len(" ++ n ++ ")", term: "(len " ++ x.term ++ ")"))
+      case THashMap(key: k, val: vv) then
+        set show = push(list: show, item: Shown(name: "len(" ++ n ++ ")", term: "(len " ++ x.term ++ ")"))
       else
       end match
     case None then

@@ -10,12 +10,12 @@ Best of 3 wall-clock runs; memory is the peak memory footprint (including compre
 
 | Language | Time | Relative to C | Memory |
 |---|---|---|---|
-| Vow | 0.92 s | 0.8x | 49 MB |
-| C | 1.14 s | 1.0x | 17 MB |
-| Rust | 1.19 s | 1.0x | 17 MB |
-| Go | 1.58 s | 1.4x | 42 MB |
-| JavaScript | 0.59 s | 0.5x | 427 MB |
-| Python | 5.60 s | 4.9x | 38 MB |
+| Vow | 0.96 s | 0.8x | 49 MB |
+| C | 1.15 s | 1.0x | 17 MB |
+| Rust | 1.23 s | 1.1x | 17 MB |
+| Go | 1.62 s | 1.4x | 37 MB |
+| JavaScript | 0.62 s | 0.5x | 427 MB |
+| Python | 5.67 s | 4.9x | 38 MB |
 
 ## fannkuch (integer arrays and permutations, input 10)
 
@@ -24,17 +24,17 @@ Best of 3 wall-clock runs; memory is the peak memory footprint (including compre
 | Vow | 0.39 s | 2.2x | 1 MB |
 | C | 0.18 s | 1.0x | 1 MB |
 | Rust | 0.19 s | 1.1x | 1 MB |
-| Go | 0.18 s | 1.0x | 2 MB |
-| JavaScript | 0.24 s | 1.3x | 12 MB |
-| Python | 4.55 s | 25.7x | 6 MB |
+| Go | 0.18 s | 1.0x | 3 MB |
+| JavaScript | 0.24 s | 1.3x | 13 MB |
+| Python | 4.54 s | 25.2x | 6 MB |
 
 ## knucleotide (strings and hash maps, input knucleotide-input.fa)
 
 | Language | Time | Relative to C | Memory |
 |---|---|---|---|
-| Vow | 1.11 s | 18.5x | 21 MB |
-| C | 0.06 s | 1.0x | 18 MB |
-| Rust | 0.10 s | 1.7x | 15 MB |
-| Go | 0.11 s | 1.9x | 31 MB |
-| JavaScript | 0.35 s | 5.8x | 69 MB |
-| Python | 0.56 s | 9.3x | 23 MB |
+| Vow | 0.21 s | 3.2x | 26 MB |
+| C | 0.07 s | 1.0x | 22 MB |
+| Rust | 0.11 s | 1.7x | 16 MB |
+| Go | 0.12 s | 1.8x | 31 MB |
+| JavaScript | 0.34 s | 5.1x | 69 MB |
+| Python | 0.53 s | 8.0x | 25 MB |

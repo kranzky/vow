@@ -283,7 +283,8 @@ impl<'a> Gen<'a> {
 
     fn is_str_map(&self, e: &Expr) -> i32 {
         match self.info.ty(e) {
-            Ty::Map(k, _) => (*k == Ty::Str) as i32,
+            // The v0 runtime implements HashMap with the same ordered tree as Map.
+            Ty::Map(k, _) | Ty::HashMap(k, _) => (*k == Ty::Str) as i32,
             _ => 0,
         }
     }
@@ -467,7 +468,7 @@ impl<'a> Gen<'a> {
                 let rhs = match n.as_str() {
                     "len" => match self.info.ty(pa[0]) {
                         Ty::Str => format!("vstr_len({})", p[0]),
-                        Ty::Map(..) => format!("vmap_len({})", p[0]),
+                        Ty::Map(..) | Ty::HashMap(..) => format!("vmap_len({})", p[0]),
                         _ => format!("vlist_len({})", p[0]),
                     },
                     "push" => format!("vlist_push({}, {})", p[0], p[1]),

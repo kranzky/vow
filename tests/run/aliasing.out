@@ -7,4 +7,6 @@ two[i,j] one[i]
 [a,b,c,aa,bb,cc]
 [1,20] [1,2] [3,4]
 ABCD 2
+3 2 [st0,st1,st2,st3,late,5] [deep]
+2 [st0,st1,st2,st3] []
 [base,more] [base]

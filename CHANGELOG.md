@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.3.0 (unreleased)
+
+Faster maps.
+
+- `HashMap<K, V>`: the same operations, values and verification as `Map`, stored in an
+  open-addressing hash table. `keys` is sorted for both. k-nucleotide went from
+  1.11 s to 0.21 s, faster than JavaScript and Python.
+- `Map` inserts into an unshared tree now rebalance in place instead of rebuilding the
+  path to the key.
+- In `set s = s with (f: op(s.f, ...))`, the field is moved out of `s`, so lists and
+  maps held in structs are updated in place instead of copied on every update.
+- New tests for large maps, hash maps, and shared values held in struct fields.
+
 ## v0.2.0
 
 Memory management: Vow now frees memory and updates values in place.

@@ -68,7 +68,7 @@ Check your code against this list before running the compiler.
     `case None then` followed by the next `case`.
 11. **One global namespace.** `import "file.vow"` merges files. Function and type names
     must be unique across all imported files.
-12. **No generics in user code.** Only `List`, `Map` and `Option` are generic. Write
+12. **No generics in user code.** Only `List`, `Map`, `HashMap` and `Option` are generic. Write
     monomorphic helpers (`contains_str`, `int_list_contains`).
 13. **No floats yet.** `/` and `%` are integer division with Euclidean semantics: the
     remainder is never negative (`-7 / 2 == -4`, `-7 % 2 == 1`).
@@ -424,8 +424,15 @@ place. Write updates as `set xs = set_at(list: xs, at: i, value: v)`,
 `set s = s with (count: s.count + 1)` or `set m = insert(map: m, key: k, value: v)`:
 the old value is moved into the operation, so nothing is copied. A second reference
 (`let copy = xs`) makes the next update copy once, which is what keeps `copy`
-unchanged. `Map` is a persistent tree, so very large maps are slower than hash maps in
-other languages.
+unchanged. The same holds for a field: in `set s = s with (items: push(list: s.items, item: x))`
+the list is moved out of `s` and updated in place, as long as the right-hand side reads
+`s.items` only once.
+
+**`Map` or `HashMap`.** Both have the same operations (`insert`, `lookup`, `has`,
+`keys`, `len`, `{}`), and `keys` is sorted for both. Use `HashMap` for counting and
+lookup tables that are built up and then read; it is several times faster. Use `Map`
+when you keep old versions around (`let before = m` and then insert), because a shared
+`HashMap` is copied whole on the next insert, while a shared `Map` copies only one path.
 
 **Removing the last list element.** `slice(of: xs, from: 0, to: len(xs) - 1)` after
 checking `len(xs) > 0`.

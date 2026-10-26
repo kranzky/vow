@@ -269,7 +269,7 @@ impl<'a> Verifier<'a> {
             let v = &st.env[n];
             match &v.ty {
                 Ty::Int | Ty::Bool => show.push((n.clone(), v.term.clone())),
-                Ty::List(_) | Ty::Str | Ty::Map(..) => show.push((format!("len({})", n), format!("(len {})", v.term))),
+                Ty::List(_) | Ty::Str | Ty::Map(..) | Ty::HashMap(..) => show.push((format!("len({})", n), format!("(len {})", v.term))),
                 _ => {}
             }
         }

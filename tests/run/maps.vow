@@ -1,0 +1,49 @@
+// Maps under heavy update with snapshots: rebalancing must never disturb a snapshot,
+// and every lookup must agree with the keys inserted.
+
+fn next(seed: Int where (0 <= it) and (it < 1000003)) -> Int
+  ensures (0 <= result) and (result < 1000003)
+do
+  return ((seed * 7919) + 13) % 1000003
+end fn next
+
+fn sum_values(m: Map<Int, Int>) -> Int do
+  var total = 0
+  for k in keys(m) do
+    set total = total + value_or(opt: lookup(map: m, key: k), default: 0)
+  end for
+  return total
+end fn sum_values
+
+fn main() uses console do
+  var m: Map<Int, Int> = {}
+  var snaps: List<Map<Int, Int>> = []
+  var seed = 1
+  for i in 0..5000 invariant (0 <= seed) and (seed < 1000003) do
+    set seed = next(seed)
+    set m = insert(map: m, key: seed % 1500, value: i)
+    if (i % 1000) == 999 then
+      set snaps = push(list: snaps, item: m)
+    end if
+  end for
+  print(int_to_str(len(m)) ++ " " ++ int_to_str(sum_values(m)) ++ "\n")
+  for s in snaps do
+    print(int_to_str(len(s)) ++ " " ++ int_to_str(sum_values(s)) ++ "\n")
+  end for
+  // String keys, overwritten and read back in order.
+  var words: Map<String, List<String>> = {}
+  for i in 0..300 do
+    let k = "k" ++ int_to_str((i * 37) % 101)
+    let old = value_or(opt: lookup(map: words, key: k), default: [])
+    set words = insert(map: words, key: k, value: push(list: old, item: int_to_str(i)))
+  end for
+  let ks = keys(words)
+  var total = 0
+  for k in ks do
+    set total = total + len(value_or(opt: lookup(map: words, key: k), default: []))
+  end for
+  if len(ks) > 2 then
+    print(ks[0] ++ " " ++ ks[1] ++ " " ++ ks[len(ks) - 1] ++ " ")
+  end if
+  print(int_to_str(len(words)) ++ " " ++ int_to_str(total) ++ "\n")
+end fn main

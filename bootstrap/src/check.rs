@@ -10,6 +10,7 @@ pub enum Ty {
     Unit,
     List(Box<Ty>),
     Map(Box<Ty>, Box<Ty>),
+    HashMap(Box<Ty>, Box<Ty>),
     Opt(Box<Ty>),
     Struct(String),
     Enum(String),
@@ -25,6 +26,7 @@ impl Ty {
             Ty::Unit => "Unit".into(),
             Ty::List(t) => format!("List<{}>", t.show()),
             Ty::Map(k, v) => format!("Map<{}, {}>", k.show(), v.show()),
+            Ty::HashMap(k, v) => format!("HashMap<{}, {}>", k.show(), v.show()),
             Ty::Opt(t) => format!("Option<{}>", t.show()),
             Ty::Struct(n) | Ty::Enum(n) => n.clone(),
             Ty::Unknown => "?".into(),
@@ -144,7 +146,7 @@ pub fn builtin(name: &str) -> Option<&'static Builtin> {
 }
 
 const EFFECTS: &[&str] = &["console", "fs", "proc"];
-const PRIMITIVE_TYPES: &[&str] = &["Int", "Bool", "String", "Unit", "List", "Map", "Option", "Output"];
+const PRIMITIVE_TYPES: &[&str] = &["Int", "Bool", "String", "Unit", "List", "Map", "HashMap", "Option", "Output"];
 
 impl Info {
     /// The variants of an enum-like type, with field types instantiated.
@@ -209,14 +211,18 @@ fn resolve_type(info: &Info, te: &TypeExpr, errs: &mut Vec<Diag>) -> RTy {
                 RTy::plain(Ty::Unknown)
             }
         }
-        "Map" => {
+        "Map" | "HashMap" => {
             if nargs(2, errs) {
                 let k = arg(0, errs);
                 let v = arg(1, errs);
                 if k != Ty::Int && k != Ty::Str && k != Ty::Unknown {
                     errs.push(Diag::new(te.args[0].pos, "map keys must be Int or String"));
                 }
-                RTy::plain(Ty::Map(Box::new(k), Box::new(v)))
+                if te.name == "Map" {
+                    RTy::plain(Ty::Map(Box::new(k), Box::new(v)))
+                } else {
+                    RTy::plain(Ty::HashMap(Box::new(k), Box::new(v)))
+                }
             } else {
                 RTy::plain(Ty::Unknown)
             }
@@ -1149,7 +1155,7 @@ impl Checker {
                     return Ty::Unknown;
                 }
                 match expected {
-                    Some(t @ Ty::Map(..)) => t.clone(),
+                    Some(t @ Ty::Map(..)) | Some(t @ Ty::HashMap(..)) => t.clone(),
                     _ => {
                         self.err(e.pos, "cannot infer the type of '{}'; add a type annotation");
                         Ty::Unknown
@@ -1439,7 +1445,7 @@ impl Checker {
             "len" => {
                 let t = self.expr(a[0], None);
                 match t {
-                    Ty::List(_) | Ty::Str | Ty::Map(..) | Ty::Unknown => {}
+                    Ty::List(_) | Ty::Str | Ty::Map(..) | Ty::HashMap(..) | Ty::Unknown => {}
                     t => self.err(a[0].pos, &format!("'len' needs a List, String or Map, not {}", t.show())),
                 }
                 Ty::Int
@@ -1517,7 +1523,7 @@ impl Checker {
             "insert" | "lookup" | "has" | "keys" => {
                 let mt = self.expr(a[0], if name == "insert" { expected } else { None });
                 let (k, v) = match &mt {
-                    Ty::Map(k, v) => ((**k).clone(), (**v).clone()),
+                    Ty::Map(k, v) | Ty::HashMap(k, v) => ((**k).clone(), (**v).clone()),
                     Ty::Unknown => {
                         for x in &a[1..] {
                             self.expr(x, None);
