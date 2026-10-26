@@ -18,8 +18,9 @@ spec disagree, the spec wins.
   it >= 0`) holds where a value enters a refined position, every `requires` holds at
   each call, every `ensures` holds at each `return`, every `assert`, and every loop
   `invariant` (on entry, after each iteration, and at `break` and `continue`).
-- What is not proved: termination, and the absence of integer overflow (overflow
-  traps at runtime instead).
+- Termination is proved where you give a `decreases` measure (section 4); otherwise
+  contracts are proved assuming the code returns. The absence of integer overflow is
+  not proved (overflow traps at runtime instead).
 - Every value is immutable. `var` + `set` reassign a local; `inout` parameters let a
   function hand a new value back to the caller's var. There is no aliasing.
 
@@ -45,15 +46,17 @@ Check your code against this list before running the compiler.
    `else if`).
 3. **Arguments are named.** `f(x: 1, y: 2)`. Only a function with exactly one
    parameter may be called positionally: `len(xs)`, `print(s)`.
-4. **Results cannot be ignored.** A call whose result is not `Unit` must be bound:
-   `let ok = write_file(path: p, contents: c)`.
+4. **Results cannot be ignored.** A call whose result is not `Unit` must be bound,
+   or explicitly discarded: `let ok = write_file(path: p, contents: c)` or
+   `let _ = advance(inout p)`.
 5. **No shadowing.** A name may not be declared again while it is in scope, including
    in nested blocks and loop variables. Pick a new name.
-6. **Keywords are never identifiers**, not even as field or parameter names:
+6. **Keywords can be labels but not names.** A field, argument label, `.field` or
+   pattern field may be a keyword (`d.type`, `f(in: x)`); a variable, parameter or
+   binder may not. The keywords are:
    `fn end struct enum type let var set return if then elif else while for in do
    match case invariant requires ensures uses assert check break continue and or not
-   implies true false with import it result where inout`.
-   Use `effects`, `pre`, `post`, `subject`, `is_inout`, `var_name`, and so on.
+   implies true false with import it result where inout forall exists decreases`.
 7. **`==` and `!=` work on `Int`, `Bool` and `String` only.** For enums, use `match`.
 8. **Empty literals need a type.** `[]`, `{}` and `Option.None` need an annotation
    or an expected type: `var xs: List<Int> = []`, `let none: Option<Ty> = Option.None`.
@@ -208,15 +211,53 @@ end fn advance
 (0 <= it) and (it < 16))` makes every caller prove the range, and lets the body use
 it freely.
 
-**Facts about lists are shallow.** The verifier knows lengths (`len(push(xs, x)) ==
-len(xs) + 1`, list literals, `++`, `slice`, `keys`) and the last pushed element, but not
-"every element satisfies P". Specs cannot quantify yet. Put per-element guarantees in
-a struct field refinement instead.
+**Quantify over ranges.** `forall i in a..b: P` and `exists i in a..b: P` work in any
+specification (and at runtime, as loops). The verifier knows how `push`, `++`, `slice`
+and literals relate the elements or bytes of their results to their inputs, so
+element-wise invariants go through. From `examples/escape.vow`:
+
+```
+fn tag_free(s: String) -> Bool do
+  return forall i in 0..len(s): (s[i] != '<') and (s[i] != '>')
+end fn tag_free
+
+fn escape(s: String) -> String ensures tag_free(result) do
+  var out = ""
+  for i in 0..len(s) invariant tag_free(out) do
+    ...
+      set out = out ++ "&lt;"
+    ...
+  end for
+  return out
+end fn escape
+```
+
+**Name your predicates with expression functions.** A pure, non-recursive function
+whose whole body is `return <spec expression>` can be used inside specifications
+(`tag_free` and `is_sorted` above). It is inlined, and its calls are transparent to the
+verifier at runtime too, so `if is_sorted(xs) then ...` teaches the verifier that
+`xs` is sorted.
+
+**Sortedness: use the pairwise form.** `forall i in 0..n: forall j in i..n: xs[i] <=
+xs[j]` is what proofs need; the adjacent form (`xs[i-1] <= xs[i]`) needs induction,
+which the verifier cannot do.
+
+**Range-loop invariants may mention the loop variable.** In `for i in 0..n`, an
+invariant about `i` holds with `i = 0` on entry and `i + 1` after each iteration, and
+after the loop `i = n`. So `invariant len(out) == i` gives `len(out) == n` afterwards.
+
+**Prove termination with `decreases`.** For a `while` loop, give a measure that is
+non-negative at the top of an iteration and smaller at its end:
+`while lo < hi invariant ... decreases hi - lo do`. For a recursive function, put
+`decreases n` in its contract. If the measure needs help, add a progress invariant
+(`let start = i` before the loop, `invariant i > start` inside). Without a measure, a
+contract only says what holds *if* the code returns.
 
 **Specifications are restricted.** Inside `requires`, `ensures`, `where`, `invariant`,
-`assert` and `check` you may use literals, variables, `it`, `result`, arithmetic,
-comparisons, `and or not implies`, `len`, field access and indexing. You may not call
-user functions.
+`decreases`, `assert` and `check` you may use literals, variables, `it`, `result`,
+arithmetic, comparisons, `and or not implies`, quantifiers, `len`, `value_or`,
+`is_some`, `is_none`, field access, indexing and expression functions. Other calls
+are rejected.
 
 **Escape hatches, in order of preference:**
 1. Add the missing fact as an invariant, `ensures`, or refinement.
@@ -287,7 +328,14 @@ An `inout` argument must be a `var`. The same var cannot be passed `inout` twice
 one call.
 
 **Optional values.** `lookup`, `str_to_int`, `read_file` and `getenv` return
-`Option<T>`:
+`Option<T>`. For a default, use `value_or`; to test, `is_some` / `is_none`:
+
+```
+let n = value_or(opt: lookup(map: counts, key: word), default: 0)
+set counts = insert(map: counts, key: word, value: n + 1)
+```
+
+When both cases need different code, `match`:
 
 ```
 match lookup(map: counts, key: word)
@@ -335,7 +383,10 @@ reading its signature.
 
 ## 8. Larger examples
 
-- `examples/bsearch.vow`: loop invariants that make every index provable
+- `examples/bsearch.vow`: full functional specification (sorted input, found index
+  holds the target, -1 means absent) and termination
+- `examples/isort.vow`: insertion sort proved sorted and length-preserving
+- `examples/escape.vow`: an HTML escaper proved never to emit `<` or `>`
 - `examples/cursor.vow`: refined struct fields with `inout`
 - `examples/wordfreq.vow`: string scanning, maps and options
 - `examples/shapes.vow`: enums, refinement aliases, exhaustive `match`

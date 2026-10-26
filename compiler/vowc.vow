@@ -108,7 +108,7 @@ fn compile_c(c: String, exe: String) -> String uses fs, proc do
   case None then
   end match
   let r = run(argv: [cc, "-O2", "-std=c11", "-w", "-o", exe, cfile], input: "")
-  let rm = run(argv: ["rm", "-rf", dir], input: "")
+  let _ = run(argv: ["rm", "-rf", dir], input: "")
   if r.code != 0 then
     return "C compiler '" ++ cc ++ "' failed"
   end if
@@ -310,7 +310,7 @@ fn main() uses console, fs, proc do
       let o = run(argv: [exe] ++ run_args, input: "")
       print(o.out)
       if len(tmp) > 0 then
-        let rm = run(argv: ["rm", "-rf", tmp], input: "")
+        let _ = run(argv: ["rm", "-rf", tmp], input: "")
       end if
       exit(o.code)
     end if

@@ -40,7 +40,7 @@ fn lex(src: String, file: Int) -> Lexed do
   var line = 1
   var col = 1
   let n = len(src)
-  while i < n invariant i >= 0 do
+  while i < n invariant i >= 0 decreases n - i do
     let c = src[i]
     let pos = Pos(file: file, line: line, col: col)
     if c == '\n' then
@@ -55,14 +55,16 @@ fn lex(src: String, file: Int) -> Lexed do
       continue
     end if
     if (c == '/') and ((i + 1) < n) and (src[i + 1] == '/') then
-      while (i < n) and (src[i] != '\n') invariant i >= 0 do
+      let comment = i
+      set i = i + 2
+      while (i < n) and (src[i] != '\n') invariant i > comment decreases n - i do
         set i = i + 1
       end while
       continue
     end if
     if is_alpha(c) then
       let start = i
-      while (i < n) and is_alnum(src[i]) invariant start <= i invariant i <= n do
+      while (i < n) and is_alnum(src[i]) invariant start <= i invariant i <= n decreases n - i do
         set i = i + 1
       end while
       let text = slice(of: src, from: start, to: i)
@@ -77,7 +79,7 @@ fn lex(src: String, file: Int) -> Lexed do
     if c == '?' then
       let start = i + 1
       set i = i + 1
-      while (i < n) and is_alnum(src[i]) invariant start <= i invariant i <= n do
+      while (i < n) and is_alnum(src[i]) invariant start <= i invariant i <= n decreases n - i do
         set i = i + 1
       end while
       if i == start then
@@ -91,7 +93,7 @@ fn lex(src: String, file: Int) -> Lexed do
     if is_digit(c) then
       let start = i
       var v = 0
-      while (i < n) and (is_digit(src[i]) or (src[i] == '_')) invariant start <= i invariant i <= n do
+      while (i < n) and (is_digit(src[i]) or (src[i] == '_')) invariant start <= i invariant i <= n decreases n - i do
         if src[i] != '_' then
           let d = src[i] - '0'
           if v > ((9223372036854775807 - d) / 10) then
@@ -151,7 +153,8 @@ fn lex(src: String, file: Int) -> Lexed do
       set col = col + 1
       var parts: List<String> = []
       var closed = false
-      while i < n invariant i >= 0 do
+      let body = i
+      while i < n invariant i >= body decreases n - i do
         let d = src[i]
         if d == '\n' then
           break

@@ -35,11 +35,14 @@
 Must-have, language and proofs:
 - [ ] Soundness hardening: written soundness argument, large must-fail suite, differential
       fuzzing of the two verifiers
-- [ ] Quantified specs (`forall i in 0..n: ...`), pure user spec functions, `old(x)`
-- [ ] Termination: `decreases` measures for loops and recursion
+- [x] Quantified specs (`forall`/`exists` over ranges) and expression functions in specs
+- [ ] `old(x)` for inout postconditions; recursive spec functions (needs termination)
+- [x] Termination measures (`decreases`) for while loops and direct recursion (opt-in)
+- [ ] Termination for mutual recursion; report which functions are proved total
 - [ ] Generics (monomorphised functions and types)
 - [ ] Float, with documented verification semantics
-- [ ] Contextual keywords (allow `it`, `inout`, `var`, `uses`, ... as field/param names)
+- [x] Keywords as labels (fields, argument labels, field access, pattern fields)
+- [x] `let _ =` discards; `value_or`, `is_some`, `is_none`
 - [ ] Structural `==` for structs/enums; `Result` with error propagation
 - [ ] Modules with visibility, then packages
 

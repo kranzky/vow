@@ -42,11 +42,14 @@ fn is_space(c: Int) -> Bool do
 end fn is_space
 
 // True if `p` occurs in `s` starting at byte `at`.
-fn starts_at(s: String, at: Int where it >= 0, p: String) -> Bool do
+fn starts_at(s: String, at: Int where it >= 0, p: String) -> Bool
+  ensures result implies ((at + len(p)) <= len(s))
+  ensures result implies (forall k in 0..len(p): s[at + k] == p[k])
+do
   if (at + len(p)) > len(s) then
     return false
   end if
-  for k in 0..len(p) do
+  for k in 0..len(p) invariant forall j in 0..k: s[at + j] == p[j] do
     if s[at + k] != p[k] then
       return false
     end if
@@ -65,9 +68,11 @@ fn ends_with(s: String, p: String) -> Bool do
   return starts_at(s: s, at: len(s) - len(p), p: p)
 end fn ends_with
 
-fn contains_str(xs: List<String>, x: String) -> Bool do
-  for y in xs do
-    if y == x then
+fn contains_str(xs: List<String>, x: String) -> Bool
+  ensures result == (exists i in 0..len(xs): xs[i] == x)
+do
+  for i in 0..len(xs) invariant forall j in 0..i: xs[j] != x do
+    if xs[i] == x then
       return true
     end if
   end for
@@ -75,10 +80,11 @@ fn contains_str(xs: List<String>, x: String) -> Bool do
 end fn contains_str
 
 fn index_of_str(xs: List<String>, x: String) -> Int
-  ensures result >= -1
-  ensures result < len(xs)
+  ensures (-1 <= result) and (result < len(xs))
+  ensures (result >= 0) implies (xs[result] == x)
+  ensures (result == -1) implies (forall i in 0..len(xs): xs[i] != x)
 do
-  for i in 0..len(xs) do
+  for i in 0..len(xs) invariant forall j in 0..i: xs[j] != x do
     if xs[i] == x then
       return i
     end if
@@ -87,10 +93,11 @@ do
 end fn index_of_str
 
 fn find_byte(s: String, c: Int) -> Int
-  ensures result >= -1
-  ensures result < len(s)
+  ensures (-1 <= result) and (result < len(s))
+  ensures (result >= 0) implies (s[result] == c)
+  ensures (result == -1) implies (forall i in 0..len(s): s[i] != c)
 do
-  for i in 0..len(s) do
+  for i in 0..len(s) invariant forall j in 0..i: s[j] != c do
     if s[i] == c then
       return i
     end if
@@ -99,11 +106,17 @@ do
 end fn find_byte
 
 fn find_last_byte(s: String, c: Int) -> Int
-  ensures result >= -1
-  ensures result < len(s)
+  ensures (-1 <= result) and (result < len(s))
+  ensures (result >= 0) implies (s[result] == c)
+  ensures (result >= 0) implies (forall j in (result + 1)..len(s): s[j] != c)
+  ensures (result == -1) implies (forall j in 0..len(s): s[j] != c)
 do
   var i = len(s) - 1
-  while i >= 0 invariant i < len(s) do
+  while i >= 0
+    invariant i < len(s)
+    invariant forall j in (i + 1)..len(s): s[j] != c
+    decreases i + 1
+  do
     if s[i] == c then
       return i
     end if
@@ -116,7 +129,7 @@ fn find_sub(s: String, p: String) -> Int
   ensures result >= -1
 do
   var i = 0
-  while (i + len(p)) <= len(s) invariant i >= 0 do
+  while (i + len(p)) <= len(s) invariant i >= 0 decreases len(s) - i do
     if starts_at(s: s, at: i, p: p) then
       return i
     end if
@@ -153,10 +166,10 @@ end fn split
 fn trim(s: String) -> String do
   var a = 0
   var b = len(s)
-  while (a < b) and is_space(s[a]) invariant 0 <= a invariant a <= b invariant b <= len(s) do
+  while (a < b) and is_space(s[a]) invariant 0 <= a invariant a <= b invariant b <= len(s) decreases b - a do
     set a = a + 1
   end while
-  while (b > a) and is_space(s[b - 1]) invariant 0 <= a invariant a <= b invariant b <= len(s) do
+  while (b > a) and is_space(s[b - 1]) invariant 0 <= a invariant a <= b invariant b <= len(s) decreases b - a do
     set b = b - 1
   end while
   if a > b then
@@ -165,9 +178,11 @@ fn trim(s: String) -> String do
   return slice(of: s, from: a, to: b)
 end fn trim
 
-fn int_list_contains(xs: List<Int>, x: Int) -> Bool do
-  for y in xs do
-    if y == x then
+fn int_list_contains(xs: List<Int>, x: Int) -> Bool
+  ensures result == (exists i in 0..len(xs): xs[i] == x)
+do
+  for i in 0..len(xs) invariant forall j in 0..i: xs[j] != x do
+    if xs[i] == x then
       return true
     end if
   end for

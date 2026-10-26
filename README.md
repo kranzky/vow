@@ -34,7 +34,8 @@ end fn search
 ## What makes it different
 
 - **Contracts are proved, not tested.** Refinement types (`Int where it >= 0`),
-  `requires`, `ensures`, loop invariants, index bounds and division by zero are proof
+  `requires`, `ensures`, loop invariants, quantified properties (`forall i in
+  0..len(xs): ...`), termination measures, index bounds and division by zero are proof
   obligations. When a proof fails you get a counterexample:
 
   ```
@@ -86,9 +87,9 @@ Commands: `check`, `build -o <exe>`, `run`, `emit-c`, `hash`. Options: `--json`
 
 ## Status
 
-Vow v0 is an experiment, not yet a V1. Notable gaps: no floats, generics, quantified
-specifications or termination proofs; memory is never freed; Unix only. See the
-roadmap.
+Vow v0 is an experiment, not yet a V1. Notable gaps: no floats, generics or modules;
+termination is proved only where measures are given; memory is never freed; Unix
+only. See the roadmap.
 
 ## License
 

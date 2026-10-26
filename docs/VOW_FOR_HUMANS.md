@@ -53,6 +53,30 @@ the compiled code contains no bounds checks at all. Vow's own compiler, about 6,
 lines written by a model, is verified this way and uses no runtime-checked escape
 hatches.
 
+### Properties you actually care about
+
+Contracts can say more than "no crash". From the examples:
+
+```
+fn escape(s: String) -> String
+  ensures tag_free(result)                  // no '<' or '>' anywhere in the output
+
+fn search(xs: List<Int>, target: Int) -> Int
+  requires is_sorted(xs)
+  ensures (result >= 0) implies (xs[result] == target)
+  ensures (result == -1) implies (forall i in 0..len(xs): xs[i] != target)
+  ...
+```
+
+The first is a security property, an escaper that provably cannot emit markup. The
+second is the full correctness of binary search. Both are proved for every input, and if
+someone breaks the code, the compiler shows the input that breaks it. Change the
+escaper so `<` slips through and the counterexample is `c = 60`, which is `'<'`.
+
+Loops and recursion can also carry a termination measure (`decreases hi - lo`), which
+proves they finish. The self-hosted compiler's lexer is proved to terminate on every
+input this way.
+
 ### Effects are an audit trail
 
 A Vow function can only print, touch files or run processes if its signature says so:
@@ -126,13 +150,15 @@ Being clear about the limits matters more than the guarantees.
 - **A proof is only as good as its specification.** If a contract says too little,
   the proof says too little. `ensures result >= 0` is easy to satisfy with the wrong
   answer. Reviewing contracts is the job that remains, and it's real work.
-- **Termination is not proved.** A function whose contracts are proved will satisfy
-  them *if it returns*. A loop that never ends is not caught (yet).
+- **Termination is proved only where someone wrote a measure.** Without `decreases`,
+  a proved contract holds *if* the function returns; a loop that never ends is not
+  caught. Mutual recursion can't be measured yet.
 - **Integer overflow is not proved absent.** It's detected at runtime and stops the
   program, which is safe but not graceful.
-- **Specifications can't yet say everything.** There are no quantifiers ("every
-  element is positive") and no user functions inside specs. Some real properties
-  can't be stated in v0.
+- **Specifications can't yet say everything.** Quantifiers range over integer
+  intervals, and functions used in specs must be single expressions without recursion.
+  Some properties, such as "the output is a permutation of the input", are still hard
+  to state.
 - **Effects are coarse.** `uses fs` means any file, not a particular directory.
 - **There is a trusted base:** the Vow verifier, the Z3 solver, the C compiler and
   the runtime. The verifier is new. Two soundness bugs (cases where something was

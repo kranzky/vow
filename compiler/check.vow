@@ -1458,7 +1458,7 @@ fn match_args(c: inout Checker, pos: Pos, what: String, params: List<String>, ar
     return Option.Some(value: order)
   end if
   for a in args do
-    let t = check_expr(c: inout c, e: a.value, expected: Option.None)
+    let _ = check_expr(c: inout c, e: a.value, expected: Option.None)
   end for
   return Option.None
 end fn match_args
@@ -1918,7 +1918,7 @@ fn check_call(c: inout Checker, e: Expr, callee: Expr, args: List<Arg>, expected
     err(c: inout c, pos: e.pos, msg: "unknown function '" ++ name ++ "'")
   end if
   for a in args do
-    let t = check_expr(c: inout c, e: a.value, expected: Option.None)
+    let _ = check_expr(c: inout c, e: a.value, expected: Option.None)
   end for
   return Ty.TUnknown
 end fn check_call
@@ -2041,7 +2041,7 @@ fn builtin_call(c: inout Checker, e: Expr, name: String, a: List<Expr> where len
       want(c: inout c, x: a[1], t: inner, what: "the default")
       return inner
     case TUnknown then
-      let d = check_expr(c: inout c, e: a[1], expected: Option.None)
+      let _ = check_expr(c: inout c, e: a[1], expected: Option.None)
       return Ty.TUnknown
     else
       err(c: inout c, pos: a[0].pos, msg: "'value_or' needs an Option, not " ++ ty_show(t))

@@ -893,7 +893,7 @@ fn vstmt(v: inout Verifier, s: Stmt, st: inout St) do
     check_loop_measure(v: inout v, st: st, l: lc)
     set st = st with (dead: true)
   case ExprStmt(e: e) then
-    let t = vexpr(v: inout v, e: e, st: inout st)
+    let _ = vexpr(v: inout v, e: e, st: inout st)
     if is_noreturn_call(e) then
       set st = st with (dead: true)
     end if
@@ -1289,7 +1289,7 @@ fn vexpr(v: inout Verifier, e: Expr, st: inout St) -> String do
     add_fact(st: inout sub, f: "(<= " ++ a ++ " " ++ iv ++ ")")
     add_fact(st: inout sub, f: "(< " ++ iv ++ " " ++ b ++ ")")
     set sub = sub with (env: insert(map: sub.env, key: qn, value: VVar(term: iv, ty: Ty.TInt, preds: [])))
-    let ignored = vexpr(v: inout v, e: body, st: inout sub)
+    let _ = vexpr(v: inout v, e: body, st: inout sub)
     if not translatable(v: v, e: body) then
       return fresh(v: inout v, sort: "Bool")
     end if
@@ -1754,7 +1754,7 @@ fn discharge(pre: List<String>, vcs: List<FnVc>) -> Discharged uses proc, fs do
   let script = script_for(pre: pre, vcs: vcs, model: Option.None)
   match getenv("VOW_SMT_DUMP")
   case Some(value: path) then
-    let ok = write_file(path: path, contents: script)
+    let _ = write_file(path: path, contents: script)
   case None then
   end match
   let o = run_z3(script)

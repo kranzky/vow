@@ -79,7 +79,7 @@ end fn is_tok
 
 fn accept(p: inout Parser, text: String) -> Bool do
   if is_tok(p: p, text: text) then
-    let t = advance(inout p)
+    let _ = advance(inout p)
     return true
   end if
   return false
@@ -134,20 +134,20 @@ fn close_block(p: inout Parser, what: String, name: String, opened: Pos) do
     fail(p: inout p, d: with_note(d: diag(pos: t.pos, msg: msg), note: "found " ++ describe(t)))
     return
   end if
-  let e = advance(inout p)
+  let _ = advance(inout p)
   let k = peek(p)
   if not ((k.kind == "keyword") and (k.text == what)) then
     fail(p: inout p, d: with_note(d: diag(pos: t.pos, msg: msg), note: "found 'end " ++ k.text ++ "'"))
     return
   end if
-  let w = advance(inout p)
+  let _ = advance(inout p)
   if len(name) > 0 then
     let n = peek(p)
     if (n.kind != "ident") or (n.text != name) then
       fail(p: inout p, d: with_note(d: diag(pos: t.pos, msg: msg), note: "found 'end " ++ what ++ " " ++ n.text ++ "'"))
       return
     end if
-    let x = advance(inout p)
+    let _ = advance(inout p)
   end if
 end fn close_block
 
@@ -171,7 +171,7 @@ fn parse_file(p: inout Parser) -> Parsed do
       set items = push(list: items, item: Item.EnumItem(decl: parse_enum(inout p)))
     elif accept(p: inout p, text: "type") then
       let name = ident(p: inout p, ctx: "for the type alias")
-      let eq = expect(p: inout p, text: "=", ctx: "after the alias name")
+      let _ = expect(p: inout p, text: "=", ctx: "after the alias name")
       let ty = parse_type(inout p)
       set items = push(list: items, item: Item.AliasItem(decl: AliasDecl(name: name.text, ty: ty, pos: t.pos)))
     else
@@ -191,7 +191,7 @@ fn parse_type(p: inout Parser) -> TypeExpr do
       set args = push(list: args, item: parse_type_noref(inout p))
       set more = accept(p: inout p, text: ",")
     end while
-    let gt = expect(p: inout p, text: ">", ctx: "to close the type arguments")
+    let _ = expect(p: inout p, text: ">", ctx: "to close the type arguments")
   end if
   var refine: Option<Expr> = Option.None
   if accept(p: inout p, text: "where") then
@@ -220,7 +220,7 @@ fn parse_fields(p: inout Parser, closer: String, labels: Bool) -> List<Param> do
     else
       set name = ident(p: inout p, ctx: "for a field or parameter")
     end if
-    let colon = expect(p: inout p, text: ":", ctx: "after the field name")
+    let _ = expect(p: inout p, text: ":", ctx: "after the field name")
     let io = accept(p: inout p, text: "inout")
     let ty = parse_type(inout p)
     set fields = push(list: fields, item: Param(name: name.text, is_inout: io, ty: ty, pos: name.pos))
@@ -234,9 +234,9 @@ end fn parse_fields
 fn parse_fn(p: inout Parser) -> FnDecl do
   let start = expect(p: inout p, text: "fn", ctx: "").pos
   let name = ident(p: inout p, ctx: "for the function")
-  let lp = expect(p: inout p, text: "(", ctx: "to open the parameter list")
+  let _ = expect(p: inout p, text: "(", ctx: "to open the parameter list")
   let params = parse_fields(p: inout p, closer: ")", labels: false)
-  let rp = expect(p: inout p, text: ")", ctx: "to close the parameter list")
+  let _ = expect(p: inout p, text: ")", ctx: "to close the parameter list")
   var ret: Option<TypeExpr> = Option.None
   if accept(p: inout p, text: "->") then
     set ret = Option.Some(value: parse_type(inout p))
@@ -269,7 +269,7 @@ fn parse_fn(p: inout Parser) -> FnDecl do
       set more = false
     end if
   end while
-  let d = expect(p: inout p, text: "do", ctx: "to begin the function body")
+  let _ = expect(p: inout p, text: "do", ctx: "to begin the function body")
   let body = parse_block(inout p)
   close_block(p: inout p, what: "fn", name: name.text, opened: start)
   return FnDecl(name: name.text, params: params, ret: ret, effects: effs, pre: pre,
@@ -293,7 +293,7 @@ fn parse_enum(p: inout Parser) -> EnumDecl do
     var fields: List<Param> = []
     if accept(p: inout p, text: "(") then
       set fields = parse_fields(p: inout p, closer: ")", labels: true)
-      let rp = expect(p: inout p, text: ")", ctx: "to close the variant fields")
+      let _ = expect(p: inout p, text: ")", ctx: "to close the variant fields")
     end if
     set variants = push(list: variants, item: VariantDecl(name: v.text, fields: fields, pos: v.pos))
     if not accept(p: inout p, text: ",") then
@@ -351,7 +351,7 @@ fn parse_stmt(p: inout Parser) -> Stmt do
   case "set" then
     let k = advance(inout p)
     let name = ident(p: inout p, ctx: "after 'set'")
-    let eq = expect(p: inout p, text: "=", ctx: "in the assignment")
+    let _ = expect(p: inout p, text: "=", ctx: "in the assignment")
     return Stmt(pos: pos, kind: SK.Set(name: name.text, value: parse_expr(inout p)))
   case "return" then
     let k = advance(inout p)
@@ -370,7 +370,7 @@ fn parse_stmt(p: inout Parser) -> Stmt do
     while more do
       if accept(p: inout p, text: "elif") then
         let c2 = parse_expr(inout p)
-        let th2 = expect(p: inout p, text: "then", ctx: "after the elif condition")
+        let _ = expect(p: inout p, text: "then", ctx: "after the elif condition")
         set arms = push(list: arms, item: Arm(cond: c2, body: parse_block(inout p)))
       elif accept(p: inout p, text: "else") then
         set els = Option.Some(value: parse_block(inout p))
@@ -396,14 +396,14 @@ fn parse_stmt(p: inout Parser) -> Stmt do
   case "for" then
     let k = advance(inout p)
     let v = ident(p: inout p, ctx: "for the loop variable")
-    let i = expect(p: inout p, text: "in", ctx: "after the loop variable")
+    let _ = expect(p: inout p, text: "in", ctx: "after the loop variable")
     let first = parse_expr(inout p)
     var hi: Option<Expr> = Option.None
     if accept(p: inout p, text: "..") then
       set hi = Option.Some(value: parse_expr(inout p))
     end if
     let invs = parse_invariants(inout p)
-    let d = expect(p: inout p, text: "do", ctx: "to begin the loop body")
+    let _ = expect(p: inout p, text: "do", ctx: "to begin the loop body")
     let body = parse_block(inout p)
     close_block(p: inout p, what: "for", name: "", opened: pos)
     match hi
@@ -419,7 +419,7 @@ fn parse_stmt(p: inout Parser) -> Stmt do
     while is_tok(p: p, text: "case") do
       let cpos = advance(inout p).pos
       let pat = parse_pattern(inout p)
-      let th = expect(p: inout p, text: "then", ctx: "after the pattern")
+      let _ = expect(p: inout p, text: "then", ctx: "after the pattern")
       let body = parse_block(inout p)
       set cases = push(list: cases, item: Case(pat: pat, body: body, pos: cpos))
     end while
@@ -439,7 +439,7 @@ fn parse_stmt(p: inout Parser) -> Stmt do
     let k = advance(inout p)
     return Stmt(pos: pos, kind: SK.Break)
   case "continue" then
-    let k = advance(inout p)
+    let _ = advance(inout p)
     return Stmt(pos: pos, kind: SK.Continue)
   else
     return Stmt(pos: pos, kind: expr_stmt(inout p))
@@ -453,7 +453,7 @@ fn parse_let(p: inout Parser, mutable: Bool) -> Stmt do
   if accept(p: inout p, text: ":") then
     set ty = Option.Some(value: parse_type(inout p))
   end if
-  let eq = expect(p: inout p, text: "=", ctx: "in the binding")
+  let _ = expect(p: inout p, text: "=", ctx: "in the binding")
   let value = parse_expr(inout p)
   return Stmt(pos: pos, kind: SK.Let(name: name.text, ty: ty, value: value, mutable: mutable))
 end fn parse_let
@@ -482,7 +482,7 @@ fn parse_pattern(p: inout Parser) -> Pat do
     return Pat.PInt(value: -n.num)
   end if
   if t.kind == "str" then
-    let k = advance(inout p)
+    let _ = advance(inout p)
     return Pat.PStr(value: t.text)
   end if
   let name = ident(p: inout p, ctx: "for a pattern")
@@ -490,14 +490,14 @@ fn parse_pattern(p: inout Parser) -> Pat do
   if accept(p: inout p, text: "(") then
     while not is_tok(p: p, text: ")") do
       let f = label(p: inout p, ctx: "for a field in the pattern")
-      let colon = expect(p: inout p, text: ":", ctx: "after the field name in the pattern")
+      let _ = expect(p: inout p, text: ":", ctx: "after the field name in the pattern")
       let b = ident(p: inout p, ctx: "for the binder in the pattern")
       set binds = push(list: binds, item: Bind(field: f.text, binder: b.text))
       if not accept(p: inout p, text: ",") then
         break
       end if
     end while
-    let rp = expect(p: inout p, text: ")", ctx: "to close the pattern")
+    let _ = expect(p: inout p, text: ")", ctx: "to close the pattern")
   end if
   return Pat.PVariant(name: name.text, binds: binds)
 end fn parse_pattern
@@ -529,7 +529,7 @@ fn parse_expr(p: inout Parser) -> Expr do
         return left
       end if
     end if
-    let k = advance(inout p)
+    let _ = advance(inout p)
     let right = parse_unary(inout p)
     set left = mk(p: inout p, pos: left.pos, kind: EK.Binary(op: op, l: left, r: right))
     set first = op
@@ -540,7 +540,7 @@ end fn parse_expr
 fn parse_unary(p: inout Parser) -> Expr do
   let t = peek(p)
   if ((t.kind == "sym") and (t.text == "-")) or ((t.kind == "keyword") and (t.text == "not")) then
-    let k = advance(inout p)
+    let _ = advance(inout p)
     let e = parse_unary(inout p)
     return mk(p: inout p, pos: t.pos, kind: EK.Unary(op: t.text, x: e))
   end if
@@ -555,8 +555,8 @@ fn parse_args(p: inout Parser) -> List<Arg> do
     let named = ((t.kind == "ident") or (t.kind == "keyword")) and (nx.kind == "sym") and (nx.text == ":")
     var name = ""
     if named then
-      let a = advance(inout p)
-      let b = advance(inout p)
+      let _ = advance(inout p)
+      let _ = advance(inout p)
       set name = t.text
     end if
     let io = accept(p: inout p, text: "inout")
@@ -572,7 +572,7 @@ fn parse_args(p: inout Parser) -> List<Arg> do
       break
     end if
   end while
-  let rp = expect(p: inout p, text: ")", ctx: "to close the argument list")
+  let _ = expect(p: inout p, text: ")", ctx: "to close the argument list")
   return args
 end fn parse_args
 
@@ -584,14 +584,14 @@ fn parse_postfix(p: inout Parser) -> Expr do
       set e = mk(p: inout p, pos: e.pos, kind: EK.Call(callee: e, args: args))
     elif accept(p: inout p, text: "[") then
       let idx = parse_expr(inout p)
-      let rb = expect(p: inout p, text: "]", ctx: "to close the index")
+      let _ = expect(p: inout p, text: "]", ctx: "to close the index")
       set e = mk(p: inout p, pos: e.pos, kind: EK.Index(obj: e, idx: idx))
     elif is_tok(p: p, text: ".") and ((peek_at(p: p, k: 1).kind == "ident") or (peek_at(p: p, k: 1).kind == "keyword")) then
-      let dot = advance(inout p)
+      let _ = advance(inout p)
       let f = label(p: inout p, ctx: "after '.'")
       set e = mk(p: inout p, pos: e.pos, kind: EK.Field(obj: e, name: f.text))
     elif accept(p: inout p, text: "with") then
-      let lp = expect(p: inout p, text: "(", ctx: "after 'with'")
+      let _ = expect(p: inout p, text: "(", ctx: "after 'with'")
       let args = parse_args(inout p)
       for a in args do
         if len(a.name) == 0 then
@@ -637,7 +637,7 @@ fn parse_primary(p: inout Parser) -> Expr do
     match t.text
     case "(" then
       let e = parse_expr(inout p)
-      let rp = expect(p: inout p, text: ")", ctx: "to close the parenthesis")
+      let _ = expect(p: inout p, text: ")", ctx: "to close the parenthesis")
       return e
     case "[" then
       var items: List<Expr> = []
@@ -650,7 +650,7 @@ fn parse_primary(p: inout Parser) -> Expr do
       let rb = expect(p: inout p, text: "]", ctx: "to close the list")
       return mk(p: inout p, pos: pos, kind: EK.ListLit(items: items))
     case "{" then
-      let rb = expect(p: inout p, text: "}", ctx: "(only the empty map literal '{}' exists)")
+      let _ = expect(p: inout p, text: "}", ctx: "(only the empty map literal '{}' exists)")
       return mk(p: inout p, pos: pos, kind: EK.EmptyMap)
     else
     end match
@@ -661,11 +661,11 @@ end fn parse_primary
 
 fn parse_quant(p: inout Parser, q: String, pos: Pos) -> Expr do
   let v = ident(p: inout p, ctx: "for the quantified variable")
-  let i = expect(p: inout p, text: "in", ctx: "after the quantified variable")
+  let _ = expect(p: inout p, text: "in", ctx: "after the quantified variable")
   let lo = parse_expr(inout p)
-  let dd = expect(p: inout p, text: "..", ctx: "in the quantifier range")
+  let _ = expect(p: inout p, text: "..", ctx: "in the quantifier range")
   let hi = parse_expr(inout p)
-  let colon = expect(p: inout p, text: ":", ctx: "after the quantifier range")
+  let _ = expect(p: inout p, text: ":", ctx: "after the quantifier range")
   let body = parse_expr(inout p)
   return mk(p: inout p, pos: pos, kind: EK.Quant(q: q, name: v.text, lo: lo, hi: hi, body: body))
 end fn parse_quant
