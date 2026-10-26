@@ -80,18 +80,38 @@ compiler built by itself all emit byte-identical C.
 
 ## Getting started
 
-You need a C compiler and [Z3](https://github.com/Z3Prover/z3) (`brew install z3`,
-`apt install z3`).
+With [Homebrew](https://brew.sh) (macOS or Linux), which also installs Z3:
+
+```
+brew install kranzky/vow/vow
+```
+
+Or with the install script, which downloads a prebuilt `vowc` for macOS or Linux and
+checks its checksum:
+
+```
+curl -fsSL https://vow.kranzky.com/install.sh | sh
+```
+
+`vowc` also needs a C compiler (`cc`) and [Z3](https://github.com/Z3Prover/z3)
+(`brew install z3` or `apt install z3`). Then:
+
+```
+vowc run hello.vow        # verify, compile and run
+vowc check hello.vow      # verify only
+vowc build hello.vow -o hello
+```
+
+Commands: `check`, `build -o <exe>`, `run`, `emit-c`, `hash`, `version`. Options:
+`--json` (machine-readable diagnostics), `--no-verify`, `--no-cache`.
+
+To build from source instead, you need only a C compiler and Z3:
 
 ```
 make                                  # builds build/vowc from seed/vowc.c
-build/vowc run examples/bsearch.vow   # verify, compile and run
-build/vowc check examples/shapes.vow  # verify only
-make test                             # test suite, with both compilers
+build/vowc run examples/bsearch.vow
+make test                             # test suite (also needs Rust for the bootstrap compiler)
 ```
-
-Commands: `check`, `build -o <exe>`, `run`, `emit-c`, `hash`. Options: `--json`
-(machine-readable diagnostics), `--no-verify`, `--no-cache`.
 
 ## Documents
 

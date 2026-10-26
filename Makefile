@@ -34,7 +34,7 @@ site: build/vowsite
 	@mkdir -p public/md
 	./build/vowsite
 	cp README.md ROADMAP.md docs/*.md public/md/
-	cp site/llms.txt site/CNAME public/
+	cp site/llms.txt site/CNAME install.sh public/
 
 test-site: build/vowsite
 	@echo "== vowsite"
