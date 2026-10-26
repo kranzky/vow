@@ -1,0 +1,23 @@
+import "load.vow"
+import "check.vow"
+fn main() uses console, fs, proc do
+  let a = args()
+  if len(a) < 1 then
+    exit(2)
+  end if
+  let src = load(a[0])
+  if len(src.errs) > 0 then
+    for d in src.errs do
+      eprint(render_diag(d: d, files: src.files))
+    end for
+    exit(1)
+  end if
+  let c = check_program(src.items)
+  for d in c.errs do
+    eprint(render_diag(d: d, files: src.files))
+  end for
+  if len(c.errs) > 0 then
+    exit(1)
+  end if
+  print("ok\n")
+end fn main
