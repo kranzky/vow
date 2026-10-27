@@ -31,6 +31,9 @@ cc -O2 -o "$tmp/fasta" bench/fasta.c && "$tmp/fasta" 2000 > "$tmp/input.fa"
 build bench/binarytrees/binarytrees.vow "$tmp/bt" && check binarytrees "$tmp/bt" "" 10
 build bench/fannkuch/fannkuch.vow "$tmp/fk" && check fannkuch "$tmp/fk" "" 8
 build bench/knucleotide/knucleotide.vow "$tmp/kn" && check knucleotide "$tmp/kn" "" "$tmp/input.fa"
+build bench/nbody/nbody.vow "$tmp/nb" && check nbody "$tmp/nb" "" 1000
+build bench/spectralnorm/spectralnorm.vow "$tmp/sn" && check spectralnorm "$tmp/sn" "" 100
+build bench/mandelbrot/mandelbrot.vow "$tmp/mb" && check mandelbrot "$tmp/mb" "" 200
 build tools/vowsite/vowsite.vow "$tmp/vowsite" && pass=$((pass + 1))
 build compiler/vowc.vow "$tmp/vowc" && check "compiler compiling itself" "$tmp/vowc" "" emit-c compiler/vowc.vow --no-verify
 echo "$pass passed, $fail failed (reference counting, debug runtime)"

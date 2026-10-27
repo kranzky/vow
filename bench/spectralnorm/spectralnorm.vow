@@ -1,0 +1,56 @@
+// language: 0.8
+// spectral-norm (Computer Language Benchmarks Game): the spectral norm of an infinite
+// matrix, by the power method on its n x n top-left corner.
+
+// The matrix entry A(i, j) = 1 / ((i + j)(i + j + 1) / 2 + i + 1).
+fn eval_a(i: Int where it >= 0, j: Int where it >= 0) -> Float do
+  return 1.0 / int_to_float(((((i + j) * ((i + j) + 1)) / 2) + i) + 1)
+end fn eval_a
+
+// A v, or (with transpose) A^T v.
+fn times(v: List<Float>, transpose: Bool) -> List<Float> ensures len(result) == len(v) do
+  let n = len(v)
+  var out: List<Float> = []
+  for i in 0..n invariant len(out) == i do
+    var sum = 0.0
+    for j in 0..n do
+      if transpose then
+        set sum = sum + (eval_a(i: j, j: i) * v[j])
+      else
+        set sum = sum + (eval_a(i: i, j: j) * v[j])
+      end if
+    end for
+    set out = push(list: out, item: sum)
+  end for
+  return out
+end fn times
+
+fn times_ata(v: List<Float>) -> List<Float> ensures len(result) == len(v) do
+  return times(v: times(v: v, transpose: false), transpose: true)
+end fn times_ata
+
+fn main() uses console, proc do
+  let a = args()
+  var n = 100
+  if len(a) > 0 then
+    set n = value_or(opt: str_to_int(a[0]), default: 100)
+  end if
+  var u: List<Float> = []
+  for i in 0..n invariant len(u) == i do
+    set u = push(list: u, item: 1.0)
+  end for
+  var v: List<Float> = []
+  for k in 0..10 invariant len(v) <= len(u) do
+    set v = times_ata(u)
+    set u = times_ata(v)
+  end for
+  var vbv = 0.0
+  var vv = 0.0
+  for i in 0..len(u) do
+    if i < len(v) then
+      set vbv = vbv + (u[i] * v[i])
+      set vv = vv + (v[i] * v[i])
+    end if
+  end for
+  print(float_to_fixed(x: sqrt(vbv / vv), digits: 9) ++ "\n")
+end fn main

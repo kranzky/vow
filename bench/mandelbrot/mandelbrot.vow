@@ -1,0 +1,54 @@
+// language: 0.8
+// mandelbrot (Computer Language Benchmarks Game): the Mandelbrot set on an n x n grid,
+// written as a PBM bitmap (one bit per point, eight to a byte).
+
+fn main() uses console, proc do
+  let a = args()
+  var n = 200
+  if len(a) > 0 then
+    set n = value_or(opt: str_to_int(a[0]), default: 200)
+  end if
+  if n < 1 then
+    panic("n must be positive")
+  end if
+  let size = int_to_float(n)
+  var out = ["P4\n" ++ int_to_str(n) ++ " " ++ int_to_str(n) ++ "\n"]
+  for y in 0..n do
+    let ci = ((2.0 * int_to_float(y)) / size) - 1.0
+    var byte = 0
+    var bits = 0
+    var row: List<String> = []
+    for x in 0..n invariant (0 <= bits) and (bits < 8) do
+      let cr = ((2.0 * int_to_float(x)) / size) - 1.5
+      var zr = 0.0
+      var zi = 0.0
+      var tr = 0.0
+      var ti = 0.0
+      var i = 0
+      while (i < 50) and ((tr + ti) <= 4.0) decreases 50 - i do
+        set zi = ((2.0 * zr) * zi) + ci
+        set zr = (tr - ti) + cr
+        set tr = zr * zr
+        set ti = zi * zi
+        set i = i + 1
+      end while
+      set byte = byte * 2
+      if (tr + ti) <= 4.0 then
+        set byte = byte + 1
+      end if
+      set bits = bits + 1
+      if (bits == 8) or (x == (n - 1)) then
+        // A row's last byte is padded with zero bits.
+        for k in bits..8 do
+          set byte = byte * 2
+        end for
+        check (0 <= byte) and (byte < 256)
+        set row = push(list: row, item: char(byte))
+        set byte = 0
+        set bits = 0
+      end if
+    end for
+    set out = push(list: out, item: join(parts: row, sep: ""))
+  end for
+  print(join(parts: out, sep: ""))
+end fn main

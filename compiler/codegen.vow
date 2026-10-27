@@ -1446,6 +1446,8 @@ fn gen_builtin(g: inout Gen, e: Expr, name: String, p: List<Val>, pe: List<Expr>
     return owned_tmp(g: inout g, rhs: "vfloat_to_int(" ++ v0.c ++ ")", heap: true)
   case "float_to_str" then
     return owned_tmp(g: inout g, rhs: "vfloat_to_str(" ++ v0.c ++ ")", heap: true)
+  case "float_to_fixed" then
+    return owned_tmp(g: inout g, rhs: "vfloat_to_fixed(" ++ v0.c ++ ", " ++ v1.c ++ ")", heap: true)
   case "str_to_float" then
     return owned_tmp(g: inout g, rhs: "vstr_to_float(" ++ v0.c ++ ")", heap: true)
   case "floor" then

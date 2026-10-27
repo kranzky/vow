@@ -20,6 +20,17 @@ Floats.
   does (`0.1`, `300.0`, `1e+16`).
 - `std/json.vow` reads and writes fractional numbers (`JFloat`), and integers too large
   for an `Int`.
+- `float_to_fixed(x, digits)` writes a Float with a fixed number of decimals, as C's
+  `printf("%.*f")` does.
+- Every Float operation is rounded as written: generated C may not fuse a multiply and
+  an add, so results do not depend on the C compiler or the processor.
+- `set_at` on a list with a single owner is now an inline store; fannkuch-redux went
+  from 0.39 s to 0.24 s.
+- Benchmarks: n-body, spectral-norm and mandelbrot in Vow, C, Rust, Go, JavaScript and
+  Python (`bench/`); Vow matches C on mandelbrot and takes about 1.6 times as long on
+  the other two.
+- Fixed: `vowc fmt` did not know Float literals with exponents (it refused to format
+  such files rather than change them).
 
 ## v0.7.0
 

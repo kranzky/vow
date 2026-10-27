@@ -355,6 +355,10 @@ fn runtime_header() -> String do
     "\n" ++
     "// ---- floats: a Float is a double stored in the bits of a V ----\n" ++
     "\n" ++
+    "// Every Float operation is rounded on its own, as written: the C compiler may not fuse a\n" ++
+    "// multiply and an add (which would change results).\n" ++
+    "#pragma STDC FP_CONTRACT OFF\n" ++
+    "\n" ++
     "static inline double VD(V x) {\n" ++
     "    double d;\n" ++
     "    memcpy(&d, &x, sizeof d);\n" ++
@@ -549,6 +553,20 @@ fn runtime_header() -> String do
     "    return d;\n" ++
     "}\n" ++
     "\n" ++
+    "// x with exactly digits digits after the point (0 to 40), as C's printf(\"%.*f\") writes it.\n" ++
+    "static V vfloat_to_fixed(V x, V digits) {\n" ++
+    "    int64_t k = VI(digits);\n" ++
+    "    if (k < 0) k = 0;\n" ++
+    "    if (k > 40) k = 40;\n" ++
+    "    int n = snprintf(NULL, 0, \"%.*f\", (int)k, VD(x));\n" ++
+    "    char *buf = malloc((size_t)n + 1);\n" ++
+    "    if (!buf) vow_panic(\"out of memory\");\n" ++
+    "    snprintf(buf, (size_t)n + 1, \"%.*f\", (int)k, VD(x));\n" ++
+    "    V s = vstr_new(buf, n);\n" ++
+    "    free(buf);\n" ++
+    "    return s;\n" ++
+    "}\n" ++
+    "\n" ++
     "// The whole string must be a number (as C's strtod reads it).\n" ++
     "static V vstr_to_float(V s) {\n" ++
     "    const char *p = VS(s)->data;\n" ++
@@ -657,17 +675,11 @@ fn runtime_header() -> String do
     "}\n" ++
     "\n" ++
     "// Consumes l and x: element i replaced, in place when l and its buffer are unshared.\n" ++
-    "static V vlist_set_at_at(V l, V i, V x, VOW_AT) {\n" ++
-    "    VOW_REQUIRE(VI(i) >= 0 && VI(i) < VL(l)->len, \"set_at index out of bounds\");\n" ++
+    "// The copy, when l or its buffer is shared.\n" ++
+    "static __attribute__((noinline)) V vlist_set_at_copy(V l, V i, V x) {\n" ++
     "    VList *L = VL(l);\n" ++
     "    int heap = VH(l)->flags;\n" ++
     "    V b = L->buf;\n" ++
-    "    if (VH(l)->rc == 1 && VH(b)->rc == 1) {\n" ++
-    "        V old = VB(b)->items[VI(i)];\n" ++
-    "        VB(b)->items[VI(i)] = x;\n" ++
-    "        if (heap) vdrop(old);\n" ++
-    "        return l;\n" ++
-    "    }\n" ++
     "    int64_t n = L->len;\n" ++
     "    V nb = vbuf_new(n, heap);\n" ++
     "    memcpy(VB(nb)->items, VB(b)->items, (size_t)n * sizeof(V));\n" ++
@@ -679,6 +691,19 @@ fn runtime_header() -> String do
     "    V r = vlist_make(n, nb, heap);\n" ++
     "    vdrop(l);\n" ++
     "    return r;\n" ++
+    "}\n" ++
+    "\n" ++
+    "// Inline, since in a loop over a list with one owner it is just a store.\n" ++
+    "static inline V vlist_set_at_at(V l, V i, V x, VOW_AT) {\n" ++
+    "    VOW_REQUIRE(VI(i) >= 0 && VI(i) < VL(l)->len, \"set_at index out of bounds\");\n" ++
+    "    V b = VL(l)->buf;\n" ++
+    "    if (VH(l)->rc == 1 && VH(b)->rc == 1) {\n" ++
+    "        V old = VB(b)->items[VI(i)];\n" ++
+    "        VB(b)->items[VI(i)] = x;\n" ++
+    "        if (VH(l)->flags) vdrop(old);\n" ++
+    "        return l;\n" ++
+    "    }\n" ++
+    "    return vlist_set_at_copy(l, i, x);\n" ++
     "}\n" ++
     "\n" ++
     "#define vlist_set_at(l, i, x) vlist_set_at_at((l), (i), (x), __FILE__, __LINE__)\n" ++

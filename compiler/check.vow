@@ -230,6 +230,8 @@ fn builtin_params(name: String) -> Option<List<String>> do
     return Option.Some(value: ["n"])
   case "str_to_float" then
     return Option.Some(value: ["s"])
+  case "float_to_fixed" then
+    return Option.Some(value: ["x", "digits"])
   else
     if contains_str(xs: float_unary_builtins(), x: name) then
       return Option.Some(value: ["x"])
@@ -3480,6 +3482,13 @@ fn builtin_call(c: inout Checker, e: Expr, name: String, a: List<Expr> where len
     return Ty.TOpt(inner: Ty.TInt)
   case "float_to_str" then
     want(c: inout c, x: a[0], t: Ty.TFloat, what: "the argument")
+    return Ty.TStr
+  case "float_to_fixed" then
+    if len(a) < 2 then
+      return Ty.TUnknown
+    end if
+    want(c: inout c, x: a[0], t: Ty.TFloat, what: "the number")
+    want(c: inout c, x: a[1], t: Ty.TInt, what: "the number of digits")
     return Ty.TStr
   case "is_nan" then
     want(c: inout c, x: a[0], t: Ty.TFloat, what: "the argument")

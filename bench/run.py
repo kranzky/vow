@@ -15,6 +15,9 @@ BENCHMARKS = [
     ("binarytrees", ["18"], "allocation and recursion"),
     ("fannkuch", ["10"], "integer arrays and permutations"),
     ("knucleotide", [os.path.join(BUILD, "knucleotide-input.fa")], "strings and hash maps"),
+    ("nbody", ["5000000"], "floating-point physics"),
+    ("spectralnorm", ["2000"], "floating-point loops"),
+    ("mandelbrot", ["2000"], "floating-point and binary output"),
 ]
 LANGS = ["Vow", "C", "Rust", "Go", "JavaScript", "Python"]
 

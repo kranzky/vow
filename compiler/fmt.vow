@@ -51,6 +51,17 @@ fn raw_tokens(line: String) -> List<RawTok> do
       set kind = "word"
       if is_digit(c) then
         set kind = "num"
+        // A Float literal continues: '.', digits, and an exponent with its sign.
+        if ((j + 1) < n) and (line[j] == '.') and is_digit(line[j + 1]) then
+          set j = j + 1
+          while (j < n) and is_alnum(line[j]) invariant (i < j) and (j <= n) decreases n - j do
+            if ((line[j] == 'e') or (line[j] == 'E')) and ((j + 1) < n) and ((line[j + 1] == '+') or (line[j + 1] == '-')) then
+              set j = j + 2
+            else
+              set j = j + 1
+            end if
+          end while
+        end if
       elif contains_str(xs: kws, x: slice(of: line, from: i, to: j)) then
         set kind = "kw"
       end if

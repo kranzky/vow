@@ -38,6 +38,7 @@ end match
   assert len(xs)==3
   assert forall i in 0 .. len(xs) : xs[i] >= 1
   let neg = - xs [ 0 ]
+  let big =  6.02e+23*2.5e-1
   print(int_to_str(neg) ++ "\n")
 end fn main
 

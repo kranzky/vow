@@ -144,7 +144,8 @@ end fn main
 
 Built-ins: `len push slice join int_to_str str_to_int char insert lookup has keys hash
 panic print eprint read_line read_bytes read_file write_file args getenv run exit
-int_to_float float_to_int float_to_str str_to_float floor ceil round sqrt abs_float is_nan`. Signatures are in the
+int_to_float float_to_int float_to_str float_to_fixed str_to_float floor ceil round sqrt abs_float
+is_nan`. Signatures are in the
 spec. `print` adds no newline.
 
 ### The standard library

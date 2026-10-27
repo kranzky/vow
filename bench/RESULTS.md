@@ -10,31 +10,64 @@ Best of 3 wall-clock runs; memory is the peak memory footprint (including compre
 
 | Language | Time | Relative to C | Memory |
 |---|---|---|---|
-| Vow | 0.96 s | 0.8x | 49 MB |
-| C | 1.15 s | 1.0x | 17 MB |
-| Rust | 1.23 s | 1.1x | 17 MB |
-| Go | 1.62 s | 1.4x | 37 MB |
-| JavaScript | 0.62 s | 0.5x | 427 MB |
-| Python | 5.67 s | 4.9x | 38 MB |
+| Vow | 0.95 s | 0.8x | 49 MB |
+| C | 1.13 s | 1.0x | 17 MB |
+| Rust | 1.20 s | 1.1x | 17 MB |
+| Go | 1.56 s | 1.4x | 43 MB |
+| JavaScript | 0.60 s | 0.5x | 431 MB |
+| Python | 5.53 s | 4.9x | 38 MB |
 
 ## fannkuch (integer arrays and permutations, input 10)
 
 | Language | Time | Relative to C | Memory |
 |---|---|---|---|
-| Vow | 0.39 s | 2.2x | 1 MB |
+| Vow | 0.24 s | 1.4x | 1 MB |
 | C | 0.18 s | 1.0x | 1 MB |
 | Rust | 0.19 s | 1.1x | 1 MB |
-| Go | 0.18 s | 1.0x | 3 MB |
-| JavaScript | 0.24 s | 1.3x | 13 MB |
-| Python | 4.54 s | 25.2x | 6 MB |
+| Go | 0.17 s | 1.0x | 2 MB |
+| JavaScript | 0.23 s | 1.3x | 13 MB |
+| Python | 4.45 s | 25.2x | 6 MB |
 
 ## knucleotide (strings and hash maps, input knucleotide-input.fa)
 
 | Language | Time | Relative to C | Memory |
 |---|---|---|---|
-| Vow | 0.21 s | 3.2x | 26 MB |
-| C | 0.07 s | 1.0x | 22 MB |
-| Rust | 0.11 s | 1.7x | 16 MB |
-| Go | 0.12 s | 1.8x | 31 MB |
-| JavaScript | 0.34 s | 5.1x | 69 MB |
-| Python | 0.53 s | 8.0x | 25 MB |
+| Vow | 0.17 s | 3.0x | 25 MB |
+| C | 0.06 s | 1.0x | 18 MB |
+| Rust | 0.10 s | 1.7x | 15 MB |
+| Go | 0.11 s | 1.9x | 31 MB |
+| JavaScript | 0.31 s | 5.3x | 69 MB |
+| Python | 0.50 s | 8.6x | 23 MB |
+
+## nbody (floating-point physics, input 5000000)
+
+| Language | Time | Relative to C | Memory |
+|---|---|---|---|
+| Vow | 0.44 s | 1.7x | 1 MB |
+| C | 0.27 s | 1.0x | 1 MB |
+| Rust | 0.15 s | 0.6x | 1 MB |
+| Go | 0.25 s | 0.9x | 2 MB |
+| JavaScript | 0.37 s | 1.4x | 15 MB |
+| Python | 22.62 s | 84.3x | 6 MB |
+
+## spectralnorm (floating-point loops, input 2000)
+
+| Language | Time | Relative to C | Memory |
+|---|---|---|---|
+| Vow | 0.25 s | 1.6x | 1 MB |
+| C | 0.16 s | 1.0x | 1 MB |
+| Rust | 0.16 s | 1.0x | 1 MB |
+| Go | 0.16 s | 1.0x | 3 MB |
+| JavaScript | 0.39 s | 2.5x | 15 MB |
+| Python | 20.59 s | 132.1x | 6 MB |
+
+## mandelbrot (floating-point and binary output, input 2000)
+
+| Language | Time | Relative to C | Memory |
+|---|---|---|---|
+| Vow | 0.25 s | 1.0x | 2 MB |
+| C | 0.25 s | 1.0x | 1 MB |
+| Rust | 0.24 s | 1.0x | 2 MB |
+| Go | 0.24 s | 1.0x | 2 MB |
+| JavaScript | 0.27 s | 1.1x | 15 MB |
+| Python | 25.57 s | 104.2x | 6 MB |

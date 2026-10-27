@@ -1,0 +1,153 @@
+// language: 0.8
+// n-body (Computer Language Benchmarks Game): the Jovian planets, integrated with a
+// symplectic Euler step. Positions and velocities are lists of Float updated in place
+// with set_at (each list has one owner, so nothing is copied).
+
+struct System
+  x: List<Float>,
+  y: List<Float>,
+  z: List<Float>,
+  vx: List<Float>,
+  vy: List<Float>,
+  vz: List<Float>,
+  mass: List<Float>,
+end struct System
+
+fn pi() -> Float do
+  return 3.141592653589793
+end fn pi
+
+fn solar_mass() -> Float do
+  return (4.0 * pi()) * pi()
+end fn solar_mass
+
+fn days_per_year() -> Float do
+  return 365.24
+end fn days_per_year
+
+// A body's velocity is given in units per day, its mass in solar masses.
+fn add_body(s: inout System, x: Float, y: Float, z: Float, vx: Float, vy: Float, vz: Float, m: Float) do
+  let d = days_per_year()
+  set s = System(x: push(list: s.x, item: x), y: push(list: s.y, item: y), z: push(list: s.z, item: z),
+    vx: push(list: s.vx, item: vx * d), vy: push(list: s.vy, item: vy * d), vz: push(list: s.vz, item: vz * d),
+    mass: push(list: s.mass, item: m * solar_mass()))
+end fn add_body
+
+fn bodies() -> System do
+  var s = System(x: [], y: [], z: [], vx: [], vy: [], vz: [], mass: [])
+  // The sun, then Jupiter, Saturn, Uranus and Neptune.
+  add_body(s: inout s, x: 0.0, y: 0.0, z: 0.0, vx: 0.0, vy: 0.0, vz: 0.0, m: 1.0)
+  add_body(s: inout s, x: 4.84143144246472090e+00, y: -1.16032004402742839e+00, z: -1.03622044471123109e-01,
+    vx: 1.66007664274403694e-03, vy: 7.69901118419740425e-03, vz: -6.90460016972063023e-05,
+    m: 9.54791938424326609e-04)
+  add_body(s: inout s, x: 8.34336671824457987e+00, y: 4.12479856412430479e+00, z: -4.03523417114321381e-01,
+    vx: -2.76742510726862411e-03, vy: 4.99852801234917238e-03, vz: 2.30417297573763929e-05,
+    m: 2.85885980666130812e-04)
+  add_body(s: inout s, x: 1.28943695621391310e+01, y: -1.51111514016986312e+01, z: -2.23307578892655734e-01,
+    vx: 2.96460137564761618e-03, vy: 2.37847173959480950e-03, vz: -2.96589568540237556e-05,
+    m: 4.36624404335156298e-05)
+  add_body(s: inout s, x: 1.53796971148509165e+01, y: -2.59193146099879641e+01, z: 1.79258772950371181e-01,
+    vx: 2.68067772490389322e-03, vy: 1.62824170038242295e-03, vz: -9.51592254519715870e-05,
+    m: 5.15138902046611451e-05)
+  return s
+end fn bodies
+
+fn well_formed(s: System) -> Bool do
+  let n = len(s.mass)
+  return (len(s.x) == n) and (len(s.y) == n) and (len(s.z) == n) and (len(s.vx) == n) and (len(s.vy) == n) and (len(s.vz) == n)
+end fn well_formed
+
+// Gives the system zero total momentum by adjusting the sun's velocity.
+fn offset_momentum(s: inout System) requires well_formed(s) requires len(s.mass) > 0 ensures well_formed(s) do
+  var px = 0.0
+  var py = 0.0
+  var pz = 0.0
+  for i in 0..len(s.mass) do
+    set px = px + (s.vx[i] * s.mass[i])
+    set py = py + (s.vy[i] * s.mass[i])
+    set pz = pz + (s.vz[i] * s.mass[i])
+  end for
+  let m = solar_mass()
+  set s = s with (vx: set_at(list: s.vx, at: 0, value: -(px / m)), vy: set_at(list: s.vy, at: 0, value: -(py / m)),
+    vz: set_at(list: s.vz, at: 0, value: -(pz / m)))
+end fn offset_momentum
+
+fn energy(s: System) -> Float requires well_formed(s) do
+  var e = 0.0
+  let n = len(s.mass)
+  for i in 0..n do
+    let v2 = ((s.vx[i] * s.vx[i]) + (s.vy[i] * s.vy[i])) + (s.vz[i] * s.vz[i])
+    set e = e + ((0.5 * s.mass[i]) * v2)
+    for j in (i + 1)..n do
+      let dx = s.x[i] - s.x[j]
+      let dy = s.y[i] - s.y[j]
+      let dz = s.z[i] - s.z[j]
+      let d = sqrt(((dx * dx) + (dy * dy)) + (dz * dz))
+      set e = e - ((s.mass[i] * s.mass[j]) / d)
+    end for
+  end for
+  return e
+end fn energy
+
+// One step of dt: velocities from the pairwise forces, then positions. The lists are
+// inout parameters, each with a single owner, so set_at updates them in place.
+fn advance(x: inout List<Float>, y: inout List<Float>, z: inout List<Float>, vx: inout List<Float>,
+    vy: inout List<Float>, vz: inout List<Float>, mass: List<Float>, dt: Float)
+  requires (len(x) == len(mass)) and (len(y) == len(mass)) and (len(z) == len(mass))
+  requires (len(vx) == len(mass)) and (len(vy) == len(mass)) and (len(vz) == len(mass))
+  ensures (len(x) == len(mass)) and (len(y) == len(mass)) and (len(z) == len(mass))
+  ensures (len(vx) == len(mass)) and (len(vy) == len(mass)) and (len(vz) == len(mass))
+do
+  let n = len(mass)
+  for i in 0..n invariant (len(vx) == n) and (len(vy) == n) and (len(vz) == n) do
+    for j in (i + 1)..n invariant (len(vx) == n) and (len(vy) == n) and (len(vz) == n) do
+      let dx = x[i] - x[j]
+      let dy = y[i] - y[j]
+      let dz = z[i] - z[j]
+      let d2 = ((dx * dx) + (dy * dy)) + (dz * dz)
+      let mag = dt / (d2 * sqrt(d2))
+      let mi = mass[i] * mag
+      let mj = mass[j] * mag
+      set vx = set_at(list: vx, at: i, value: vx[i] - (dx * mj))
+      set vy = set_at(list: vy, at: i, value: vy[i] - (dy * mj))
+      set vz = set_at(list: vz, at: i, value: vz[i] - (dz * mj))
+      set vx = set_at(list: vx, at: j, value: vx[j] + (dx * mi))
+      set vy = set_at(list: vy, at: j, value: vy[j] + (dy * mi))
+      set vz = set_at(list: vz, at: j, value: vz[j] + (dz * mi))
+    end for
+  end for
+  for i in 0..n invariant (len(x) == n) and (len(y) == n) and (len(z) == n) do
+    set x = set_at(list: x, at: i, value: x[i] + (dt * vx[i]))
+    set y = set_at(list: y, at: i, value: y[i] + (dt * vy[i]))
+    set z = set_at(list: z, at: i, value: z[i] + (dt * vz[i]))
+  end for
+end fn advance
+
+fn main() uses console, proc do
+  let a = args()
+  var steps = 1000
+  if len(a) > 0 then
+    set steps = value_or(opt: str_to_int(a[0]), default: 1000)
+  end if
+  var s = bodies()
+  check well_formed(s) and (len(s.mass) > 0)
+  offset_momentum(inout s)
+  print(float_to_fixed(x: energy(s), digits: 9) ++ "\n")
+  // The simulation runs on the lists themselves, each with one owner.
+  var x = s.x
+  var y = s.y
+  var z = s.z
+  var vx = s.vx
+  var vy = s.vy
+  var vz = s.vz
+  let mass = s.mass
+  set s = System(x: [], y: [], z: [], vx: [], vy: [], vz: [], mass: [])
+  for k in 0..steps
+    invariant (len(x) == len(mass)) and (len(y) == len(mass)) and (len(z) == len(mass))
+    invariant (len(vx) == len(mass)) and (len(vy) == len(mass)) and (len(vz) == len(mass))
+  do
+    advance(x: inout x, y: inout y, z: inout z, vx: inout vx, vy: inout vy, vz: inout vz, mass: mass, dt: 0.01)
+  end for
+  let final = System(x: x, y: y, z: z, vx: vx, vy: vy, vz: vz, mass: mass)
+  print(float_to_fixed(x: energy(final), digits: 9) ++ "\n")
+end fn main

@@ -357,6 +357,7 @@ SMT-LIB. The divisor must be provably non-zero.
 | `print(s)`, `eprint(s)` | `uses console`; no newline is added |
 | `int_to_float(n) -> Float` | exact for magnitudes up to 2^53 |
 | `float_to_int(x) -> Option<Int>` | rounded toward zero; `None` for NaN or outside the `Int` range |
+| `float_to_fixed(x: x, digits: d) -> String` | `x` with exactly `d` decimals (0 to 40), as C's `printf("%.*f")` writes it |
 | `float_to_str(x) -> String` | the shortest text that reads back as `x`, as Python prints it (`0.1`, `300.0`, `1e+16`, `nan`, `inf`) |
 | `str_to_float(s) -> Option<Float>` | the whole string must be a number |
 | `floor(x)`, `ceil(x)`, `round(x)`, `sqrt(x)`, `abs_float(x)` | `Float -> Float`; `round` rounds halves away from zero |

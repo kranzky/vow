@@ -106,7 +106,7 @@ end to end. CompCert, a C compiler proved correct in Coq, is in a different leag
 
 ## Performance
 
-We timed three programs from the
+We timed six programs from the
 [Computer Language Benchmarks Game](https://benchmarksgame-team.pages.debian.net/benchmarksgame/),
 written as the same straightforward, single-threaded algorithm in every language (the
 Game's fastest entries use SIMD and multiple threads, which would measure tuning rather
@@ -115,9 +115,12 @@ on an Apple M1 Pro; memory is the peak footprint.
 
 | Benchmark | Vow | C | Rust | Go | JavaScript | Python |
 |---|---|---|---|---|---|---|
-| binary-trees, depth 18 (allocation) | **0.96 s**, 49 MB | 1.15 s, 17 MB | 1.23 s, 17 MB | 1.62 s, 37 MB | 0.62 s, 427 MB | 5.67 s, 38 MB |
-| fannkuch-redux, n = 10 (array updates) | 0.39 s, 1 MB | 0.18 s, 1 MB | 0.19 s, 1 MB | 0.18 s, 3 MB | 0.24 s, 13 MB | 4.54 s, 6 MB |
-| k-nucleotide, 500k bases (hash maps) | 0.21 s, 26 MB | 0.07 s, 22 MB | 0.11 s, 16 MB | 0.12 s, 31 MB | 0.34 s, 69 MB | 0.53 s, 25 MB |
+| binary-trees, depth 18 (allocation) | **0.95 s**, 49 MB | 1.13 s, 17 MB | 1.20 s, 17 MB | 1.57 s, 43 MB | 0.60 s, 431 MB | 5.53 s, 38 MB |
+| fannkuch-redux, n = 10 (array updates) | 0.24 s, 1 MB | 0.18 s, 1 MB | 0.19 s, 1 MB | 0.17 s, 2 MB | 0.23 s, 13 MB | 4.45 s, 6 MB |
+| k-nucleotide, 500k bases (hash maps) | 0.18 s, 25 MB | 0.06 s, 18 MB | 0.10 s, 15 MB | 0.11 s, 31 MB | 0.31 s, 69 MB | 0.50 s, 23 MB |
+| n-body, 5M steps (floating point) | 0.45 s, 1 MB | 0.27 s, 1 MB | 0.15 s, 1 MB | 0.25 s, 2 MB | 0.37 s, 15 MB | 22.6 s, 6 MB |
+| spectral-norm, n = 2000 (floating-point loops) | 0.25 s, 1 MB | 0.16 s, 1 MB | 0.16 s, 1 MB | 0.16 s, 3 MB | 0.39 s, 15 MB | 20.6 s, 6 MB |
+| mandelbrot, 2000 x 2000 (floating point, binary output) | **0.25 s**, 2 MB | 0.25 s, 1 MB | 0.24 s, 2 MB | 0.24 s, 2 MB | 0.27 s, 15 MB | 25.6 s, 6 MB |
 
 Full results, toolchain versions and the programs are in
 [the benchmark results](../bench/RESULTS.md); `bench/run.py` reproduces them.
@@ -129,15 +132,20 @@ What the numbers say:
 - **Updates happen in place when nothing else can see them.** Vow values are
   immutable, but when a list or struct has only one reference, `set_at`, `push`,
   `with` and `insert` change it in place, and nobody can observe the difference.
-  fannkuch-redux, which swaps elements millions of times, runs about twice as long as C.
+  fannkuch-redux, which swaps elements millions of times, runs about 1.4 times as long
+  as C.
 - **Allocation is fast.** binary-trees, which allocates and frees millions of small
   objects, runs faster than C's `malloc`/`free`, thanks to a size-class allocator.
 - **Hash maps are competitive.** k-nucleotide, which counts substrings in a
-  `HashMap`, runs about three times as long as C and faster than JavaScript and
+  `HashMap`, runs about three times as long as C, and faster than JavaScript and
   Python. The ordered `Map`, a persistent tree with cheap snapshots, took 1.04 s.
 - **Proofs remove bounds checks**, so verified indexing costs nothing at runtime.
-- **Floating-point benchmarks are not measured yet:** `Float` arrived in v0.8; n-body,
-  spectral-norm and mandelbrot are next.
+- **Floating-point code runs close to C.** A `Float` is an unboxed double, and its
+  arithmetic compiles to plain C operations: mandelbrot matches C, and spectral-norm
+  and n-body take about 1.6 times as long (n-body updates its lists through `set_at`,
+  which checks it holds the only reference before writing). The verifier's view of
+  floats costs nothing at runtime, and every Float operation is rounded as written
+  (no fused multiply-add), so results are the same on every platform.
 
 The in-place updates follow the approach of Koka's Perceus, Lean 4 and Swift's
 copy-on-write. Before them (Vow 0.1, which never freed memory), fannkuch-redux took

@@ -352,6 +352,10 @@ static inline V vmod_at(V a, V b, VOW_AT) {
 
 // ---- floats: a Float is a double stored in the bits of a V ----
 
+// Every Float operation is rounded on its own, as written: the C compiler may not fuse a
+// multiply and an add (which would change results).
+#pragma STDC FP_CONTRACT OFF
+
 static inline double VD(V x) {
     double d;
     memcpy(&d, &x, sizeof d);
@@ -546,6 +550,20 @@ static V vvalue_or(V o, V d, int heap) {
     return d;
 }
 
+// x with exactly digits digits after the point (0 to 40), as C's printf("%.*f") writes it.
+static V vfloat_to_fixed(V x, V digits) {
+    int64_t k = VI(digits);
+    if (k < 0) k = 0;
+    if (k > 40) k = 40;
+    int n = snprintf(NULL, 0, "%.*f", (int)k, VD(x));
+    char *buf = malloc((size_t)n + 1);
+    if (!buf) vow_panic("out of memory");
+    snprintf(buf, (size_t)n + 1, "%.*f", (int)k, VD(x));
+    V s = vstr_new(buf, n);
+    free(buf);
+    return s;
+}
+
 // The whole string must be a number (as C's strtod reads it).
 static V vstr_to_float(V s) {
     const char *p = VS(s)->data;
@@ -654,17 +672,11 @@ static V vlist_push(V l, V x) {
 }
 
 // Consumes l and x: element i replaced, in place when l and its buffer are unshared.
-static V vlist_set_at_at(V l, V i, V x, VOW_AT) {
-    VOW_REQUIRE(VI(i) >= 0 && VI(i) < VL(l)->len, "set_at index out of bounds");
+// The copy, when l or its buffer is shared.
+static __attribute__((noinline)) V vlist_set_at_copy(V l, V i, V x) {
     VList *L = VL(l);
     int heap = VH(l)->flags;
     V b = L->buf;
-    if (VH(l)->rc == 1 && VH(b)->rc == 1) {
-        V old = VB(b)->items[VI(i)];
-        VB(b)->items[VI(i)] = x;
-        if (heap) vdrop(old);
-        return l;
-    }
     int64_t n = L->len;
     V nb = vbuf_new(n, heap);
     memcpy(VB(nb)->items, VB(b)->items, (size_t)n * sizeof(V));
@@ -676,6 +688,19 @@ static V vlist_set_at_at(V l, V i, V x, VOW_AT) {
     V r = vlist_make(n, nb, heap);
     vdrop(l);
     return r;
+}
+
+// Inline, since in a loop over a list with one owner it is just a store.
+static inline V vlist_set_at_at(V l, V i, V x, VOW_AT) {
+    VOW_REQUIRE(VI(i) >= 0 && VI(i) < VL(l)->len, "set_at index out of bounds");
+    V b = VL(l)->buf;
+    if (VH(l)->rc == 1 && VH(b)->rc == 1) {
+        V old = VB(b)->items[VI(i)];
+        VB(b)->items[VI(i)] = x;
+        if (VH(l)->flags) vdrop(old);
+        return l;
+    }
+    return vlist_set_at_copy(l, i, x);
 }
 
 #define vlist_set_at(l, i, x) vlist_set_at_at((l), (i), (x), __FILE__, __LINE__)
