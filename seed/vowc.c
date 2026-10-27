@@ -428,7 +428,7 @@ static V f_runtime_header(void);
 int main(int argc, char **argv) {
     vow_argc = argc;
     vow_argv = argv;
-    vow_s[0] = vow_immortal(vstr_new("0.6.0", 5));
+    vow_s[0] = vow_immortal(vstr_new("0.7.0", 5));
     vow_s[1] = vow_immortal(vstr_new("usage: vowc <command> <file.vow> [options]\012\012", 44));
     vow_s[2] = vow_immortal(vstr_new("New to Vow\? Read the guide for LLMs before writing any code:\012", 61));
     vow_s[3] = vow_immortal(vstr_new("  https://vow.kranzky.com/llms.html (Markdown: https://vow.kranzky.com/md/VOW_FOR_LLMS.md)\012\012", 92));

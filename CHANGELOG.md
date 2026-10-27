@@ -1,6 +1,8 @@
 # Changelog
 
-## v0.7.0 (unreleased)
+## v0.7.0
+
+Tooling: a formatter, a test runner and a language server; JSON; a pinned Z3.
 
 - `vow-lsp`, a language server (built from `tools/lsp/vowlsp.vow`, shipped in the release
   archives): type and effect errors as you edit, failed proofs and holes when a file is
