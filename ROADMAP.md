@@ -50,6 +50,11 @@ Must-have, language and proofs:
 - [x] `Result<T, E>` and `try` (also for `Option`)
 - [x] Structural `==` for structs, enums, lists and options, and on type parameters
 - [ ] Modules with visibility, then packages
+- [ ] Field refinements assumed inside specifications (today they are assumed only
+      when code reads a field, not in `assert`, `ensures` and the like)
+- [ ] Generic functions usable in specifications
+- [ ] Contracts that can describe what is inside a `Result` or an `Option` (today the
+      workaround is a wrapper struct with a refined field)
 
 Must-have, runtime and portability:
 - [x] Memory reclamation: reference counting, with in-place updates of uniquely
@@ -70,6 +75,10 @@ Release criteria:
       each judged by one shared test suite and profiled the same way; compare
       correctness (tests passed, defects found later), effort (turns, tokens, wall
       time, failed compiles and proofs) and performance (time and memory)
+
+- [ ] Stability promise: the spec frozen for 1.x, a versioning and compatibility
+      policy, and a decision on whether the frozen Rust bootstrap stays in the test
+      suite permanently
 
 Process:
 - [x] The Rust bootstrap compiler is frozen at the v0.3 language. It still runs every
