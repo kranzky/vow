@@ -57,6 +57,13 @@ Must-have, language and proofs:
 - [ ] Generic functions usable in specifications
 - [ ] Contracts that can describe what is inside a `Result` or an `Option` (today the
       workaround is a wrapper struct with a refined field)
+- [ ] Lexicographic measures (`decreases (a, b)`), for recursion that one Int or
+      structural measure cannot order: a rose tree walked through a helper over its
+      children, or mutual recursion mixing a list index and a tree
+- [ ] Field refinements of list elements in specifications (`xs[i].count` inside a
+      `forall`); values reached by name are covered
+- [ ] A rule for bumping the verifier version (part of every cache key) whenever the
+      encoding changes what can be proved
 
 Must-have, runtime and portability:
 - [x] Memory reclamation: reference counting, with in-place updates of uniquely
@@ -74,9 +81,9 @@ Must-have, tooling:
 - [ ] Verifier performance (incremental solving), pinned Z3 version
 
 Release criteria:
-- [ ] Agent benchmark for 1.0: Astra builds the same project in Python, Rust and Vow,
-      each judged by one shared test suite and profiled the same way; compare
-      correctness (tests passed, defects found later), effort (turns, tokens, wall
+- [ ] Agent benchmark for 1.0: Astra (OpenAI's most capable coding model) builds the
+      same project in Python, Rust and Vow, each judged by one shared test suite and
+      profiled the same way; compare correctness (tests passed, defects found later), effort (turns, tokens, wall
       time, failed compiles and proofs) and performance (time and memory)
 
 - [ ] Stability promise: the spec frozen for 1.x, a versioning and compatibility
