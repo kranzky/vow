@@ -1,0 +1,12 @@
+// language: 0.7
+// A small library for tests/vtest/clamp_test.vow.
+
+fn clamp(x: Int, lo: Int, hi: Int) -> Int requires lo <= hi ensures (lo <= result) and (result <= hi) do
+  if x < lo then
+    return lo
+  end if
+  if x > hi then
+    return hi
+  end if
+  return x
+end fn clamp

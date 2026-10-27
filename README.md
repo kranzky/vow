@@ -107,7 +107,8 @@ vowc check hello.vow      # verify only
 vowc build hello.vow -o hello
 ```
 
-Commands: `check`, `build -o <exe>`, `run`, `fmt`, `emit-c`, `hash`, `version`, `help`.
+Commands: `check`, `build -o <exe>`, `run`, `test`, `fmt`, `emit-c`, `hash`, `version`,
+`help`.
 Options: `--json` (machine-readable diagnostics), `--no-verify`, `--no-cache`,
 `--totality` (with `check`), `--check` (with `fmt`).
 

@@ -2,6 +2,11 @@
 
 ## v0.7.0 (unreleased)
 
+- `vowc test file.vow` verifies the program, then runs each function named `test_...`
+  in the file, each in its own process: a failed `check` or a panic fails only that
+  test, and its output (with the panic's source line) is shown. A file of tests needs
+  no `main`; `--json` prints one object per test.
+
 - `vowc fmt file.vow` rewrites a file in the canonical layout. It changes only
   whitespace and writes nothing unless the result has the same tokens and comments;
   `--check` only reports. Every Vow file in the repository is formatted, and the tests

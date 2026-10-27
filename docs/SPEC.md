@@ -449,6 +449,16 @@ For each function the compiler computes:
 Verified keys are stored in `<file>.vowcache`. Unchanged functions are not re-verified.
 `vowc hash file.vow` prints each function's hashes.
 
+## Testing
+
+`vowc test file.vow` checks and verifies the program, then runs each test: a function in
+that file (not in the files it imports) whose name starts with `test_`, which must take
+no parameters and return nothing. Each test runs in its own process, so a failed
+`check` or a panic fails only that test; the report shows the output of each failing
+test, including its panic message, and the command exits with status 1 if any failed.
+A file of tests needs no `main`. `--json` prints one object per test
+(`{"kind":"test","name":...,"status":"pass"|"fail","output":...}`).
+
 ## Formatting
 
 `vowc fmt file.vow` rewrites a file in the canonical layout, changing only whitespace:

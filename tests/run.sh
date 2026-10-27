@@ -3,7 +3,8 @@
 # that every tests/fail/*.vow is rejected with the message in its first line
 # ("// error: <text>"); compares `check --totality` on tests/total/*.vow with the
 # matching .out file; and checks that each tests/panic/*.vow program, built (with the
-# flags on its "// vowflags:" line) and run, panics with the message in its .err file.
+# flags on its "// vowflags:" line) and run, panics with the message in its .err file;
+# then vowc test, vowc fmt, and the pinned Z3 version.
 cd "$(dirname "$0")" || exit 1
 VOWC=${VOWC:-"$(pwd)/../bootstrap/target/debug/vowc"}
 pass=0
@@ -79,6 +80,17 @@ for f in ../examples/*.vow; do
     echo "$got" | head -10
   fi
 done
+# vowc test (not in the frozen bootstrap compiler): its report on each tests/vtest/*_test.vow.
+if [ -z "$VOW_FROZEN" ]; then
+  for f in vtest/*_test.vow; do
+    got=$("$VOWC" test "$f" 2>&1)
+    if [ "$got" = "$(cat "${f%.vow}.out")" ]; then
+      pass=$((pass + 1))
+    else
+      fail=$((fail + 1)); echo "FAIL $f"; echo "$got" | diff "${f%.vow}.out" - | head -10
+    fi
+  done
+fi
 # vowc fmt (not in the frozen bootstrap compiler): the messy input formats to the
 # expected layout, which is already formatted, and every Vow file in the repository is.
 if [ -z "$VOW_FROZEN" ]; then

@@ -23,6 +23,8 @@ fn usage() -> String do
     "  run     build and run (remaining arguments after -- go to the program)\n" ++
     "  emit-c  print the generated C\n" ++
     "  hash    print each function's body hash and verification key\n" ++
+    "  test    check, verify, then run each test_... function in the file, each in its\n" ++
+    "          own process (a failed check or panic fails only that test)\n" ++
     "  fmt     rewrite the file in the canonical layout (--check: only report)\n" ++
     "  version print the compiler version (no file needed)\n" ++
     "  help    print this message\n\n" ++
@@ -150,6 +152,86 @@ fn format_file(file: String, only_report: Bool, json: Bool) uses console, fs, pr
     print(file ++ ": formatted\n")
   end match
 end fn format_file
+
+// ---- vowc test ----
+
+// The test functions of the file named on the command line (not of the files it
+// imports): those whose names start with 'test_'.
+fn test_names(items: List<Item>) -> List<String> do
+  var out: List<String> = []
+  for item in items do
+    match item
+    case FnItem(decl: f) then
+      if starts_with(s: f.name, p: "test_") and (f.pos.file == 0) then
+        set out = push(list: out, item: f.name)
+      end if
+    else
+    end match
+  end for
+  return out
+end fn test_names
+
+fn test_shape_errors(items: List<Item>) -> List<Diag> do
+  var out: List<Diag> = []
+  for item in items do
+    match item
+    case FnItem(decl: f) then
+      if starts_with(s: f.name, p: "test_") and (f.pos.file == 0) then
+        if (len(f.params) > 0) or is_some(f.ret) or (len(f.tparams) > 0) then
+          let msg = "test function '" ++ f.name ++ "' must take no parameters and return nothing"
+          set out = push(list: out, item: diag(pos: f.pos, msg: msg))
+        end if
+      end if
+    else
+    end match
+  end for
+  return out
+end fn test_shape_errors
+
+// Builds the program once, then runs each test in its own process; the output of a
+// failing test (including its panic message) is shown.
+fn run_tests(code: String, tests: List<String>, json: Bool) uses console, fs, proc do
+  if len(tests) == 0 then
+    print("no tests: a test is a function named test_... with no parameters\n")
+    return
+  end if
+  let tmp = make_temp_dir()
+  let exe = tmp ++ "/tests"
+  let e = compile_c(c: code, exe: exe)
+  if len(e) > 0 then
+    eprint("vowc: " ++ e ++ "\n")
+    exit(1)
+  end if
+  var failed = 0
+  for t in tests do
+    let o = run(argv: ["sh", "-c", "exec \"$0\" --vow-test \"$1\" 2>&1", exe, t], input: "")
+    let ok = o.code == 0
+    if not ok then
+      set failed = failed + 1
+    end if
+    if json then
+      var status = "pass"
+      if not ok then
+        set status = "fail"
+      end if
+      print("{\"kind\":\"test\",\"name\":" ++ json_str(t) ++ ",\"status\":\"" ++ status ++ "\",\"output\":" ++ json_str(o.out) ++ "}\n")
+    elif ok then
+      print("ok    " ++ t ++ "\n")
+    else
+      print("FAIL  " ++ t ++ "\n")
+      for l in split(s: trim(o.out), sep: '\n') do
+        print("      " ++ l ++ "\n")
+      end for
+    end if
+  end for
+  let _ = run(argv: ["rm", "-rf", tmp], input: "")
+  if not json then
+    print(int_to_str(len(tests) - failed) ++ " passed, " ++ int_to_str(failed) ++ " failed\n")
+  end if
+  if failed > 0 then
+    exit(1)
+  end if
+end fn run_tests
 
 fn basename_stem(path: String) -> String do
   var base = path
@@ -326,6 +408,16 @@ fn main() uses console, fs, proc do
     return
   end if
   var c = check_program(items: src.items, files: src.files, next_id: src.next_id)
+  if cmd == "test" then
+    // A file of tests needs no main; its test functions must have the right shape.
+    var errs: List<Diag> = []
+    for d in c.errs do
+      if d.msg != "the program has no 'fn main()'" then
+        set errs = push(list: errs, item: d)
+      end if
+    end for
+    set c = c with (errs: errs ++ test_shape_errors(src.items))
+  end if
   if len(c.errs) > 0 then
     report(diags: c.errs, files: src.files, json: json)
     exit(1)
@@ -430,7 +522,12 @@ fn main() uses console, fs, proc do
     end if
     set verified = not no_verify
   end if
-  let code = generate(items: src.items, info: c.info, files: src.files, verified: verified, lines: line_directives)
+  var tests: List<String> = []
+  if cmd == "test" then
+    set tests = test_names(src.items)
+  end if
+  let code = generate(items: src.items, info: c.info, files: src.files, verified: verified, lines: line_directives,
+    tests: tests)
   if cmd == "check" then
     print("ok\n")
     if totality_report then
@@ -462,6 +559,8 @@ fn main() uses console, fs, proc do
       end if
       exit(o.code)
     end if
+  elif cmd == "test" then
+    run_tests(code: code, tests: tests, json: json)
   else
     eprint("unknown command '" ++ cmd ++ "'\n\n" ++ usage())
     exit(2)

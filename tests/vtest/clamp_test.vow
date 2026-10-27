@@ -1,0 +1,23 @@
+// language: 0.7
+// vowc test: passing, proved and failing tests, each run in its own process.
+
+import "clamp.vow"
+import "std/text.vow"
+
+fn test_inside() do
+  check clamp(x: 5, lo: 0, hi: 10) == 5
+end fn test_inside
+
+fn test_proved() do
+  assert clamp(x: -3, lo: 0, hi: 10) >= 0
+end fn test_proved
+
+fn test_wrong() uses console do
+  print("about to fail\n")
+  check clamp(x: 50, lo: 0, hi: 10) == 50
+end fn test_wrong
+
+fn test_split() do
+  let parts = split(s: "a,b", sep: 44)
+  check len(parts) == 2
+end fn test_split

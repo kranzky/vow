@@ -87,7 +87,10 @@ fn c_params(f: FnDecl) -> String do
   return join(parts: ps, sep: ", ")
 end fn c_params
 
-fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool, lines: Bool) -> String do
+// tests: functions the program runs instead of main when started as
+// `program --vow-test <name>` (vowc test).
+fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool, lines: Bool,
+    tests: List<String>) -> String do
   var g = Gen(info: info, files: files, out: [], ind: 0, tmp: 0, strs: [], str_index: {}, io_params: [],
     owned_vars: [], scope_marks: [], loop_marks: [], temps: [], temp_marks: [], move_id: -1,
     moved: false, inout_vars: [], steal_ids: [], eqs: [], src: no_pos(), mapped_file: -1, mapped_next: -1, lines: lines)
@@ -145,7 +148,23 @@ fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool, 
     let s = g.strs[i]
     set c = push(list: c, item: "    vow_s[" ++ int_to_str(i) ++ "] = vow_immortal(vstr_new(" ++ c_string(s) ++ ", " ++ int_to_str(len(s)) ++ "));")
   end for
-  set c = push(list: c, item: "    f_main();")
+  if len(tests) > 0 then
+    set c = push(list: c, item: "    if (argc == 3 && strcmp(argv[1], \"--vow-test\") == 0) {")
+    set c = push(list: c, item: "        vow_argc = 1;")
+    var kw = "if"
+    for t in tests do
+      set c = push(list: c, item: "        " ++ kw ++ " (strcmp(argv[2], " ++ c_string(t) ++ ") == 0) " ++ c_fn(t) ++ "();")
+      set kw = "else if"
+    end for
+    set c = push(list: c, item: "        else return 2;")
+    set c = push(list: c, item: "        fflush(stdout);")
+    set c = push(list: c, item: "        vow_report_leaks();")
+    set c = push(list: c, item: "        return 0;")
+    set c = push(list: c, item: "    }")
+  end if
+  if is_some(get_fn(info: info, name: "main")) then
+    set c = push(list: c, item: "    f_main();")
+  end if
   set c = push(list: c, item: "    fflush(stdout);")
   set c = push(list: c, item: "    vow_report_leaks();")
   set c = push(list: c, item: "    return 0;")

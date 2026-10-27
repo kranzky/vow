@@ -1,0 +1,7 @@
+ok    test_inside
+ok    test_proved
+FAIL  test_wrong
+      about to fail
+      vow: panic at vtest/clamp_test.vow:17: check failed: clamp(x: 50, lo: 0, hi: 10) == 50
+ok    test_split
+3 passed, 1 failed
