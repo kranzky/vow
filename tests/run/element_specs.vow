@@ -1,0 +1,37 @@
+// language: 0.7
+// Specifications assume the field refinements of list elements.
+
+struct Labelled
+  values: List<Int>,
+  count: Int where it == len(values),
+end struct Labelled
+
+struct Shelf
+  items: List<Labelled>,
+  cap: Int where it >= len(items),
+end struct Shelf
+
+fn counts_match(xs: List<Labelled>) -> Bool
+  ensures result
+do
+  for i in 0..len(xs) invariant forall k in 0..i: xs[k].count == len(xs[k].values) do
+    assert xs[i].count == len(xs[i].values)
+  end for
+  return true
+end fn counts_match
+
+fn shelf_ok(s: Shelf)
+  requires len(s.items) > 0
+do
+  assert forall k in 0..len(s.items): s.items[k].count == len(s.items[k].values)
+  assert s.items[0].count >= 0
+end fn shelf_ok
+
+fn main() uses console do
+  let a = Labelled(values: [1, 2], count: 2)
+  let s = Shelf(items: [a, a], cap: 3)
+  shelf_ok(s)
+  if counts_match(s.items) then
+    print("ok\n")
+  end if
+end fn main

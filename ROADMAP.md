@@ -60,8 +60,8 @@ Must-have, language and proofs:
 - [ ] Lexicographic measures (`decreases (a, b)`), for recursion that one Int or
       structural measure cannot order: a rose tree walked through a helper over its
       children, or mutual recursion mixing a list index and a tree
-- [ ] Field refinements of list elements in specifications (`xs[i].count` inside a
-      `forall`); values reached by name are covered
+- [x] Field refinements of list elements in specifications (`xs[i].count` inside a
+      `forall`)
 - [x] The verifier version (part of every cache key) changes whenever the SMT it
       emits does; `tests/fingerprint.sh` enforces it
 

@@ -5,7 +5,10 @@
 - Z3 is pinned: Vow is tested with Z3 5.3.2, which `tools/install-z3.sh` installs
   (checking its SHA-256) and CI uses. `vowc version` shows the Z3 it finds, and when a
   proof is left undecided by a different Z3, `vowc` says which version it is tested with.
-- The verifier version, part of every verification cache key, is now `vow-verifier-3`,
+- Specifications also assume the field refinements of list elements in range:
+  `forall k in 0..len(xs): xs[k].count == len(xs[k].values)` is proved for any list
+  of structs whose `count` field is refined that way.
+- The verifier version, part of every verification cache key, is now `vow-verifier-4`,
   and must change whenever the SMT the verifier emits does: `tests/fingerprint.sh`
   compares a hash of the SMT for every test program and example with the one recorded
   for the current version. Cached results are reused only by the verifier that proved

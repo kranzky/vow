@@ -573,7 +573,8 @@ fn with_hyps(hyps: List<String>, goal: String) -> String do
 end fn with_hyps
 
 // The field refinements of the struct values a specification names: variables,
-// parameters, it, result and old(x), and struct fields of those, recursively. A goal may
+// parameters, it, result and old(x), their struct fields, and the elements of the
+// lists among them (as one quantified hypothesis per list), recursively. A goal may
 // assume them: wherever it is proved, those names hold real values of their types.
 // They are not stated as facts, because a value built on a path that cannot happen is
 // not constrained to be real.
@@ -636,16 +637,22 @@ fn named_values(v: Verifier, e: Expr, sp: Spec, out: inout List<NamedTerm>) do
     return
   end if
   let t = type_of(info: v.info, e: e)
+  var keep = false
   match t
   case TStruct(name: sn) then
+    set keep = true
+  case TList(elem: et) then
+    set keep = true
+  else
+  end match
+  if keep then
     for x in out do
       if x.term == term then
         return
       end if
     end for
     set out = push(list: out, item: NamedTerm(ty: t, term: term))
-  else
-  end match
+  end if
 end fn named_values
 
 fn struct_facts(v: inout Verifier, t: Ty, term: String, depth: Int, out: inout List<String>) do
@@ -661,6 +668,18 @@ fn struct_facts(v: inout Verifier, t: Ty, term: String, depth: Int, out: inout L
         struct_facts(v: inout v, t: fl.rty.ty, term: ft, depth: depth - 1, out: inout out)
       end if
     end for
+  case TList(elem: et) then
+    // Every element in range is a real value: one quantified hypothesis covers them.
+    if depth > 0 then
+      let k = fresh_q(inout v)
+      let el = "(elem_" ++ sort_of(et) ++ " " ++ term ++ " " ++ k ++ ")"
+      var inner: List<String> = []
+      struct_facts(v: inout v, t: et, term: el, depth: depth - 1, out: inout inner)
+      if len(inner) > 0 then
+        let range = "(and (<= 0 " ++ k ++ ") (< " ++ k ++ " (len " ++ term ++ ")))"
+        set out = push(list: out, item: "(forall ((" ++ k ++ " Int)) (! (=> " ++ range ++ " " ++ and_all(inner) ++ ") :pattern (" ++ el ++ ")))")
+      end if
+    end if
   else
   end match
 end fn struct_facts
