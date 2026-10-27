@@ -533,13 +533,15 @@ fn spec_term(v: inout Verifier, e: Expr, st: St, subj: String, res: String) -> S
     set binds = insert(map: binds, key: k, value: env_term(st: st, n: k))
   end for
   for k in keys(v.params) do
-    if not has(map: binds, key: k) then
-      match lookup(map: v.params, key: k)
-      case Some(value: t) then
+    match lookup(map: v.params, key: k)
+    case Some(value: t) then
+      if not has(map: binds, key: k) then
         set binds = insert(map: binds, key: k, value: t)
-      case None then
-      end match
-    end if
+      end if
+      // old(x) is the parameter's entry value.
+      set binds = insert(map: binds, key: "old(" ++ k ++ ")", value: t)
+    case None then
+    end match
   end for
   return sexpr(v: inout v, e: e, sp: Spec(binds: binds, subj: subj, res: res))
 end fn spec_term
@@ -577,6 +579,9 @@ fn sexpr(v: inout Verifier, e: Expr, sp: Spec) -> String do
       set ci = x
     case None then
     end match
+    if ci.kind == "old" then
+      return bind_of(binds: sp.binds, n: "old(" ++ ci.name ++ ")")
+    end if
     var p: List<String> = []
     for i in ci.order do
       if (i >= 0) and (i < len(args)) then
@@ -717,6 +722,8 @@ fn translatable(v: Verifier, e: Expr) -> Bool do
     case Some(value: ci) then
       if ci.kind == "builtin" then
         set ok = spec_builtin(ci.name)
+      elif ci.kind == "old" then
+        set ok = true
       elif ci.kind == "user" then
         match get_fn(info: v.info, name: ci.name)
         case Some(value: fi) then
@@ -1591,6 +1598,7 @@ fn vcall_user(v: inout Verifier, e: Expr, name: String, p: List<String>, pe: Lis
     if (i < len(fi.io)) and fi.io[i] and (i < len(pe)) then
       let fp = fi.params[i]
       let nv = fresh(v: inout v, sort: sort_of(fp.rty.ty))
+      set post = insert(map: post, key: "old(" ++ fp.name ++ ")", value: bind_of(binds: binds, n: fp.name))
       set post = insert(map: post, key: fp.name, value: nv)
       match pe[i].kind
       case Var(name: vn) then

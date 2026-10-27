@@ -38,7 +38,8 @@ Must-have, language and proofs:
 - [ ] Soundness hardening: written soundness argument, large must-fail suite, differential
       fuzzing of the two verifiers
 - [x] Quantified specs (`forall`/`exists` over ranges) and expression functions in specs
-- [ ] `old(x)` for inout postconditions; recursive spec functions (needs termination)
+- [x] `old(x)` for inout postconditions and loop invariants
+- [ ] Recursive spec functions (needs termination)
 - [x] Termination measures (`decreases`) for while loops and direct recursion (opt-in)
 - [ ] Termination for mutual recursion; report which functions are proved total
 - [x] Generics: functions, structs and enums; type arguments inferred; each generic

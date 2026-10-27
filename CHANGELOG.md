@@ -2,7 +2,7 @@
 
 ## v0.5.0 (unreleased)
 
-Structural equality.
+Structural equality and `old(x)`.
 
 - `==` and `!=` work on every type without maps: lists element by element, structs
   field by field, enums and options by variant and fields. The verifier can prove two
@@ -12,6 +12,10 @@ Structural equality.
   is rejected, naming the instance.
 - A variant whose fields are all `Unit` is written without them: a function returning
   `Result<Unit, E>` ends with `return Result.Ok`.
+- `old(x)` in `ensures` and loop invariants names an `inout` parameter's value on
+  entry, so a contract can say how the parameter changed:
+  `ensures len(out) == (len(old(out)) + 1)`. Callers get the facts about their own var.
+- `old` is reserved as a function name.
 
 ## v0.4.0
 

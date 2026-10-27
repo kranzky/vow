@@ -404,6 +404,18 @@ line(g: inout g, s: "return 0;")       // the caller writes 'inout' too
 An `inout` argument must be a `var`. The same var cannot be passed `inout` twice in
 one call.
 
+To say how an `inout` parameter changes, use `old(x)` (its value on entry) in
+`ensures` and loop invariants; otherwise callers learn only its refinement:
+
+```
+fn bump(c: inout Counter)
+  ensures c.n == (old(c).n + 1)
+  ensures c.name == old(c).name
+do
+  set c = c with (n: c.n + 1)
+end fn bump
+```
+
 **Optional values.** `lookup`, `str_to_int`, `read_file` and `getenv` return
 `Option<T>`. For a default, use `value_or`; to test, `is_some` / `is_none`:
 

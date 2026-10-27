@@ -210,6 +210,9 @@ fn builtin_params(name: String) -> Option<List<String>> do
 end fn builtin_params
 
 fn is_builtin(name: String) -> Bool do
+  if name == "old" then
+    return true
+  end if
   match builtin_params(name)
   case Some(value: p) then
     return true
@@ -772,6 +775,10 @@ struct Checker
   files: List<String>,
   // Instances of generic functions whose bodies are still to be checked.
   queue: List<Inst>,
+  // The inout parameters of the function being checked, and those that old(x) may
+  // name here (in an ensures or a loop invariant).
+  inouts: List<String>,
+  olds: List<String>,
 end struct Checker
 
 struct Inst
@@ -946,7 +953,8 @@ end fn primitive_types
 fn check_program(items: List<Item>, files: List<String>, next_id: Int) -> Checker do
   let none: Option<Ty> = Option.None
   var c = Checker(info: new_info() with (next_id: next_id), errs: [], locals: [], marks: [], effects: [], ret: Ty.TUnit,
-    loops: 0, spec: false, it_ty: none, result_ty: none, inout_ok: false, files: files, queue: [])
+    loops: 0, spec: false, it_ty: none, result_ty: none, inout_ok: false, files: files, queue: [],
+    inouts: [], olds: [])
   // Phase 1: names.
   var seen_types: Map<String, Pos> = {}
   var seen_fns: Map<String, Pos> = {}
@@ -1274,9 +1282,11 @@ fn check_contracts(c: inout Checker, f: FnDecl) do
     for r in f.pre do
       check_pred(c: inout c, e: r, scope: all, subject: Option.None, res: Option.None)
     end for
+    set c = c with (olds: inout_names(fi))
     for e in f.post do
       check_pred(c: inout c, e: e, scope: all, subject: Option.None, res: Option.Some(value: fi.ret.ty))
     end for
+    set c = c with (olds: [])
     match f.dec
     case Some(value: d) then
       check_measure(c: inout c, e: d, scope: all)
@@ -1571,6 +1581,46 @@ fn reaches(from: String, target: String, cand: Map<String, Expr>, seen: inout Li
   end match
 end fn reaches
 
+fn inout_names(fi: FnInfo) -> List<String> do
+  var out: List<String> = []
+  for i in 0..len(fi.params) do
+    if (i < len(fi.io)) and fi.io[i] then
+      set out = push(list: out, item: fi.params[i].name)
+    end if
+  end for
+  return out
+end fn inout_names
+
+// A loop invariant: a specification in which old(x) names x's value on entry to the
+// function.
+fn invariant_expr(c: inout Checker, e: Expr) do
+  set c = c with (olds: c.inouts)
+  spec_expr(c: inout c, e: e)
+  set c = c with (olds: [])
+end fn invariant_expr
+
+// old(x): the value of the inout parameter x when the function was entered.
+fn check_old(c: inout Checker, e: Expr, args: List<Arg>) -> Ty do
+  var name = ""
+  if (len(args) == 1) and (len(args[0].name) == 0) and not args[0].is_inout then
+    match args[0].value.kind
+    case Var(name: n) then
+      set name = n
+    else
+    end match
+  end if
+  if len(name) == 0 then
+    err(c: inout c, pos: e.pos, msg: "'old' takes the name of an inout parameter: old(x)")
+    return Ty.TUnknown
+  end if
+  if not contains_str(xs: c.olds, x: name) then
+    err(c: inout c, pos: e.pos, msg: "'old(" ++ name ++ ")' must name an inout parameter, in an 'ensures' or a loop invariant")
+    return Ty.TUnknown
+  end if
+  add_call(c: inout c, e: e, ci: CallInfo(kind: "old", name: name, variant: 0, order: []))
+  return check_expr(c: inout c, e: args[0].value, expected: Option.None)
+end fn check_old
+
 fn spec_expr(c: inout Checker, e: Expr) do
   set c = c with (spec: true)
   let t = check_expr(c: inout c, e: e, expected: Option.Some(value: Ty.TBool))
@@ -1591,8 +1641,9 @@ fn check_fn(c: inout Checker, f: FnDecl) do
       end if
       set locals = push(list: locals, item: Local(name: fi.params[i].name, ty: fi.params[i].rty.ty, mutable: m))
     end for
-    set c = c with (locals: locals, marks: [], effects: fi.effects, ret: fi.ret.ty, loops: 0)
+    set c = c with (locals: locals, marks: [], effects: fi.effects, ret: fi.ret.ty, loops: 0, inouts: inout_names(fi))
     check_block(c: inout c, stmts: f.body)
+    set c = c with (inouts: [])
     if (ty_show(fi.ret.ty) != "Unit") and not terminates(f.body) then
       err(c: inout c, pos: f.pos, msg: "function '" ++ f.name ++ "' can finish without returning a " ++ ty_show(fi.ret.ty))
     end if
@@ -1679,7 +1730,7 @@ fn check_stmt(c: inout Checker, s: Stmt) do
     let t = check_expr(c: inout c, e: cond, expected: Option.Some(value: Ty.TBool))
     expect_ty(c: inout c, pos: cond.pos, got: t, want: Ty.TBool, what: "a while condition")
     for i in invs do
-      spec_expr(c: inout c, e: i)
+      invariant_expr(c: inout c, e: i)
     end for
     match dec
     case Some(value: d) then
@@ -1700,7 +1751,7 @@ fn check_stmt(c: inout Checker, s: Stmt) do
     enter(inout c)
     declare(c: inout c, pos: s.pos, name: v, t: Ty.TInt, mutable: false)
     for i in invs do
-      spec_expr(c: inout c, e: i)
+      invariant_expr(c: inout c, e: i)
     end for
     set c = c with (loops: c.loops + 1)
     check_block(c: inout c, stmts: body)
@@ -1717,7 +1768,7 @@ fn check_stmt(c: inout Checker, s: Stmt) do
       err(c: inout c, pos: l.pos, msg: "'for ... in' needs a List, but this is " ++ ty_show(lt))
     end match
     for i in invs do
-      spec_expr(c: inout c, e: i)
+      invariant_expr(c: inout c, e: i)
     end for
     enter(inout c)
     declare(c: inout c, pos: s.pos, name: v, t: et, mutable: false)
@@ -2557,6 +2608,9 @@ fn check_call(c: inout Checker, e: Expr, callee: Expr, args: List<Arg>, expected
     err(c: inout c, pos: e.pos, msg: "only named functions can be called")
     return Ty.TUnknown
   end match
+  if name == "old" then
+    return check_old(c: inout c, e: e, args: args)
+  end if
   match builtin_params(name)
   case Some(value: params) then
     if c.spec and not spec_builtin(name) then

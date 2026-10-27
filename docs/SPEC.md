@@ -113,7 +113,20 @@ var may not be passed `inout` twice in one call, and no other argument of that c
 modify it (for example by passing it `inout` to a nested call). Semantically the callee receives the
 value and the caller's var receives the callee's final value when the call returns.
 In `ensures`, an `inout` parameter names its final value; in `requires`, its initial
-value. The parameter's refinement must hold whenever it is assigned and is assumed by
+value. In `ensures` and in loop invariants, `old(x)` names the value the `inout`
+parameter `x` had when the function was entered:
+
+```
+fn push_all(out: inout List<Int>, xs: List<Int>)
+  ensures len(out) == (len(old(out)) + len(xs))
+  ensures forall i in 0..len(old(out)): out[i] == old(out)[i]
+do
+  ...
+end fn push_all
+```
+
+`old` takes only the name of an `inout` parameter, and is reserved: no function may be
+called `old`. The parameter's refinement must hold whenever it is assigned and is assumed by
 the caller afterwards.
 
 Refinements may appear on parameter types, return types, `let`/`var` annotations, struct
@@ -351,8 +364,8 @@ obligations to Z3 in SMT-LIB 2.
 Specification expressions (`requires`, `ensures`, `where`, `invariant`, `decreases`,
 `assert`, `check`) are restricted to pure, total-in-the-logic forms: literals,
 variables, `it`, `result`, arithmetic, comparisons, boolean operators, quantifiers,
-field access, indexing, the built-ins `len`, `value_or`, `is_some` and `is_none`, and
-calls to expression functions.
+field access, indexing, the built-ins `len`, `value_or`, `is_some` and `is_none`,
+calls to expression functions, and (in `ensures` and loop invariants) `old(x)`.
 
 Generic functions are verified once for all type arguments (see Generics); calls to
 them are checked against their contracts with the type arguments of the call.

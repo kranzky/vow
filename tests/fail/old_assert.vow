@@ -1,0 +1,12 @@
+// error: 'old(xs)' must name an inout parameter, in an 'ensures' or a loop invariant
+// language: 0.5
+
+fn grow(xs: inout List<Int>) do
+  set xs = push(list: xs, item: 0)
+  assert len(xs) == (len(old(xs)) + 1)
+end fn grow
+
+fn main() do
+  var xs: List<Int> = []
+  grow(inout xs)
+end fn main

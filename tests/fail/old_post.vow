@@ -1,0 +1,14 @@
+// error: cannot prove postcondition of 'grow': len(xs) == (len(old(xs)) + 1)
+// language: 0.5
+
+fn grow(xs: inout List<Int>)
+  ensures len(xs) == (len(old(xs)) + 1)
+do
+  set xs = push(list: xs, item: 0)
+  set xs = push(list: xs, item: 0)
+end fn grow
+
+fn main() do
+  var xs: List<Int> = []
+  grow(inout xs)
+end fn main

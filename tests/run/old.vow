@@ -1,0 +1,65 @@
+// language: 0.5
+// old(x): an inout parameter's value on entry, in ensures and loop invariants.
+
+struct Counter
+  name: String,
+  n: Int,
+end struct Counter
+
+fn bump(c: inout Counter)
+  ensures c.n == (old(c).n + 1)
+  ensures c.name == old(c).name
+do
+  set c = c with (n: c.n + 1)
+end fn bump
+
+fn swap(a: inout Int, b: inout Int)
+  ensures (a == old(b)) and (b == old(a))
+do
+  let t = a
+  set a = b
+  set b = t
+end fn swap
+
+fn push_all(out: inout List<Int>, xs: List<Int>)
+  ensures len(out) == (len(old(out)) + len(xs))
+  ensures forall i in 0..len(old(out)): out[i] == old(out)[i]
+  ensures forall i in 0..len(xs): out[len(old(out)) + i] == xs[i]
+do
+  for i in 0..len(xs)
+    invariant len(out) == (len(old(out)) + i)
+    invariant forall k in 0..len(old(out)): out[k] == old(out)[k]
+    invariant forall k in 0..i: out[len(old(out)) + k] == xs[k]
+  do
+    set out = push(list: out, item: xs[i])
+  end for
+end fn push_all
+
+fn add_item<T>(items: inout List<T>, x: T)
+  ensures len(items) == (len(old(items)) + 1)
+  ensures items[len(items) - 1] == x
+do
+  set items = push(list: items, item: x)
+end fn add_item
+
+fn main() uses console do
+  var c = Counter(name: "hits", n: 0)
+  bump(inout c)
+  bump(inout c)
+  assert c.n == 2
+  var a = 1
+  var b = 2
+  swap(a: inout a, b: inout b)
+  assert (a == 2) and (b == 1)
+  var xs = [1, 2]
+  push_all(out: inout xs, xs: [3, 4, 5])
+  assert len(xs) == 5
+  assert xs[0] == 1
+  assert xs[4] == 5
+  var names: List<String> = []
+  add_item(items: inout names, x: "a")
+  add_item(items: inout names, x: "b")
+  assert len(names) == 2
+  assert names[1] == "b"
+  print(c.name ++ " " ++ int_to_str(c.n) ++ " " ++ int_to_str(a) ++ int_to_str(b) ++ " " ++ int_to_str(len(xs)) ++ " " ++ join(parts: names, sep: ",") ++ "\n")
+end fn main

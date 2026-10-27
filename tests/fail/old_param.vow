@@ -1,0 +1,10 @@
+// error: 'old(n)' must name an inout parameter, in an 'ensures' or a loop invariant
+// language: 0.5
+
+fn twice(n: Int) -> Int ensures result == (old(n) * 2) do
+  return n * 2
+end fn twice
+
+fn main() do
+  let _ = twice(3)
+end fn main
