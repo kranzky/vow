@@ -79,7 +79,9 @@ Must-have, runtime and portability:
 Must-have, tooling:
 - [x] `vowc fmt` (whitespace only; every file in the repository is formatted, and CI checks it)
 - [x] `vowc test`: verifies, then runs each `test_...` function in its own process
-- [ ] LSP (hover shows type and known facts)
+- [x] Language server (`vow-lsp`): diagnostics as you edit, proofs on save, hover with
+      types and contracts, go to definition
+- [ ] Language server: hover with the facts the verifier knows at that point
 - [x] Pinned Z3 version (5.3.2, installed by `tools/install-z3.sh`; CI uses it)
 - [ ] Verifier performance (incremental solving)
 

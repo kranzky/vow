@@ -1,0 +1,669 @@
+// language: 0.7
+// vow-lsp: a language server for Vow, speaking the Language Server Protocol on standard
+// input and output.
+//
+// - Diagnostics: type and effect errors as you edit; the verifier's failed proofs (with
+//   counterexamples) and holes (with the facts known there) when a file is opened or
+//   saved, since proving takes longer. Unsaved buffers are what gets checked.
+// - Hover: a function's signature and contract, a type's declaration, or the type of a
+//   variable, parameter, binding or field.
+// - Go to definition: functions, types, variants, and local bindings and parameters.
+
+import "../../compiler/pipeline.vow"
+import "std/json.vow"
+
+struct Server
+  // The text of each open document, by path.
+  docs: Map<String, String>,
+  // Files diagnostics were last published for, so that fixed ones can be cleared.
+  published: List<String>,
+  shutdown: Bool,
+end struct Server
+
+fn main() uses console, fs, proc do
+  var s = Server(docs: {}, published: [], shutdown: false)
+  var going = true
+  while going do
+    match read_message()
+    case None then
+      set going = false
+    case Some(value: body) then
+      match json_parse(body)
+      case Ok(value: msg) then
+        handle(s: inout s, msg: msg)
+      case Err(error: e) then
+      end match
+    end match
+  end while
+end fn main
+
+// ---- messages ----
+
+// One message: headers, a blank line, then Content-Length bytes of JSON.
+fn read_message() -> Option<String> uses console do
+  var length = -1
+  while true do
+    match read_line()
+    case None then
+      return Option.None
+    case Some(value: raw) then
+      let l = trim(raw)
+      if len(l) == 0 then
+        if length >= 0 then
+          return Option.Some(value: read_bytes(length))
+        end if
+      elif starts_with(s: to_lower(l), p: "content-length:") then
+        match str_to_int(trim(slice(of: l, from: 15, to: len(l))))
+        case Some(value: n) then
+          set length = n
+        case None then
+        end match
+      end if
+    end match
+  end while
+end fn read_message
+
+fn send(j: Json) uses console do
+  let t = json_text(j)
+  print("Content-Length: " ++ int_to_str(len(t)) ++ "\r\n\r\n" ++ t)
+end fn send
+
+fn obj(keys: List<String>, values: List<Json>) -> Json do
+  return Json.JObj(keys: keys, values: values)
+end fn obj
+
+fn jstr(s: String) -> Json do
+  return Json.JStr(value: s)
+end fn jstr
+
+fn jint(n: Int) -> Json do
+  return Json.JNum(value: n)
+end fn jint
+
+fn respond(id: Json, value: Json) uses console do
+  send(obj(keys: ["jsonrpc", "id", "result"], values: [jstr("2.0"), id, value]))
+end fn respond
+
+fn notify(method: String, params: Json) uses console do
+  send(obj(keys: ["jsonrpc", "method", "params"], values: [jstr("2.0"), jstr(method), params]))
+end fn notify
+
+fn get(j: Json, path: List<String>) -> Option<Json> do
+  var cur = j
+  for k in path do
+    match json_get(j: cur, key: k)
+    case Some(value: x) then
+      set cur = x
+    case None then
+      return Option.None
+    end match
+  end for
+  return Option.Some(value: cur)
+end fn get
+
+fn get_string(j: Json, path: List<String>) -> String do
+  match get(j: j, path: path)
+  case Some(value: x) then
+    return value_or(opt: json_string(x), default: "")
+  case None then
+    return ""
+  end match
+end fn get_string
+
+fn get_int(j: Json, path: List<String>) -> Int do
+  match get(j: j, path: path)
+  case Some(value: x) then
+    return value_or(opt: json_int(x), default: -1)
+  case None then
+    return -1
+  end match
+end fn get_int
+
+fn handle(s: inout Server, msg: Json) uses console, fs, proc do
+  let method = get_string(j: msg, path: ["method"])
+  let id = json_get(j: msg, key: "id")
+  let uri = get_string(j: msg, path: ["params", "textDocument", "uri"])
+  let path = uri_path(uri)
+  if method == "initialize" then
+    let sync = obj(keys: ["openClose", "change", "save"], values: [Json.JBool(value: true), jint(1), Json.JBool(value: true)])
+    let caps = obj(keys: ["textDocumentSync", "hoverProvider", "definitionProvider"],
+      values: [sync, Json.JBool(value: true), Json.JBool(value: true)])
+    let info = obj(keys: ["name"], values: [jstr("vow-lsp")])
+    reply(id: id, value: obj(keys: ["capabilities", "serverInfo"], values: [caps, info]))
+  elif method == "shutdown" then
+    set s = s with (shutdown: true)
+    reply(id: id, value: Json.JNull)
+  elif method == "exit" then
+    if s.shutdown then
+      exit(0)
+    end if
+    exit(1)
+  elif method == "textDocument/didOpen" then
+    let text = get_string(j: msg, path: ["params", "textDocument", "text"])
+    set s = s with (docs: insert(map: s.docs, key: path, value: text))
+    diagnose(s: inout s, path: path, prove: true)
+  elif method == "textDocument/didChange" then
+    match get(j: msg, path: ["params", "contentChanges"])
+    case Some(value: changes) then
+      match changes
+      case JArr(items: xs) then
+        if len(xs) > 0 then
+          let text = get_string(j: xs[len(xs) - 1], path: ["text"])
+          set s = s with (docs: insert(map: s.docs, key: path, value: text))
+          diagnose(s: inout s, path: path, prove: false)
+        end if
+      else
+      end match
+    case None then
+    end match
+  elif method == "textDocument/didSave" then
+    diagnose(s: inout s, path: path, prove: true)
+  elif method == "textDocument/didClose" then
+    var docs: Map<String, String> = {}
+    for k in keys(s.docs) do
+      if k != path then
+        set docs = insert(map: docs, key: k, value: value_or(opt: lookup(map: s.docs, key: k), default: ""))
+      end if
+    end for
+    set s = s with (docs: docs)
+  elif method == "textDocument/hover" then
+    let line = get_int(j: msg, path: ["params", "position", "line"]) + 1
+    let col = get_int(j: msg, path: ["params", "position", "character"]) + 1
+    reply(id: id, value: hover(s: s, path: path, line: line, col: col))
+  elif method == "textDocument/definition" then
+    let line = get_int(j: msg, path: ["params", "position", "line"]) + 1
+    let col = get_int(j: msg, path: ["params", "position", "character"]) + 1
+    reply(id: id, value: definition(s: s, path: path, line: line, col: col))
+  elif is_some(id) then
+    match id
+    case Some(value: x) then
+      let err = obj(keys: ["code", "message"], values: [jint(-32601), jstr("method not supported: " ++ method)])
+      send(obj(keys: ["jsonrpc", "id", "error"], values: [jstr("2.0"), x, err]))
+    case None then
+    end match
+  end if
+end fn handle
+
+fn reply(id: Option<Json>, value: Json) uses console do
+  match id
+  case Some(value: x) then
+    respond(id: x, value: value)
+  case None then
+  end match
+end fn reply
+
+// ---- paths ----
+
+fn uri_path(uri: String) -> String do
+  var p = uri
+  if starts_with(s: uri, p: "file://") then
+    set p = slice(of: uri, from: 7, to: len(uri))
+  end if
+  var parts: List<String> = []
+  var i = 0
+  while i < len(p) invariant i >= 0 decreases len(p) - i do
+    let c = p[i]
+    if (c == '%') and ((i + 2) < len(p)) then
+      let h = hex_value(p[i + 1])
+      let l = hex_value(p[i + 2])
+      if (h >= 0) and (l >= 0) then
+        set parts = push(list: parts, item: char((h * 16) + l))
+        set i = i + 3
+        continue
+      end if
+    end if
+    set parts = push(list: parts, item: char(c))
+    set i = i + 1
+  end while
+  return join(parts: parts, sep: "")
+end fn uri_path
+
+fn hex_value(c: Int) -> Int ensures (-1 <= result) and (result < 16) do
+  if is_digit(c) then
+    return c - '0'
+  elif (c >= 'a') and (c <= 'f') then
+    return (c - 'a') + 10
+  elif (c >= 'A') and (c <= 'F') then
+    return (c - 'A') + 10
+  end if
+  return -1
+end fn hex_value
+
+fn path_uri(path: String) -> String do
+  var parts = ["file://"]
+  for i in 0..len(path) do
+    let c = path[i]
+    if is_alnum(c) or contains_str(xs: ["/", "-", ".", "_", "~"], x: char(c)) then
+      set parts = push(list: parts, item: char(c))
+    else
+      set parts = push(list: parts, item: "%" ++ to_upper(json_hex_digit(c / 16) ++ json_hex_digit(c % 16)))
+    end if
+  end for
+  return join(parts: parts, sep: "")
+end fn path_uri
+
+// ---- diagnostics ----
+
+// Checks the document (and the files it imports), and with prove, verifies it; then
+// publishes the diagnostics of every file involved, clearing those now without any.
+fn diagnose(s: inout Server, path: String, prove: Bool) uses console, fs, proc do
+  let src = load_with(root: path, overrides: s.docs)
+  var diags = src.errs
+  if len(diags) == 0 then
+    let ck = check_source(src: src, test_mode: true)
+    set diags = ck.errs
+    if (len(diags) == 0) and (prove or (len(ck.c.info.holes) > 0)) then
+      let vr = verify_source(src: src, c: ck.c, file: path, no_cache: false, v03: false)
+      set diags = vr.diags
+      if len(vr.error) > 0 then
+        set diags = push(list: diags, item: diag(pos: Pos(file: 0, line: 1, col: 1), msg: vr.error))
+      end if
+    end if
+  end if
+  var files: List<String> = []
+  for f in src.files do
+    if not starts_with(s: f, p: "<std>/") then
+      set files = push(list: files, item: f)
+    end if
+  end for
+  for f in s.published do
+    if not contains_str(xs: files, x: f) then
+      set files = push(list: files, item: f)
+    end if
+  end for
+  var published: List<String> = []
+  for f in files do
+    var items: List<Json> = []
+    for d in diags do
+      if (d.pos.file >= 0) and (d.pos.file < len(src.files)) and (src.files[d.pos.file] == f) then
+        set items = push(list: items, item: lsp_diag(d: d, text: doc_text(s: s, path: f)))
+      end if
+    end for
+    if len(items) > 0 then
+      set published = push(list: published, item: f)
+    end if
+    let params = obj(keys: ["uri", "diagnostics"], values: [jstr(path_uri(f)), Json.JArr(items: items)])
+    notify(method: "textDocument/publishDiagnostics", params: params)
+  end for
+  set s = s with (published: published)
+end fn diagnose
+
+fn doc_text(s: Server, path: String) -> String uses fs do
+  match lookup(map: s.docs, key: path)
+  case Some(value: t) then
+    return t
+  case None then
+    return value_or(opt: read_file(path), default: "")
+  end match
+end fn doc_text
+
+fn lsp_diag(d: Diag, text: String) -> Json do
+  var msg = d.msg
+  for n in d.notes do
+    set msg = msg ++ "\n" ++ n
+  end for
+  var severity = 1
+  if d.kind == "hole" then
+    set severity = 3
+  end if
+  let line = d.pos.line - 1
+  let start = d.pos.col - 1
+  let end_col = word_end(text: text, line: d.pos.line, col: d.pos.col) - 1
+  let range = obj(keys: ["start", "end"], values: [position(line: line, col: start), position(line: line, col: end_col)])
+  return obj(keys: ["range", "severity", "source", "message"], values: [range, jint(severity), jstr("vow"), jstr(msg)])
+end fn lsp_diag
+
+fn position(line: Int, col: Int) -> Json do
+  return obj(keys: ["line", "character"], values: [jint(line), jint(col)])
+end fn position
+
+fn line_of(text: String, line: Int) -> String do
+  let ls = lines(text)
+  if (line >= 1) and (line <= len(ls)) then
+    return ls[line - 1]
+  end if
+  return ""
+end fn line_of
+
+// The column just past the word starting at col (or col + 1 if none starts there).
+fn word_end(text: String, line: Int, col: Int) -> Int do
+  let l = line_of(text: text, line: line)
+  var i = col - 1
+  if i < 0 then
+    return col + 1
+  end if
+  while (i < len(l)) and is_alnum(l[i]) invariant i >= 0 decreases len(l) - i do
+    set i = i + 1
+  end while
+  if (i + 1) <= col then
+    return col + 1
+  end if
+  return i + 1
+end fn word_end
+
+// The identifier at (line, col), and the column where it starts.
+struct Word
+  text: String,
+  col: Int,
+end struct Word
+
+fn word_at(text: String, line: Int, col: Int) -> Word do
+  let l = line_of(text: text, line: line)
+  var a = col - 1
+  if (a < 0) or (a > len(l)) then
+    return Word(text: "", col: 0)
+  end if
+  if (a == len(l)) or not is_alnum(l[a]) then
+    // Just past the end of a word counts as on it.
+    if (a > 0) and is_alnum(l[a - 1]) then
+      set a = a - 1
+    else
+      return Word(text: "", col: 0)
+    end if
+  end if
+  var b = a
+  while (a > 0) and is_alnum(l[a - 1]) invariant (0 <= a) and (a <= b) and (b < len(l)) decreases a do
+    set a = a - 1
+  end while
+  while ((b + 1) < len(l)) and is_alnum(l[b + 1]) invariant (0 <= a) and (a <= b) and (b < len(l)) decreases len(l) - b do
+    set b = b + 1
+  end while
+  return Word(text: slice(of: l, from: a, to: b + 1), col: a + 1)
+end fn word_at
+
+// ---- hover and definition ----
+
+fn markdown(code: String) -> Json do
+  let value = "```vow\n" ++ code ++ "\n```"
+  return obj(keys: ["contents"], values: [obj(keys: ["kind", "value"], values: [jstr("markdown"), jstr(value)])])
+end fn markdown
+
+fn hover(s: Server, path: String, line: Int, col: Int) -> Json uses fs do
+  let w = word_at(text: doc_text(s: s, path: path), line: line, col: col)
+  if len(w.text) == 0 then
+    return Json.JNull
+  end if
+  let src = load_with(root: path, overrides: s.docs)
+  let ck = check_source(src: src, test_mode: true)
+  let info = ck.c.info
+  // A declaration with this name.
+  for item in src.items do
+    if item_name(item) == w.text then
+      match item
+      case FnItem(decl: f) then
+        return markdown(fn_contract(f))
+      else
+        return markdown(pretty_item(item))
+      end match
+    end if
+  end for
+  // A variant: its enum.
+  for item in src.items do
+    match item
+    case EnumItem(decl: e) then
+      for vd in e.variants do
+        if vd.name == w.text then
+          return markdown(pretty_item(item))
+        end if
+      end for
+    else
+    end match
+  end for
+  // A variable, binding, parameter or field at this position.
+  var found: List<Found> = []
+  for item in src.items do
+    match item
+    case FnItem(decl: f) then
+      for p in f.params do
+        if (p.pos.file == 0) and (p.pos.line == line) and (p.name == w.text) then
+          return markdown(p.name ++ ": " ++ pretty_type(p.ty))
+        end if
+      end for
+      find_in_block(stmts: f.body, line: line, name: w.text, out: inout found)
+    else
+    end match
+  end for
+  for x in found do
+    if x.col == w.col then
+      let t = type_of(info: info, e: x.e)
+      if not is_unknown(t) then
+        return markdown(w.text ++ ": " ++ ty_show(t))
+      end if
+    end if
+  end for
+  for x in found do
+    let t = type_of(info: info, e: x.e)
+    if not is_unknown(t) then
+      return markdown(w.text ++ ": " ++ ty_show(t))
+    end if
+  end for
+  return Json.JNull
+end fn hover
+
+fn definition(s: Server, path: String, line: Int, col: Int) -> Json uses fs do
+  let w = word_at(text: doc_text(s: s, path: path), line: line, col: col)
+  if len(w.text) == 0 then
+    return Json.JNull
+  end if
+  let src = load_with(root: path, overrides: s.docs)
+  for item in src.items do
+    if item_name(item) == w.text then
+      return location(files: src.files, pos: item_pos(item), name: w.text)
+    end if
+    match item
+    case EnumItem(decl: e) then
+      for vd in e.variants do
+        if vd.name == w.text then
+          return location(files: src.files, pos: vd.pos, name: w.text)
+        end if
+      end for
+    else
+    end match
+  end for
+  // A local: the nearest binding or parameter before this line in the enclosing function.
+  var best = Pos(file: -1, line: 0, col: 0)
+  for item in src.items do
+    match item
+    case FnItem(decl: f) then
+      if (f.pos.file == 0) and (f.pos.line <= line) then
+        for p in f.params do
+          if (p.name == w.text) and (p.pos.line <= line) and (p.pos.line >= best.line) then
+            set best = p.pos
+          end if
+        end for
+        bindings(stmts: f.body, name: w.text, line: line, best: inout best)
+      end if
+    else
+    end match
+  end for
+  if best.file >= 0 then
+    if best.line != w_line_of_param(src: src, name: w.text, pos: best) then
+      // A 'let', 'var' or 'for' statement: the name follows the four-character keyword.
+      set best = best with (col: best.col + 4)
+    end if
+    return location(files: src.files, pos: best, name: w.text)
+  end if
+  return Json.JNull
+end fn definition
+
+// pos.line if pos is a parameter's position, else -1.
+fn w_line_of_param(src: Source, name: String, pos: Pos) -> Int do
+  for item in src.items do
+    match item
+    case FnItem(decl: f) then
+      for p in f.params do
+        if (p.name == name) and (p.pos.line == pos.line) and (p.pos.col == pos.col) and (p.pos.file == pos.file) then
+          return pos.line
+        end if
+      end for
+    else
+    end match
+  end for
+  return -1
+end fn w_line_of_param
+
+fn location(files: List<String>, pos: Pos, name: String) -> Json do
+  if (pos.file < 0) or (pos.file >= len(files)) or starts_with(s: files[pos.file], p: "<std>/") then
+    return Json.JNull
+  end if
+  let start = position(line: pos.line - 1, col: pos.col - 1)
+  let range = obj(keys: ["start", "end"], values: [start, position(line: pos.line - 1, col: (pos.col - 1) + len(name))])
+  return obj(keys: ["uri", "range"], values: [jstr(path_uri(files[pos.file])), range])
+end fn location
+
+// The latest 'let', 'var' or loop variable named name on or before line.
+fn bindings(stmts: List<Stmt>, name: String, line: Int, best: inout Pos) do
+  for st in stmts do
+    if (st.pos.file == 0) and (st.pos.line <= line) and (st.pos.line >= best.line) then
+      match st.kind
+      case Let(name: n, ty: t, value: v, mutable: m) then
+        if n == name then
+          set best = st.pos
+        end if
+      case ForRange(name: n, lo: lo, hi: hi, invs: invs, body: b) then
+        if n == name then
+          set best = st.pos
+        end if
+      case ForEach(name: n, list: l, invs: invs, body: b) then
+        if n == name then
+          set best = st.pos
+        end if
+      else
+      end match
+    end if
+    for b in sub_blocks(st) do
+      bindings(stmts: b, name: name, line: line, best: inout best)
+    end for
+  end for
+end fn bindings
+
+fn sub_blocks(st: Stmt) -> List<List<Stmt>> do
+  var out: List<List<Stmt>> = []
+  match st.kind
+  case If(arms: arms, els: els) then
+    for a in arms do
+      set out = push(list: out, item: a.body)
+    end for
+    match els
+    case Some(value: b) then
+      set out = push(list: out, item: b)
+    case None then
+    end match
+  case While(cond: c, invs: invs, dec: d, body: b) then
+    set out = push(list: out, item: b)
+  case ForRange(name: n, lo: lo, hi: hi, invs: invs, body: b) then
+    set out = push(list: out, item: b)
+  case ForEach(name: n, list: l, invs: invs, body: b) then
+    set out = push(list: out, item: b)
+  case Match(scrut: sc, cases: cases, els: els) then
+    for cs in cases do
+      set out = push(list: out, item: cs.body)
+    end for
+    match els
+    case Some(value: b) then
+      set out = push(list: out, item: b)
+    case None then
+    end match
+  else
+  end match
+  return out
+end fn sub_blocks
+
+// Expressions named name on line (variables, fields, binding values), in file 0.
+struct Found
+  e: Expr,
+  col: Int,
+end struct Found
+
+fn find_in_block(stmts: List<Stmt>, line: Int, name: String, out: inout List<Found>) do
+  for st in stmts do
+    var es: List<Expr> = []
+    match st.kind
+    case Let(name: n, ty: t, value: v, mutable: m) then
+      if (n == name) and (st.pos.file == 0) and (st.pos.line == line) then
+        set out = push(list: out, item: Found(e: v, col: -1))
+      end if
+      set es = [v]
+    case Set(name: n, value: v) then
+      set es = [v]
+    case Return(value: v) then
+      match v
+      case Some(value: x) then
+        set es = [x]
+      case None then
+      end match
+    case If(arms: arms, els: els) then
+      for a in arms do
+        set es = push(list: es, item: a.cond)
+      end for
+    case While(cond: c, invs: invs, dec: d, body: b) then
+      set es = [c] ++ invs
+    case ForRange(name: n, lo: lo, hi: hi, invs: invs, body: b) then
+      set es = [lo, hi] ++ invs
+    case ForEach(name: n, list: l, invs: invs, body: b) then
+      set es = [l] ++ invs
+    case Match(scrut: sc, cases: cases, els: els) then
+      set es = [sc]
+    case Assert(e: e) then
+      set es = [e]
+    case Check(e: e) then
+      set es = [e]
+    case ExprStmt(e: e) then
+      set es = [e]
+    else
+    end match
+    for e in es do
+      find_in_expr(e: e, line: line, name: name, out: inout out)
+    end for
+    for b in sub_blocks(st) do
+      find_in_block(stmts: b, line: line, name: name, out: inout out)
+    end for
+  end for
+end fn find_in_block
+
+fn find_in_expr(e: Expr, line: Int, name: String, out: inout List<Found>) do
+  if (e.pos.file == 0) and (e.pos.line == line) then
+    match e.kind
+    case Var(name: n) then
+      if n == name then
+        set out = push(list: out, item: Found(e: e, col: e.pos.col))
+      end if
+    case Field(obj: o, name: n) then
+      if n == name then
+        set out = push(list: out, item: Found(e: e, col: -1))
+      end if
+    else
+    end match
+  end if
+  match e.kind
+  case Call(callee: c, args: args) then
+    find_in_expr(e: c, line: line, name: name, out: inout out)
+    for a in args do
+      find_in_expr(e: a.value, line: line, name: name, out: inout out)
+    end for
+  case ListLit(items: items) then
+    for x in items do
+      find_in_expr(e: x, line: line, name: name, out: inout out)
+    end for
+  case Index(obj: o, idx: i) then
+    find_in_expr(e: o, line: line, name: name, out: inout out)
+    find_in_expr(e: i, line: line, name: name, out: inout out)
+  case Field(obj: o, name: n) then
+    find_in_expr(e: o, line: line, name: name, out: inout out)
+  case With(obj: o, args: args) then
+    find_in_expr(e: o, line: line, name: name, out: inout out)
+    for a in args do
+      find_in_expr(e: a.value, line: line, name: name, out: inout out)
+    end for
+  case Unary(op: op, x: x) then
+    find_in_expr(e: x, line: line, name: name, out: inout out)
+  case Binary(op: op, l: l, r: r) then
+    find_in_expr(e: l, line: line, name: name, out: inout out)
+    find_in_expr(e: r, line: line, name: name, out: inout out)
+  case Quant(q: q, name: n, lo: lo, hi: hi, body: b) then
+    find_in_expr(e: lo, line: line, name: name, out: inout out)
+    find_in_expr(e: hi, line: line, name: name, out: inout out)
+    find_in_expr(e: b, line: line, name: name, out: inout out)
+  else
+  end match
+end fn find_in_expr

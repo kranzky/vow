@@ -2,6 +2,14 @@
 
 ## v0.7.0 (unreleased)
 
+- `vow-lsp`, a language server (built from `tools/lsp/vowlsp.vow`, shipped in the release
+  archives): type and effect errors as you edit, failed proofs and holes when a file is
+  opened or saved, hover with a function's contract or an expression's type, and go to
+  definition. Its test drives a session from a Vow program (`make test-lsp`). The
+  README shows how to set it up in Neovim, Helix and Emacs.
+- The checking and verification pipeline is now one module (`compiler/pipeline.vow`)
+  shared by `vowc` and the language server, and `load_with` checks unsaved buffers.
+
 - `std/json.vow`: a verified JSON parser and printer (integer numbers only, until Vow
   has floats). Its reader's termination is proved with `old(x)` contracts.
 - `read_line()` and `read_bytes(n)` read standard input (`uses console`).

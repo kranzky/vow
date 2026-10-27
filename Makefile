@@ -29,7 +29,7 @@ build/vowc: seed/vowc.c runtime/vow_rt.h
 $(RUST_VOWC): $(wildcard bootstrap/src/*.rs) runtime/vow_rt.h
 	cd bootstrap && cargo build --release -q
 
-test: build/vowc $(RUST_VOWC) test-site test-rc differential test-fingerprint
+test: build/vowc $(RUST_VOWC) test-site test-rc differential test-fingerprint test-lsp
 	@echo "== bootstrap compiler (Rust, frozen at the v0.3 language)"
 	@VOW_FROZEN=1 VOWC=$(CURDIR)/$(RUST_VOWC) tests/run.sh
 	@echo "== self-hosted compiler"
@@ -81,6 +81,16 @@ test-rc: build/vowc
 	@echo "== reference counting (debug runtime)"
 	@VOWC=$(CURDIR)/build/vowc tests/rc.sh
 
+# The language server (tools/lsp), and its session test.
+lsp: build/vow-lsp
+
+build/vow-lsp: tools/lsp/vowlsp.vow compiler/*.vow std/*.vow build/vowc
+	build/vowc build tools/lsp/vowlsp.vow -o $@
+
+test-lsp: build/vow-lsp
+	@echo "== language server"
+	@build/vowc test tests/lsp/lsp_test.vow
+
 # The verifier version must change whenever the SMT it emits does (tests/fingerprint.sh).
 test-fingerprint: build/vowc
 	@echo "== verifier version and SMT fingerprint"
@@ -93,4 +103,4 @@ differential: build/vowc $(RUST_VOWC)
 	@echo "== differential: both verifiers"
 	@RUST_VOWC=$(RUST_VOWC) VOWC=build/vowc tests/differential.sh
 
-.PHONY: all test bootstrap clean site test-site test-rc differential test-fingerprint fingerprint
+.PHONY: all test bootstrap clean site test-site test-rc differential test-fingerprint fingerprint lsp test-lsp

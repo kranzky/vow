@@ -120,6 +120,45 @@ build/vowc run examples/bsearch.vow
 make test                             # test suite (also needs Rust for the frozen bootstrap compiler)
 ```
 
+## Editor support
+
+`vow-lsp` is a language server, installed next to `vowc` by the release archives and
+`install.sh` (from source: `make lsp` builds `build/vow-lsp`). As you edit it reports
+type and effect errors; when you open or save a file, it also reports failed proofs
+(with counterexamples) and holes (with the facts known there). Hover shows a function's
+signature and contract, a type's declaration, or the type of a variable, binding or
+field; go to definition finds functions, types, variants and local bindings. Any editor
+with an LSP client can use it. Neovim (0.11 or later):
+
+```lua
+vim.filetype.add({ extension = { vow = "vow" } })
+vim.lsp.config("vow", { cmd = { "vow-lsp" }, filetypes = { "vow" }, root_markers = { ".git" } })
+vim.lsp.enable("vow")
+```
+
+Helix (`languages.toml`):
+
+```toml
+[language-server.vow-lsp]
+command = "vow-lsp"
+
+[[language]]
+name = "vow"
+scope = "source.vow"
+file-types = ["vow"]
+comment-token = "//"
+indent = { tab-width = 2, unit = "  " }
+language-servers = ["vow-lsp"]
+```
+
+Emacs (Eglot):
+
+```elisp
+(define-derived-mode vow-mode prog-mode "Vow")
+(add-to-list 'auto-mode-alist '("\\.vow\\'" . vow-mode))
+(with-eval-after-load 'eglot (add-to-list 'eglot-server-programs '(vow-mode "vow-lsp")))
+```
+
 ## Documents
 
 - [`docs/SPEC.md`](docs/SPEC.md): the language specification

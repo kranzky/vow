@@ -1,0 +1,49 @@
+// language: 0.7
+// The language server, driven through a session (run by `make test-lsp`, from the
+// repository root, after build/vow-lsp is built).
+
+import "std/text.vow"
+import "std/json.vow"
+
+fn frame(msg: String) -> String do
+  return "Content-Length: " ++ int_to_str(len(msg)) ++ "\r\n\r\n" ++ msg
+end fn frame
+
+fn session(uri: String, text: String) -> String uses proc do
+  let open = "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didOpen\",\"params\":{\"textDocument\":{\"uri\":\"" ++ uri ++ "\",\"languageId\":\"vow\",\"version\":1,\"text\":" ++ json_quote(text) ++ "}}}"
+  let doc = "{\"textDocument\":{\"uri\":\"" ++ uri ++ "\"}"
+  let hover_fn = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"textDocument/hover\",\"params\":" ++ doc ++ ",\"position\":{\"line\":5,\"character\":11}}}"
+  let hover_var = "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"textDocument/hover\",\"params\":" ++ doc ++ ",\"position\":{\"line\":5,\"character\":6}}}"
+  let def = "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"textDocument/definition\",\"params\":" ++ doc ++ ",\"position\":{\"line\":6,\"character\":19}}}"
+  var input = frame("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}")
+  set input = input ++ frame(open) ++ frame(hover_fn) ++ frame(hover_var) ++ frame(def)
+  set input = input ++ frame("{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"shutdown\"}") ++ frame("{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}")
+  let o = run(argv: ["build/vow-lsp"], input: input)
+  return o.out
+end fn session
+
+fn test_session() uses proc do
+  let dir = value_or(opt: getenv("PWD"), default: ".")
+  let uri = "file://" ++ dir ++ "/tests/lsp/sample.vow"
+  let text = "fn twice(n: Int) -> Int ensures result == (n + n) do\n  return n + n\nend fn twice\n\nfn main() do\n  let x = twice(2)\n  x2 = 1\nend fn main\n"
+  let out = session(uri: uri, text: text)
+  let capable = contains(s: out, p: "\"hoverProvider\":true")
+  check capable
+  let error = contains(s: out, p: "\"severity\":1")
+  check error
+  let closed = contains(s: out, p: "\"id\":5,\"result\":null")
+  check closed
+end fn test_session
+
+fn test_types_and_definition() uses proc do
+  let dir = value_or(opt: getenv("PWD"), default: ".")
+  let uri = "file://" ++ dir ++ "/tests/lsp/sample.vow"
+  let text = "fn twice(n: Int) -> Int ensures result == (n + n) do\n  return n + n\nend fn twice\n\nfn main() uses console do\n  let x = twice(2)\n  print(int_to_str(x))\nend fn main\n"
+  let out = session(uri: uri, text: text)
+  let contract = contains(s: out, p: "fn twice(n: Int) -> Int ensures result == (n + n)")
+  check contract
+  let typed = contains(s: out, p: "x: Int")
+  check typed
+  let defined = contains(s: out, p: "\"id\":4,\"result\":{\"uri\":\"" ++ uri ++ "\",\"range\":{\"start\":{\"line\":5,\"character\":6}")
+  check defined
+end fn test_types_and_definition

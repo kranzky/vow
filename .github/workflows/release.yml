@@ -50,6 +50,15 @@ jobs:
               musl-gcc -O2 -std=c11 -w -static -I runtime -o dist/vowc seed/vowc.c ;;
           esac
           file dist/vowc
+      - name: Build the language server with the new vowc
+        run: |
+          case "${{ matrix.target }}" in
+            macos-universal)
+              CC=clang VOW_CFLAGS="-arch arm64 -arch x86_64 -mmacosx-version-min=11.0" dist/vowc build tools/lsp/vowlsp.vow -o dist/vow-lsp ;;
+            linux-*)
+              CC=musl-gcc VOW_CFLAGS=-static dist/vowc build tools/lsp/vowlsp.vow -o dist/vow-lsp ;;
+          esac
+          file dist/vow-lsp
       - name: Smoke test
         run: |
           dist/vowc version
@@ -60,7 +69,7 @@ jobs:
         run: |
           name="vowc-${TAG#v}-${{ matrix.target }}"
           mkdir -p "$name"
-          cp dist/vowc README.md UNLICENSE CHANGELOG.md "$name/"
+          cp dist/vowc dist/vow-lsp README.md UNLICENSE CHANGELOG.md "$name/"
           tar -czf "$name.tar.gz" "$name"
           shasum -a 256 "$name.tar.gz" > "$name.tar.gz.sha256"
       - name: Upload to the release

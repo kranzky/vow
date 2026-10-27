@@ -1,0 +1,177 @@
+// The checking and verification pipeline shared by vowc and the language server: from
+// loaded source to the diagnostics a user sees.
+
+import "load.vow"
+import "verify.vow"
+import "total.vow"
+
+// The sort declaration must come first; declarations before assertions.
+fn order_preamble(pre: Map<String, Bool>) -> List<String> do
+  var sorts: List<String> = []
+  var decls: List<String> = []
+  var rest: List<String> = []
+  for k in keys(pre) do
+    if starts_with(s: k, p: "(declare-sort") then
+      set sorts = push(list: sorts, item: k)
+    elif starts_with(s: k, p: "(declare") then
+      set decls = push(list: decls, item: k)
+    else
+      set rest = push(list: rest, item: k)
+    end if
+  end for
+  return sorts ++ decls ++ rest
+end fn order_preamble
+
+struct Checked
+  c: Checker,
+  rec: Recursion,
+  // Type, effect and measure errors; when there are any, the rest is not meaningful.
+  errs: List<Diag>,
+end struct Checked
+
+// Type-checks a loaded program and analyses its recursion. In test mode (vowc test) the
+// program needs no main, and its test functions must have the right shape.
+fn check_source(src: Source, test_mode: Bool) -> Checked do
+  var c = check_program(items: src.items, files: src.files, next_id: src.next_id)
+  var errs = src.errs
+  for d in c.errs do
+    if (not test_mode) or (d.msg != "the program has no 'fn main()'") then
+      set errs = push(list: errs, item: d)
+    end if
+  end for
+  if test_mode then
+    set errs = errs ++ test_shape_errors(src.items)
+  end if
+  let rec = recursion(items: src.items, info: c.info)
+  if len(errs) == 0 then
+    set errs = measure_errors(items: src.items, r: rec)
+  end if
+  let info0 = c.info
+  set c = c with (info: info0 with (scc: rec.scc, recursive: rec.recursive))
+  return Checked(c: c, rec: rec, errs: errs)
+end fn check_source
+
+struct Verified
+  // Holes (with the facts known at each) or failed proofs.
+  diags: List<Diag>,
+  // Trouble running Z3, or "".
+  error: String,
+  // Whether Z3 left some proof undecided.
+  undecided: Bool,
+end struct Verified
+
+// Verifies a checked program, skipping functions whose verification key is in the
+// cache next to file (and recording the keys of those proved).
+fn verify_source(src: Source, c: Checker, file: String, no_cache: Bool, v03: Bool) -> Verified uses fs, proc do
+  let none: List<Diag> = []
+  let hashes = hash_program(items: src.items, info: c.info)
+  let cache_path = file ++ ".vowcache"
+  var cached: List<String> = []
+  if not no_cache then
+    match read_file(cache_path)
+    case Some(value: text) then
+      for l in split(s: text, sep: '\n') do
+        let parts = split(s: l, sep: ' ')
+        if (len(parts) > 0) and (len(parts[0]) > 0) then
+          set cached = push(list: cached, item: parts[0])
+        end if
+      end for
+    case None then
+    end match
+  end if
+  var v = new_verifier(c.info)
+  if v03 then
+    set v = v with (hyps: false)
+  end if
+  var vcs: List<FnVc> = []
+  for item in src.items do
+    match item
+    case FnItem(decl: f) then
+      var key = ""
+      for h in hashes do
+        if h.name == f.name then
+          set key = h.key
+        end if
+      end for
+      if contains_str(xs: cached, x: key) and (len(c.info.holes) == 0) then
+        continue
+      end if
+      set vcs = push(list: vcs, item: verify_fn(v: inout v, f: f))
+    else
+    end match
+  end for
+  if len(c.info.holes) > 0 then
+    return Verified(diags: hole_diags(c: c, v: v), error: "", undecided: false)
+  end if
+  let r = discharge(pre: order_preamble(v.preamble), vcs: vcs)
+  if len(r.error) > 0 then
+    return Verified(diags: none, error: r.error, undecided: false)
+  end if
+  if not no_cache then
+    var lines: List<String> = []
+    for h in hashes do
+      var failed = false
+      for f in r.failures do
+        if f.fn_name == h.name then
+          set failed = true
+        end if
+      end for
+      if not failed then
+        set lines = push(list: lines, item: h.key ++ " " ++ h.name ++ "\n")
+      end if
+    end for
+    let ok = write_file(path: cache_path, contents: join(parts: lines, sep: ""))
+  end if
+  var diags: List<Diag> = []
+  var undecided = false
+  for f in r.failures do
+    set diags = push(list: diags, item: failure_diag(f))
+    if starts_with(s: f.verdict, p: "unknown") then
+      set undecided = true
+    end if
+  end for
+  return Verified(diags: diags, error: "", undecided: undecided)
+end fn verify_source
+
+fn hole_diags(c: Checker, v: Verifier) -> List<Diag> do
+  var out: List<Diag> = []
+  for h in c.info.holes do
+    var d = diag(pos: h.pos, msg: "?" ++ h.name ++ " needs a value of type " ++ ty_show(h.expected))
+    set d = d with (kind: "hole")
+    var locals: List<String> = []
+    for l in h.locals do
+      set locals = push(list: locals, item: l.name ++ ": " ++ ty_show(l.ty))
+    end for
+    if len(locals) == 0 then
+      set d = with_note(d: d, note: "in scope: (nothing)")
+    else
+      set d = with_note(d: d, note: "in scope: " ++ join(parts: locals, sep: ", "))
+    end if
+    match lookup(map: v.hole_facts, key: h.id)
+    case Some(value: facts) then
+      if len(facts) > 0 then
+        set d = with_note(d: d, note: "known facts: " ++ join(parts: facts, sep: "; "))
+      end if
+    case None then
+    end match
+    set out = push(list: out, item: d)
+  end for
+  return out
+end fn hole_diags
+
+fn test_shape_errors(items: List<Item>) -> List<Diag> do
+  var out: List<Diag> = []
+  for item in items do
+    match item
+    case FnItem(decl: f) then
+      if starts_with(s: f.name, p: "test_") and (f.pos.file == 0) then
+        if (len(f.params) > 0) or is_some(f.ret) or (len(f.tparams) > 0) then
+          let msg = "test function '" ++ f.name ++ "' must take no parameters and return nothing"
+          set out = push(list: out, item: diag(pos: f.pos, msg: msg))
+        end if
+      end if
+    else
+    end match
+  end for
+  return out
+end fn test_shape_errors

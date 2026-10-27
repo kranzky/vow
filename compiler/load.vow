@@ -83,6 +83,12 @@ struct Pending
 end struct Pending
 
 fn load(root: String) -> Source uses fs do
+  return load_with(root: root, overrides: {})
+end fn load
+
+// As load, but a file whose (normalised) path is a key of overrides has that text
+// instead of what is on disk: an editor's unsaved buffer.
+fn load_with(root: String, overrides: Map<String, String>) -> Source uses fs do
   var files: List<String> = []
   var items: List<Item> = []
   var errs: List<Diag> = []
@@ -102,6 +108,8 @@ fn load(root: String) -> Source uses fs do
       let m = slice(of: top.path, from: 6, to: len(top.path))
       set source = std_source(m)
       set missing = "there is no standard module 'std/" ++ m ++ "'"
+    elif has(map: overrides, key: top.path) then
+      set source = lookup(map: overrides, key: top.path)
     else
       set source = read_file(top.path)
     end if
@@ -153,7 +161,7 @@ fn load(root: String) -> Source uses fs do
     end if
   end if
   return Source(files: files, items: items, errs: errs, next_id: next_id)
-end fn load
+end fn load_with
 
 fn render_diag(d: Diag, files: List<String>) -> String do
   var file = "?"

@@ -46,7 +46,12 @@ tar -xzf "$tmp/$name.tar.gz" -C "$tmp"
 mkdir -p "$dir"
 cp "$tmp/$name/vowc" "$dir/vowc"
 chmod +x "$dir/vowc"
-echo "vow: installed $("$dir/vowc" version) to $dir/vowc"
+echo "vow: installed $("$dir/vowc" version | head -1) to $dir/vowc"
+if [ -f "$tmp/$name/vow-lsp" ]; then
+  cp "$tmp/$name/vow-lsp" "$dir/vow-lsp"
+  chmod +x "$dir/vow-lsp"
+  echo "vow: installed the language server to $dir/vow-lsp"
+fi
 
 case ":$PATH:" in
   *":$dir:"*) ;;

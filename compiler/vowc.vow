@@ -1,11 +1,7 @@
 // vowc: the self-hosted Vow compiler.
 
-import "load.vow"
-import "check.vow"
-import "verify.vow"
 import "codegen.vow"
-import "hash.vow"
-import "total.vow"
+import "pipeline.vow"
 import "fmt.vow"
 import "runtime_h.vow"
 
@@ -171,23 +167,6 @@ fn test_names(items: List<Item>) -> List<String> do
   return out
 end fn test_names
 
-fn test_shape_errors(items: List<Item>) -> List<Diag> do
-  var out: List<Diag> = []
-  for item in items do
-    match item
-    case FnItem(decl: f) then
-      if starts_with(s: f.name, p: "test_") and (f.pos.file == 0) then
-        if (len(f.params) > 0) or is_some(f.ret) or (len(f.tparams) > 0) then
-          let msg = "test function '" ++ f.name ++ "' must take no parameters and return nothing"
-          set out = push(list: out, item: diag(pos: f.pos, msg: msg))
-        end if
-      end if
-    else
-    end match
-  end for
-  return out
-end fn test_shape_errors
-
 // Builds the program once, then runs each test in its own process; the output of a
 // failing test (including its panic message) is shown.
 fn run_tests(code: String, tests: List<String>, json: Bool) uses console, fs, proc do
@@ -292,49 +271,6 @@ fn compile_c(c: String, exe: String) -> String uses fs, proc do
   return ""
 end fn compile_c
 
-// The sort declaration must come first; declarations before assertions.
-fn order_preamble(pre: Map<String, Bool>) -> List<String> do
-  var sorts: List<String> = []
-  var decls: List<String> = []
-  var rest: List<String> = []
-  for k in keys(pre) do
-    if starts_with(s: k, p: "(declare-sort") then
-      set sorts = push(list: sorts, item: k)
-    elif starts_with(s: k, p: "(declare") then
-      set decls = push(list: decls, item: k)
-    else
-      set rest = push(list: rest, item: k)
-    end if
-  end for
-  return sorts ++ decls ++ rest
-end fn order_preamble
-
-fn hole_diags(c: Checker, v: Verifier) -> List<Diag> do
-  var out: List<Diag> = []
-  for h in c.info.holes do
-    var d = diag(pos: h.pos, msg: "?" ++ h.name ++ " needs a value of type " ++ ty_show(h.expected))
-    set d = d with (kind: "hole")
-    var locals: List<String> = []
-    for l in h.locals do
-      set locals = push(list: locals, item: l.name ++ ": " ++ ty_show(l.ty))
-    end for
-    if len(locals) == 0 then
-      set d = with_note(d: d, note: "in scope: (nothing)")
-    else
-      set d = with_note(d: d, note: "in scope: " ++ join(parts: locals, sep: ", "))
-    end if
-    match lookup(map: v.hole_facts, key: h.id)
-    case Some(value: facts) then
-      if len(facts) > 0 then
-        set d = with_note(d: d, note: "known facts: " ++ join(parts: facts, sep: "; "))
-      end if
-    case None then
-    end match
-    set out = push(list: out, item: d)
-  end for
-  return out
-end fn hole_diags
-
 fn main() uses console, fs, proc do
   let argv = args()
   if (len(argv) >= 1) and (argv[0] == "version") then
@@ -407,29 +343,13 @@ fn main() uses console, fs, proc do
     end for
     return
   end if
-  var c = check_program(items: src.items, files: src.files, next_id: src.next_id)
-  if cmd == "test" then
-    // A file of tests needs no main; its test functions must have the right shape.
-    var errs: List<Diag> = []
-    for d in c.errs do
-      if d.msg != "the program has no 'fn main()'" then
-        set errs = push(list: errs, item: d)
-      end if
-    end for
-    set c = c with (errs: errs ++ test_shape_errors(src.items))
-  end if
-  if len(c.errs) > 0 then
-    report(diags: c.errs, files: src.files, json: json)
+  let ck = check_source(src: src, test_mode: cmd == "test")
+  if len(ck.errs) > 0 then
+    report(diags: ck.errs, files: src.files, json: json)
     exit(1)
   end if
-  let rec = recursion(items: src.items, info: c.info)
-  let merrs = measure_errors(items: src.items, r: rec)
-  if len(merrs) > 0 then
-    report(diags: merrs, files: src.files, json: json)
-    exit(1)
-  end if
-  let info0 = c.info
-  set c = c with (info: info0 with (scc: rec.scc, recursive: rec.recursive))
+  let c = ck.c
+  let rec = ck.rec
   if cmd == "hash" then
     for h in hash_program(items: src.items, info: c.info) do
       print(h.name ++ "  body=" ++ h.body ++ " contract=" ++ h.contract ++ " key=" ++ h.key ++ "\n")
@@ -440,79 +360,14 @@ fn main() uses console, fs, proc do
   // verifier runs even when there are holes.
   var verified = false
   if (not no_verify) or (len(c.info.holes) > 0) then
-    let hashes = hash_program(items: src.items, info: c.info)
-    let cache_path = file ++ ".vowcache"
-    var cached: List<String> = []
-    if not no_cache then
-      match read_file(cache_path)
-      case Some(value: text) then
-        for l in split(s: text, sep: '\n') do
-          let parts = split(s: l, sep: ' ')
-          if (len(parts) > 0) and (len(parts[0]) > 0) then
-            set cached = push(list: cached, item: parts[0])
-          end if
-        end for
-      case None then
-      end match
-    end if
-    var v = new_verifier(c.info)
-    if is_some(getenv("VOW_SMT_V03")) then
-      set v = v with (hyps: false)
-    end if
-    var vcs: List<FnVc> = []
-    for item in src.items do
-      match item
-      case FnItem(decl: f) then
-        var key = ""
-        for h in hashes do
-          if h.name == f.name then
-            set key = h.key
-          end if
-        end for
-        if contains_str(xs: cached, x: key) and (len(c.info.holes) == 0) then
-          continue
-        end if
-        set vcs = push(list: vcs, item: verify_fn(v: inout v, f: f))
-      else
-      end match
-    end for
-    if len(c.info.holes) > 0 then
-      report(diags: hole_diags(c: c, v: v), files: src.files, json: json)
+    let vr = verify_source(src: src, c: c, file: file, no_cache: no_cache, v03: is_some(getenv("VOW_SMT_V03")))
+    if len(vr.error) > 0 then
+      eprint("vowc: " ++ vr.error ++ "\n")
       exit(1)
     end if
-    let r = discharge(pre: order_preamble(v.preamble), vcs: vcs)
-    if len(r.error) > 0 then
-      eprint("vowc: " ++ r.error ++ "\n")
-      exit(1)
-    end if
-    if not no_cache then
-      var lines: List<String> = []
-      for h in hashes do
-        var failed = false
-        for f in r.failures do
-          if f.fn_name == h.name then
-            set failed = true
-          end if
-        end for
-        if not failed then
-          set lines = push(list: lines, item: h.key ++ " " ++ h.name ++ "\n")
-        end if
-      end for
-      let ok = write_file(path: cache_path, contents: join(parts: lines, sep: ""))
-    end if
-    if len(r.failures) > 0 then
-      var diags: List<Diag> = []
-      for f in r.failures do
-        set diags = push(list: diags, item: failure_diag(f))
-      end for
-      report(diags: diags, files: src.files, json: json)
-      var undecided = false
-      for f in r.failures do
-        if starts_with(s: f.verdict, p: "unknown") then
-          set undecided = true
-        end if
-      end for
-      if undecided and not json then
+    if len(vr.diags) > 0 then
+      report(diags: vr.diags, files: src.files, json: json)
+      if vr.undecided and not json then
         let z = z3_version()
         if z != tested_z3_version() then
           eprint("note: Z3 " ++ z ++ " did not decide some proofs; vowc is tested with Z3 " ++ tested_z3_version() ++ ", which may (tools/install-z3.sh installs it)\n")
