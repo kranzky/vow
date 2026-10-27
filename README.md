@@ -127,7 +127,8 @@ make test                             # test suite (also needs Rust for the froz
 type and effect errors; when you open or save a file, it also reports failed proofs
 (with counterexamples) and holes (with the facts known there). Hover shows a function's
 signature and contract, a type's declaration, or the type of a variable, binding or
-field; go to definition finds functions, types, variants and local bindings. Any editor
+field together with what the verifier knows about it at that line (branch conditions,
+refinements, invariants, callers' contracts); go to definition finds functions, types, variants and local bindings. Any editor
 with an LSP client can use it. Neovim (0.11 or later):
 
 ```lua

@@ -47,3 +47,18 @@ fn test_types_and_definition() uses proc do
   let defined = contains(s: out, p: "\"id\":4,\"result\":{\"uri\":\"" ++ uri ++ "\",\"range\":{\"start\":{\"line\":5,\"character\":6}")
   check defined
 end fn test_types_and_definition
+
+fn test_known_facts() uses proc do
+  let dir = value_or(opt: getenv("PWD"), default: ".")
+  let uri = "file://" ++ dir ++ "/tests/lsp/sample.vow"
+  // Line 7 (from 0) is inside the if: hovering x there shows what is known about it.
+  let text = "fn twice(n: Int) -> Int ensures result == (n + n) do\n  return n + n\nend fn twice\n\nfn main() uses console do\n  let x = twice(2)\n  if x > 3 then\n    print(int_to_str(x))\n  end if\nend fn main\n"
+  let doc = "{\"textDocument\":{\"uri\":\"" ++ uri ++ "\"}"
+  let open = "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didOpen\",\"params\":{\"textDocument\":{\"uri\":\"" ++ uri ++ "\",\"languageId\":\"vow\",\"version\":1,\"text\":" ++ json_quote(text) ++ "}}}"
+  let hover = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"textDocument/hover\",\"params\":" ++ doc ++ ",\"position\":{\"line\":7,\"character\":21}}}"
+  var input = frame("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}") ++ frame(open) ++ frame(hover)
+  set input = input ++ frame("{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"shutdown\"}") ++ frame("{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}")
+  let o = run(argv: ["build/vow-lsp"], input: input)
+  let known = contains(s: o.out, p: "x: Int\\n// known here:\\nx > 3")
+  check known
+end fn test_known_facts

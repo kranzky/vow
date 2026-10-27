@@ -81,7 +81,7 @@ Must-have, tooling:
 - [x] `vowc test`: verifies, then runs each `test_...` function in its own process
 - [x] Language server (`vow-lsp`): diagnostics as you edit, proofs on save, hover with
       types and contracts, go to definition
-- [ ] Language server: hover with the facts the verifier knows at that point
+- [x] Language server: hover with the facts the verifier knows at that point
 - [x] Pinned Z3 version (5.3.2, installed by `tools/install-z3.sh`; CI uses it)
 - [ ] Verifier performance (incremental solving)
 

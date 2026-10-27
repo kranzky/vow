@@ -93,6 +93,10 @@ struct Verifier
   // structural equality predicates it defines.
   sf_done: List<String>,
   eq_done: List<String>,
+  // For the language server: the line (in the root file) whose known facts to record
+  // in probe when its first statement is reached, or -1.
+  probe_line: Int,
+  probe: List<String>,
   // Whether goals assume the field refinements of the struct values they name; off
   // only to compare the SMT with the frozen bootstrap verifier (tests/differential.sh).
   hyps: Bool,
@@ -117,7 +121,7 @@ fn new_verifier(info: Info) -> Verifier do
   end for
   let loops: List<LoopCtx> = []
   return Verifier(info: info, n: 0, decls: [], defs: [], qdefs: [], obs: [], preamble: pre, strs: {}, loops: loops,
-    fname: "", ret: plain(Ty.TUnit), post: [], dec: Option.None, params: {}, hole_facts: {}, sf_done: [], eq_done: [], hyps: true)
+    fname: "", ret: plain(Ty.TUnit), post: [], dec: Option.None, params: {}, hole_facts: {}, sf_done: [], eq_done: [], probe_line: -1, probe: [], hyps: true)
 end fn new_verifier
 
 fn sort_of(t: Ty) -> String do
@@ -1264,6 +1268,15 @@ struct Branch
 end struct Branch
 
 fn vstmt(v: inout Verifier, s: Stmt, st: inout St) do
+  if (s.pos.file == 0) and (s.pos.line == v.probe_line) and (len(v.probe) == 0) then
+    var facts = ["(reached)"]
+    for f in st.src do
+      if not contains_str(xs: facts, x: f) then
+        set facts = push(list: facts, item: f)
+      end if
+    end for
+    set v = v with (probe: facts)
+  end if
   match s.kind
   case Let(name: name, ty: ty, value: value, mutable: m) then
     let t = vexpr(v: inout v, e: value, st: inout st)

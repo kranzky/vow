@@ -4,8 +4,8 @@
 
 - `vow-lsp`, a language server (built from `tools/lsp/vowlsp.vow`, shipped in the release
   archives): type and effect errors as you edit, failed proofs and holes when a file is
-  opened or saved, hover with a function's contract or an expression's type, and go to
-  definition. Its test drives a session from a Vow program (`make test-lsp`). The
+  opened or saved, hover with a function's contract or an expression's type (and what
+  the verifier knows about it at that line), and go to definition. Its test drives a session from a Vow program (`make test-lsp`). The
   README shows how to set it up in Neovim, Helix and Emacs.
 - The checking and verification pipeline is now one module (`compiler/pipeline.vow`)
   shared by `vowc` and the language server, and `load_with` checks unsaved buffers.

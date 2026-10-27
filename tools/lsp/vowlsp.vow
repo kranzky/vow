@@ -6,7 +6,8 @@
 //   counterexamples) and holes (with the facts known there) when a file is opened or
 //   saved, since proving takes longer. Unsaved buffers are what gets checked.
 // - Hover: a function's signature and contract, a type's declaration, or the type of a
-//   variable, parameter, binding or field.
+//   variable, parameter, binding or field, with the facts the verifier knows about it
+//   at that line.
 // - Go to definition: functions, types, variants, and local bindings and parameters.
 
 import "../../compiler/pipeline.vow"
@@ -423,22 +424,64 @@ fn hover(s: Server, path: String, line: Int, col: Int) -> Json uses fs do
     else
     end match
   end for
+  var ty = ""
   for x in found do
-    if x.col == w.col then
-      let t = type_of(info: info, e: x.e)
-      if not is_unknown(t) then
-        return markdown(w.text ++ ": " ++ ty_show(t))
-      end if
+    let t = type_of(info: info, e: x.e)
+    if (len(ty) == 0) and (x.col == w.col) and not is_unknown(t) then
+      set ty = ty_show(t)
     end if
   end for
   for x in found do
     let t = type_of(info: info, e: x.e)
-    if not is_unknown(t) then
-      return markdown(w.text ++ ": " ++ ty_show(t))
+    if (len(ty) == 0) and not is_unknown(t) then
+      set ty = ty_show(t)
     end if
   end for
-  return Json.JNull
+  if len(ty) == 0 then
+    return Json.JNull
+  end if
+  var text = w.text ++ ": " ++ ty
+  let facts = facts_about(src: src, ck: ck, line: line, name: w.text)
+  if len(facts) > 0 then
+    set text = text ++ "\n// known here:\n" ++ join(parts: facts, sep: "\n")
+  end if
+  return markdown(text)
 end fn hover
+
+// What the verifier knows when it reaches line (in the function around it) that
+// mentions name: the conditions, refinements, contracts and invariants it assumes there.
+// This walks the function symbolically; no proof is attempted.
+fn facts_about(src: Source, ck: Checked, line: Int, name: String) -> List<String> do
+  var none: List<String> = []
+  if len(ck.errs) > 0 then
+    return none
+  end if
+  var host: Option<FnDecl> = Option.None
+  for item in src.items do
+    match item
+    case FnItem(decl: f) then
+      if (f.pos.file == 0) and (f.pos.line <= line) then
+        set host = Option.Some(value: f)
+      end if
+    else
+    end match
+  end for
+  match host
+  case Some(value: f) then
+    var v = new_verifier(ck.c.info)
+    set v = v with (probe_line: line)
+    let _ = verify_fn(v: inout v, f: f)
+    var out: List<String> = []
+    for fact in v.probe do
+      if (fact != "(reached)") and mentions(text: fact, name: name) then
+        set out = push(list: out, item: fact)
+      end if
+    end for
+    return out
+  case None then
+    return none
+  end match
+end fn facts_about
 
 fn definition(s: Server, path: String, line: Int, col: Int) -> Json uses fs do
   let w = word_at(text: doc_text(s: s, path: path), line: line, col: col)
