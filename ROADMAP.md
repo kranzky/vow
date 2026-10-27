@@ -62,8 +62,8 @@ Must-have, language and proofs:
       children, or mutual recursion mixing a list index and a tree
 - [ ] Field refinements of list elements in specifications (`xs[i].count` inside a
       `forall`); values reached by name are covered
-- [ ] A rule for bumping the verifier version (part of every cache key) whenever the
-      encoding changes what can be proved
+- [x] The verifier version (part of every cache key) changes whenever the SMT it
+      emits does; `tests/fingerprint.sh` enforces it
 
 Must-have, runtime and portability:
 - [x] Memory reclamation: reference counting, with in-place updates of uniquely

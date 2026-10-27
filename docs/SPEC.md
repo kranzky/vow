@@ -437,9 +437,10 @@ only if the caller declares every effect the callee uses. `main` may declare any
 For each function the compiler computes:
 
 - **body hash:** FNV-1a over a canonical rendering of the function;
-- **verification key:** the body hash combined with the contract hashes of every
-  function called in the body or the specifications, and the hash of all type
-  declarations. A specification function's contract hash covers its body, because
+- **verification key:** the verifier version, the body hash, the contract hashes of
+  every function called in the body or the specifications, and the hash of all type
+  declarations. The verifier version changes whenever the SMT the verifier emits does,
+  so a result is reused only by the verifier that proved it. A specification function's contract hash covers its body, because
   callers' proofs see it, and the hash of all type declarations also covers every
   specification function's body (so a change to one invalidates proofs that use it
   indirectly).

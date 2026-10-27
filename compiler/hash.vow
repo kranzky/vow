@@ -5,8 +5,11 @@
 import "check.vow"
 import "pretty.vow"
 
+// Part of every verification cache key. Bump it whenever the SMT the verifier emits
+// changes (tests/fingerprint.sh enforces this), so that results proved by an earlier
+// verifier, which might have had a soundness bug since fixed, are not reused.
 fn verifier_version() -> String do
-  return "vow-verifier-2"
+  return "vow-verifier-3"
 end fn verifier_version
 
 fn calls_in_expr(e: Expr, info: Info, out: inout List<String>) do

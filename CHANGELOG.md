@@ -5,6 +5,11 @@
 - Z3 is pinned: Vow is tested with Z3 5.3.2, which `tools/install-z3.sh` installs
   (checking its SHA-256) and CI uses. `vowc version` shows the Z3 it finds, and when a
   proof is left undecided by a different Z3, `vowc` says which version it is tested with.
+- The verifier version, part of every verification cache key, is now `vow-verifier-3`,
+  and must change whenever the SMT the verifier emits does: `tests/fingerprint.sh`
+  compares a hash of the SMT for every test program and example with the one recorded
+  for the current version. Cached results are reused only by the verifier that proved
+  them, so a fix to the encoding never trusts results from before it.
 
 ## v0.6.0
 

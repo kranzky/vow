@@ -1524,7 +1524,7 @@ int main(int argc, char **argv) {
     vow_s[1112] = vow_immortal(vstr_new(")[0] == 1)", 10));
     vow_s[1113] = vow_immortal(vstr_new(")[0] == 0)", 10));
     vow_s[1114] = vow_immortal(vstr_new("vvalue_or(", 10));
-    vow_s[1115] = vow_immortal(vstr_new("vow-verifier-2", 14));
+    vow_s[1115] = vow_immortal(vstr_new("vow-verifier-3", 14));
     vow_s[1116] = vow_immortal(vstr_new("' is mutually recursive with '", 30));
     vow_s[1117] = vow_immortal(vstr_new("', which has a 'decreases' measure; give '", 42));
     vow_s[1118] = vow_immortal(vstr_new("' one too", 9));
