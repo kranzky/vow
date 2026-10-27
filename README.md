@@ -170,8 +170,8 @@ Emacs (Eglot):
 
 ## Status
 
-The current release is **v0.7.0**, which adds `vowc fmt`, `vowc test`, a language server
-(`vow-lsp`), `std/json.vow` and a pinned Z3 (see the [changelog](CHANGELOG.md)). Vow is an experiment, not yet a V1. Notable gaps:
+The current release is **v0.8.0**, which adds `Float` (IEEE doubles, verified soundly)
+and the floating-point benchmarks (see the [changelog](CHANGELOG.md)). Vow is an experiment, not yet a V1. Notable gaps:
 no modules; termination is proved only where measures are given; Unix only.
 See the roadmap.
 
