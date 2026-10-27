@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.6.0 (unreleased)
+
+- Mutual recursion is measured: functions that call each other form a recursive group;
+  when one has `decreases`, all must, and every call within the group must decrease
+  the measure.
+- Structural measures: `decreases t` where `t` is a list, struct, enum or option value
+  proves recursion on its parts terminates (tree and rose-tree walks).
+- `vowc check --totality` reports which functions are proved to terminate, and for
+  the others, why not (an unmeasured loop or recursion, or a call to such a function).
+
 ## v0.5.0
 
 Structural equality and `old(x)`.

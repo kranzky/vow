@@ -1,7 +1,8 @@
 #!/bin/sh
-# Runs every tests/run/*.vow and compares stdout with the matching .out file, and
-# checks that every tests/fail/*.vow is rejected with the message in its first line
-# ("// error: <text>").
+# Runs every tests/run/*.vow and compares stdout with the matching .out file; checks
+# that every tests/fail/*.vow is rejected with the message in its first line
+# ("// error: <text>"); and compares `check --totality` on tests/total/*.vow with the
+# matching .out file.
 cd "$(dirname "$0")" || exit 1
 VOWC=${VOWC:-"$(pwd)/../bootstrap/target/debug/vowc"}
 pass=0
@@ -32,6 +33,18 @@ for f in fail/*.vow; do
     fail=$((fail + 1))
     echo "FAIL $f (wanted: $want)"
     echo "$got" | head -10
+  fi
+done
+for f in total/*.vow; do
+  skip "$f" && continue
+  exp="${f%.vow}.out"
+  got=$("$VOWC" check "$f" --totality 2>&1)
+  if [ "$got" = "$(cat "$exp")" ]; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1))
+    echo "FAIL $f"
+    echo "$got" | diff "$exp" - | head -20
   fi
 done
 for f in ../examples/*.vow; do

@@ -354,10 +354,21 @@ obligations to Z3 in SMT-LIB 2.
   holds after the loop.
 - **Termination** is proved where a measure is given. For `while ... decreases M`, `M`
   must be non-negative when an iteration starts and strictly smaller at its end and at
-  every `continue`. For a function with `decreases M`, every directly recursive call
-  must have a smaller non-negative `M` (measured on the arguments as passed). `for`
-  loops always terminate. Functions without measures get partial-correctness proofs:
-  their contracts hold if they return. Mutual recursion is not yet measured.
+  every `continue`. Functions that call each other, directly or through others, form a
+  recursive group (calls in contracts count). When one member of a group has
+  `decreases M`, every member must have a measure, and every call within the group
+  must make the callee's measure, on the arguments as passed, smaller than the
+  caller's `M`, which must be non-negative. `for` loops always terminate. Functions
+  without measures get partial-correctness proofs: their contracts hold if they return.
+- A measure is an `Int`, or a value of a list, struct, enum or option type, which must
+  get structurally smaller: a variant's fields and a list's elements are smaller than
+  the value, and a struct's fields are no larger than the struct (so recursion through
+  a struct must also pass through a variant or a list). These facts are stated where
+  the code reads the part: in a `match` arm, at `xs[i]` and `for x in xs`, and at a
+  struct field. `decreases t` on a tree proves `size(l) + size(r)` terminates.
+- `vowc check --totality` reports which functions are proved to terminate: those
+  whose `while` loops and recursion are measured and which call only such functions.
+  Built-in functions are taken to terminate.
 - Unknown or timed-out queries count as failures. Failed obligations are reported with
   a counterexample when Z3 provides one.
 

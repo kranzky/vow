@@ -1,0 +1,15 @@
+// error: cannot prove recursive call to 'walk' decreases its measure: b
+// language: 0.5
+
+// A struct's field is only known to be no larger than the struct.
+struct Box
+  inner: Box,
+  n: Int,
+end struct Box
+
+fn walk(b: Box) -> Int decreases b do
+  return walk(b.inner)
+end fn walk
+
+fn main() do
+end fn main

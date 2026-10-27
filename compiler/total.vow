@@ -1,0 +1,291 @@
+// Recursion and termination. The call graph covers calls anywhere a function's proof
+// looks (its body and its contracts); its strongly connected components are the
+// groups of mutually recursive functions. A call within a group must decrease the
+// caller's measure, so when one member of a group has a measure, all must.
+
+import "hash.vow"
+
+// The functions f's proof refers to: calls in its body and contracts.
+fn proof_callees(f: FnDecl, info: Info) -> List<String> do
+  var out: List<String> = []
+  calls_in_block(stmts: f.body, info: info, out: inout out)
+  calls_in_all(es: f.pre, info: info, out: inout out)
+  calls_in_all(es: f.post, info: info, out: inout out)
+  for p in f.params do
+    calls_in_opt_expr(e: p.ty.refine, info: info, out: inout out)
+  end for
+  match f.ret
+  case Some(value: t) then
+    calls_in_opt_expr(e: t.refine, info: info, out: inout out)
+  case None then
+  end match
+  calls_in_opt_expr(e: f.dec, info: info, out: inout out)
+  return out
+end fn proof_callees
+
+fn out_edges(edges: Map<String, List<String>>, n: String) -> List<String> do
+  match lookup(map: edges, key: n)
+  case Some(value: es) then
+    return es
+  case None then
+    let none: List<String> = []
+    return none
+  end match
+end fn out_edges
+
+// The strongly connected components (Kosaraju): each name's component number.
+fn components(names: List<String>, edges: Map<String, List<String>>) -> Map<String, Int> do
+  // Pass 1: the order in which depth-first searches finish.
+  var visited: Map<String, Bool> = {}
+  var order: List<String> = []
+  for root in names do
+    if has(map: visited, key: root) then
+      continue
+    end if
+    set visited = insert(map: visited, key: root, value: true)
+    var stack = [root]
+    var pos = [0]
+    while len(stack) > 0 invariant len(pos) == len(stack) do
+      let k = len(stack) - 1
+      let n = stack[k]
+      let es = out_edges(edges: edges, n: n)
+      let p = pos[k]
+      if (p >= 0) and (p < len(es)) then
+        set pos = set_at(list: pos, at: k, value: p + 1)
+        let m = es[p]
+        if not has(map: visited, key: m) then
+          set visited = insert(map: visited, key: m, value: true)
+          set stack = push(list: stack, item: m)
+          set pos = push(list: pos, item: 0)
+        end if
+      else
+        set order = push(list: order, item: n)
+        set stack = slice(of: stack, from: 0, to: k)
+        set pos = slice(of: pos, from: 0, to: k)
+      end if
+    end while
+  end for
+  // Pass 2: search the reversed graph in reverse finishing order.
+  var rev: Map<String, List<String>> = {}
+  for n in names do
+    for m in out_edges(edges: edges, n: n) do
+      set rev = insert(map: rev, key: m, value: push(list: out_edges(edges: rev, n: m), item: n))
+    end for
+  end for
+  var comp: Map<String, Int> = {}
+  var next = 0
+  var i = len(order)
+  while i > 0 invariant i <= len(order) do
+    set i = i - 1
+    let root = order[i]
+    if has(map: comp, key: root) then
+      continue
+    end if
+    set comp = insert(map: comp, key: root, value: next)
+    var stack = [root]
+    while len(stack) > 0 do
+      let n = stack[len(stack) - 1]
+      set stack = slice(of: stack, from: 0, to: len(stack) - 1)
+      for m in out_edges(edges: rev, n: n) do
+        if not has(map: comp, key: m) then
+          set comp = insert(map: comp, key: m, value: next)
+          set stack = push(list: stack, item: m)
+        end if
+      end for
+    end while
+    set next = next + 1
+  end while
+  return comp
+end fn components
+
+struct Recursion
+  edges: Map<String, List<String>>,
+  scc: Map<String, Int>,
+  // Functions that can call themselves, directly or through others.
+  recursive: Map<String, Bool>,
+end struct Recursion
+
+fn recursion(items: List<Item>, info: Info) -> Recursion do
+  var names: List<String> = []
+  for item in items do
+    match item
+    case FnItem(decl: f) then
+      set names = push(list: names, item: f.name)
+    else
+    end match
+  end for
+  var edges: Map<String, List<String>> = {}
+  for item in items do
+    match item
+    case FnItem(decl: f) then
+      var es: List<String> = []
+      for g in proof_callees(f: f, info: info) do
+        if contains_str(xs: names, x: g) then
+          set es = push(list: es, item: g)
+        end if
+      end for
+      set edges = insert(map: edges, key: f.name, value: es)
+    else
+    end match
+  end for
+  let scc = components(names: names, edges: edges)
+  var size: Map<Int, Int> = {}
+  for n in names do
+    let k = scc_of(scc: scc, n: n)
+    set size = insert(map: size, key: k, value: value_or(opt: lookup(map: size, key: k), default: 0) + 1)
+  end for
+  var recursive: Map<String, Bool> = {}
+  for n in names do
+    let k = scc_of(scc: scc, n: n)
+    let es = out_edges(edges: edges, n: n)
+    if (value_or(opt: lookup(map: size, key: k), default: 0) > 1) or contains_str(xs: es, x: n) then
+      set recursive = insert(map: recursive, key: n, value: true)
+    end if
+  end for
+  return Recursion(edges: edges, scc: scc, recursive: recursive)
+end fn recursion
+
+fn scc_of(scc: Map<String, Int>, n: String) -> Int do
+  return value_or(opt: lookup(map: scc, key: n), default: -1)
+end fn scc_of
+
+// When one function of a recursive group has a measure, every member needs one.
+fn measure_errors(items: List<Item>, r: Recursion) -> List<Diag> do
+  var measured: Map<Int, String> = {}
+  for item in items do
+    match item
+    case FnItem(decl: f) then
+      if has(map: r.recursive, key: f.name) and is_some(f.dec) then
+        set measured = insert(map: measured, key: scc_of(scc: r.scc, n: f.name), value: f.name)
+      end if
+    else
+    end match
+  end for
+  var out: List<Diag> = []
+  for item in items do
+    match item
+    case FnItem(decl: f) then
+      if has(map: r.recursive, key: f.name) and not is_some(f.dec) then
+        match lookup(map: measured, key: scc_of(scc: r.scc, n: f.name))
+        case Some(value: g) then
+          let msg = "'" ++ f.name ++ "' is mutually recursive with '" ++ g ++ "', which has a 'decreases' measure; give '" ++ f.name ++ "' one too"
+          set out = push(list: out, item: diag(pos: f.pos, msg: msg))
+        case None then
+        end match
+      end if
+    else
+    end match
+  end for
+  return out
+end fn measure_errors
+
+// ---- totality ----
+
+// The position of the first 'while' loop without a measure, if any.
+fn unmeasured_loop(stmts: List<Stmt>) -> Option<Pos> do
+  for s in stmts do
+    var inner: List<List<Stmt>> = []
+    match s.kind
+    case While(cond: c, invs: invs, dec: dec, body: body) then
+      if not is_some(dec) then
+        return Option.Some(value: s.pos)
+      end if
+      set inner = [body]
+    case ForRange(name: v, lo: lo, hi: hi, invs: invs, body: body) then
+      set inner = [body]
+    case ForEach(name: v, list: l, invs: invs, body: body) then
+      set inner = [body]
+    case If(arms: arms, els: els) then
+      for a in arms do
+        set inner = push(list: inner, item: a.body)
+      end for
+      match els
+      case Some(value: b) then
+        set inner = push(list: inner, item: b)
+      case None then
+      end match
+    case Match(scrut: sc, cases: cases, els: els) then
+      for cs in cases do
+        set inner = push(list: inner, item: cs.body)
+      end for
+      match els
+      case Some(value: b) then
+        set inner = push(list: inner, item: b)
+      case None then
+      end match
+    else
+    end match
+    for b in inner do
+      match unmeasured_loop(b)
+      case Some(value: p) then
+        return Option.Some(value: p)
+      case None then
+      end match
+    end for
+  end for
+  return Option.None
+end fn unmeasured_loop
+
+struct Totality
+  name: String,
+  // "" when the function is proved to terminate.
+  reason: String,
+end struct Totality
+
+// Which functions are proved to terminate (given that verification succeeds): every
+// 'while' loop has a measure, recursion is measured, and every function called is
+// proved to terminate too. Built-in functions are taken to terminate.
+fn totality(items: List<Item>, info: Info, r: Recursion, files: List<String>) -> List<Totality> do
+  var names: List<String> = []
+  var reason: Map<String, String> = {}
+  var calls: Map<String, List<String>> = {}
+  for item in items do
+    match item
+    case FnItem(decl: f) then
+      set names = push(list: names, item: f.name)
+      var why = ""
+      match unmeasured_loop(f.body)
+      case Some(value: p) then
+        set why = "has a 'while' loop without 'decreases' at " ++ pos_text(p: p, files: files)
+      case None then
+        if has(map: r.recursive, key: f.name) and not is_some(f.dec) then
+          set why = "is recursive and has no 'decreases' measure"
+        end if
+      end match
+      set reason = insert(map: reason, key: f.name, value: why)
+      var cs: List<String> = []
+      calls_in_block(stmts: f.body, info: info, out: inout cs)
+      set calls = insert(map: calls, key: f.name, value: cs)
+    else
+    end match
+  end for
+  var changed = true
+  while changed do
+    set changed = false
+    for n in names do
+      if len(value_or(opt: lookup(map: reason, key: n), default: "")) == 0 then
+        for g in out_edges(edges: calls, n: n) do
+          let gr = value_or(opt: lookup(map: reason, key: g), default: "")
+          let mine = value_or(opt: lookup(map: reason, key: n), default: "")
+          if (len(gr) > 0) and (len(mine) == 0) then
+            set reason = insert(map: reason, key: n, value: "calls '" ++ g ++ "', which is not proved to terminate")
+            set changed = true
+          end if
+        end for
+      end if
+    end for
+  end while
+  var out: List<Totality> = []
+  for n in names do
+    set out = push(list: out, item: Totality(name: n, reason: value_or(opt: lookup(map: reason, key: n), default: "")))
+  end for
+  return out
+end fn totality
+
+fn pos_text(p: Pos, files: List<String>) -> String do
+  var f = "?"
+  if (p.file >= 0) and (p.file < len(files)) then
+    set f = files[p.file]
+  end if
+  return f ++ ":" ++ int_to_str(p.line) ++ ":" ++ int_to_str(p.col)
+end fn pos_text

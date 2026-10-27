@@ -1,0 +1,20 @@
+// error: cannot prove recursive call to 'depth' decreases its measure: t
+// language: 0.5
+
+enum Tree
+  Leaf,
+  Node(left: Tree, right: Tree),
+end enum Tree
+
+fn depth(t: Tree) -> Int decreases t do
+  match t
+  case Leaf then
+    return 0
+  case Node(left: l, right: r) then
+    return depth(t) + 1
+  end match
+end fn depth
+
+fn main() do
+  let _ = depth(Tree.Leaf)
+end fn main

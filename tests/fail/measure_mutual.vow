@@ -1,0 +1,17 @@
+// error: cannot prove call to 'pong' decreases the measure of 'ping': n < n
+// language: 0.5
+
+fn ping(n: Int where it >= 0) -> Int decreases n do
+  if n == 0 then
+    return 0
+  end if
+  return pong(n)
+end fn ping
+
+fn pong(n: Int where it >= 0) -> Int decreases n do
+  return ping(n - 1)
+end fn pong
+
+fn main() do
+  let _ = ping(3)
+end fn main

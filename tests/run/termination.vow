@@ -1,0 +1,78 @@
+// language: 0.5
+// Termination: structural measures (trees, rose trees, options) and mutual recursion.
+
+enum Tree
+  Leaf,
+  Node(left: Tree, value: Int, right: Tree),
+end enum Tree
+
+struct Rose
+  label: Int,
+  kids: List<Rose>,
+end struct Rose
+
+fn size(t: Tree) -> Int
+  ensures result >= 0
+  decreases t
+do
+  match t
+  case Leaf then
+    return 0
+  case Node(left: l, value: v, right: r) then
+    return (size(l) + 1) + size(r)
+  end match
+end fn size
+
+fn count(r: Rose) -> Int
+  decreases r
+do
+  var n = 1
+  for i in 0..len(r.kids) do
+    set n = n + count(r.kids[i])
+  end for
+  return n
+end fn count
+
+fn is_even(n: Int where it >= 0) -> Bool decreases n do
+  if n == 0 then
+    return true
+  end if
+  return is_odd(n - 1)
+end fn is_even
+
+fn is_odd(n: Int where it >= 0) -> Bool decreases n do
+  if n == 0 then
+    return false
+  end if
+  return is_even(n - 1)
+end fn is_odd
+
+fn length(xs: Option<Tree>) -> Int decreases xs do
+  match xs
+  case None then
+    return 0
+  case Some(value: t) then
+    return 1
+  end match
+end fn length
+
+fn spin(n: Int) -> Int do
+  var i = n
+  while i > 0 do
+    set i = i - 1
+  end while
+  return i
+end fn spin
+
+fn uses_spin() -> Int do
+  return spin(3)
+end fn uses_spin
+
+fn main() uses console do
+  let t = Tree.Node(left: Tree.Leaf, value: 1, right: Tree.Node(left: Tree.Leaf, value: 2, right: Tree.Leaf))
+  let r = Rose(label: 1, kids: [Rose(label: 2, kids: []), Rose(label: 3, kids: [])])
+  print(int_to_str(size(t)) ++ " " ++ int_to_str(count(r)) ++ " ")
+  if is_even(10) and is_odd(7) then
+    print("ok " ++ int_to_str(uses_spin()) ++ "\n")
+  end if
+end fn main

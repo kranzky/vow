@@ -143,6 +143,12 @@ struct Info
   // Instances of generic functions with concrete types: checked, and compiled.
   instances: List<FnDecl>,
   next_id: Int,
+  // Each function's group of mutually recursive functions (see total.vow), and the
+  // functions that can call themselves.
+  scc: Map<String, Int>,
+  recursive: Map<String, Bool>,
+  // Whether any measure is structural (not an Int).
+  structural: Bool,
 end struct Info
 
 // ---- built-in functions ----
@@ -931,7 +937,7 @@ fn new_info() -> Info do
     value: [FieldInfo(name: "code", rty: plain(Ty.TInt)), FieldInfo(name: "out", rty: plain(Ty.TStr))])
   return Info(structs: structs, enums: {}, aliases: {}, fns: {}, types: {}, calls: {}, holes: [],
     gfns: {}, gstructs: {}, genums: {}, tenv: {}, inst_args: {}, origins: {}, pending: [], instances: [],
-    next_id: 0)
+    next_id: 0, scc: {}, recursive: {}, structural: false)
 end fn new_info
 
 fn alias_ready(info: Info, te: TypeExpr, alias_names: List<String>) -> Bool do
@@ -1402,10 +1408,34 @@ fn check_measure(c: inout Checker, e: Expr, scope: List<NamedTy>) do
     set locals = push(list: locals, item: Local(name: s.name, ty: s.ty, mutable: false))
   end for
   set c = c with (locals: locals, marks: [], spec: true)
-  let t = check_expr(c: inout c, e: e, expected: Option.Some(value: Ty.TInt))
-  expect_ty(c: inout c, pos: e.pos, got: t, want: Ty.TInt, what: "a 'decreases' measure")
+  let t = check_expr(c: inout c, e: e, expected: Option.None)
+  expect_measure(c: inout c, pos: e.pos, t: t)
   set c = c with (locals: saved_locals, marks: saved_marks, spec: false)
 end fn check_measure
+
+// A measure is an Int, which must decrease and stay non-negative, or a list, struct,
+// enum or option value, which must get structurally smaller: a call or iteration must
+// work on a part of it.
+fn expect_measure(c: inout Checker, pos: Pos, t: Ty) do
+  var structural = true
+  match t
+  case TInt then
+    set structural = false
+  case TList(elem: x) then
+  case TStruct(name: n) then
+  case TEnum(name: n) then
+  case TOpt(inner: x) then
+  case TUnknown then
+    set structural = false
+  else
+    set structural = false
+    err(c: inout c, pos: pos, msg: "a 'decreases' measure must be an Int, or a list, struct, enum or option value, not " ++ ty_show(t))
+  end match
+  if structural then
+    let info = c.info
+    set c = c with (info: info with (structural: true))
+  end if
+end fn expect_measure
 
 struct Candidate
   name: String,
@@ -1735,8 +1765,8 @@ fn check_stmt(c: inout Checker, s: Stmt) do
     match dec
     case Some(value: d) then
       set c = c with (spec: true)
-      let dt = check_expr(c: inout c, e: d, expected: Option.Some(value: Ty.TInt))
-      expect_ty(c: inout c, pos: d.pos, got: dt, want: Ty.TInt, what: "a 'decreases' measure")
+      let dt = check_expr(c: inout c, e: d, expected: Option.None)
+      expect_measure(c: inout c, pos: d.pos, t: dt)
       set c = c with (spec: false)
     case None then
     end match

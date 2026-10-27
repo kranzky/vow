@@ -820,10 +820,62 @@ fn plain_loop(invs: List<Expr>) -> LoopCtx do
   return LoopCtx(invs: invs, next_var: "", next_term: "", dec: Option.None, d0: "")
 end fn plain_loop
 
+// ---- measures ----
+
+// A measure's value as an Int: an Int measure is itself; any other value is measured by
+// its rank, which is smaller for each part of it (rank_axioms).
+fn as_measure(v: inout Verifier, d: Expr, t: String) -> String do
+  if ty_show(type_of(info: v.info, e: d)) == "Int" then
+    return t
+  end if
+  rank_axioms(inout v)
+  let r = "(rank " ++ t ++ ")"
+  add_def(v: inout v, d: "(assert (>= " ++ r ++ " 0))")
+  return r
+end fn as_measure
+
+// rank is a non-negative size: an enum's or option's fields have smaller ranks than the
+// value, a list's elements smaller ranks than the list, and a struct's fields ranks no
+// larger than the struct (a struct has no tag to say it is one, so a value whose field
+// function led back to itself must be allowed). Real values are finite, so a value's
+// height is such a rank. When a program has structural measures, these facts are
+// stated for each part the code reads (rank_part), not as quantified axioms, which
+// would leave Z3 searching for a model when a proof fails.
+fn rank_axioms(v: inout Verifier) do
+  let _ = global_fn(v: inout v, name: "rank", args: "Val", sort: "Int")
+end fn rank_axioms
+
+// The fact relating the rank of part (of type t) to the rank of whole: strictly
+// smaller, or for a struct field no larger; "" when there is nothing to say.
+fn rank_part(v: inout Verifier, t: Ty, part: String, whole: String, strict: Bool) -> String do
+  if (not v.info.structural) or (sort_of(t) != "Val") then
+    return ""
+  end if
+  rank_axioms(inout v)
+  var op = "<="
+  if strict then
+    set op = "<"
+  end if
+  return "(" ++ op ++ " (rank " ++ part ++ ") (rank " ++ whole ++ "))"
+end fn rank_part
+
+// The group of mutually recursive functions a function (or an instance of a generic
+// function) belongs to; -1 if unknown.
+fn scc_of_fn(info: Info, name: String) -> Int do
+  var n = name
+  match lookup(map: info.origins, key: name)
+  case Some(value: g) then
+    set n = g
+  case None then
+  end match
+  return value_or(opt: lookup(map: info.scc, key: n), default: -1)
+end fn scc_of_fn
+
 fn check_loop_measure(v: inout Verifier, st: St, l: LoopCtx) do
   match l.dec
   case Some(value: d) then
-    let now = spec_term(v: inout v, e: d, st: st, subj: "", res: "")
+    let t = spec_term(v: inout v, e: d, st: st, subj: "", res: "")
+    let now = as_measure(v: inout v, d: d, t: t)
     obligation(v: inout v, st: st, pos: d.pos, what: "loop measure decreases: " ++ pretty_expr(d), goal: "(< " ++ now ++ " " ++ l.d0 ++ ")")
   case None then
   end match
@@ -909,7 +961,8 @@ fn vstmt(v: inout Verifier, s: Stmt, st: inout St) do
     match dec
     case Some(value: d) then
       let t = spec_term(v: inout v, e: d, st: inner, subj: "", res: "")
-      let d0 = define(v: inout v, sort: "Int", term: t)
+      let mt = as_measure(v: inout v, d: d, t: t)
+      let d0 = define(v: inout v, sort: "Int", term: mt)
       obligation(v: inout v, st: inner, pos: d.pos, what: "loop measure is non-negative: " ++ pretty_expr(d), goal: "(>= " ++ d0 ++ " 0)")
       set lc = lc with (dec: dec, d0: d0)
     case None then
@@ -972,6 +1025,10 @@ fn vstmt(v: inout Verifier, s: Stmt, st: inout St) do
     add_fact(st: inout inner, f: "(<= 0 " ++ k ++ ")")
     add_fact(st: inout inner, f: "(< " ++ k ++ " (len " ++ lt ++ "))")
     let x = define(v: inout v, sort: sort_of(et), term: "(elem_" ++ sort_of(et) ++ " " ++ lt ++ " " ++ k ++ ")")
+    let rk = rank_part(v: inout v, t: et, part: x, whole: lt, strict: true)
+    if len(rk) > 0 then
+      add_fact(st: inout inner, f: rk)
+    end if
     set inner = inner with (env: insert(map: inner.env, key: var_name, value: VVar(term: x, ty: et, preds: [])))
     add_src(st: inout inner, f: var_name ++ " is an element of " ++ pretty_expr(l))
     push_loop(v: inout v, l: plain_loop(invs))
@@ -1069,6 +1126,10 @@ fn vmatch(v: inout Verifier, scrut: Expr, cases: List<Case>, els: Option<List<St
             let t = spec_with(v: inout v, e: p, binds: fbinds, subj: ft)
             add_fact(st: inout arm, f: t)
           end for
+          let rk = rank_part(v: inout v, t: fl.rty.ty, part: ft, whole: sv, strict: true)
+          if len(rk) > 0 then
+            add_fact(st: inout arm, f: rk)
+          end if
           for b in binds do
             if b.field == fl.name then
               set arm = arm with (env: insert(map: arm.env, key: b.binder, value: VVar(term: ft, ty: fl.rty.ty, preds: [])))
@@ -1319,7 +1380,12 @@ fn vexpr(v: inout Verifier, e: Expr, st: inout St) -> String do
     case TStr then
       return "(byte " ++ ov ++ " " ++ iv ++ ")"
     case TList(elem: t) then
-      return "(elem_" ++ sort_of(t) ++ " " ++ ov ++ " " ++ iv ++ ")"
+      let el = "(elem_" ++ sort_of(t) ++ " " ++ ov ++ " " ++ iv ++ ")"
+      let rk = rank_part(v: inout v, t: t, part: el, whole: ov, strict: true)
+      if len(rk) > 0 then
+        add_fact(st: inout st, f: "(=> " ++ goal ++ " " ++ rk ++ ")")
+      end if
+      return el
     else
       return fresh(v: inout v, sort: "Val")
     end match
@@ -1350,6 +1416,10 @@ fn vexpr(v: inout Verifier, e: Expr, st: inout St) -> String do
         let t = spec_with(v: inout v, e: p, binds: binds, subj: term)
         add_fact(st: inout st, f: t)
       end for
+      let rk = rank_part(v: inout v, t: fields[fi].rty.ty, part: term, whole: ov, strict: false)
+      if len(rk) > 0 then
+        add_fact(st: inout st, f: rk)
+      end if
     end if
     return term
   case With(obj: o, args: args) then
@@ -1580,13 +1650,27 @@ fn vcall_user(v: inout Verifier, e: Expr, name: String, p: List<String>, pe: Lis
     let g = spec_with(v: inout v, e: r, binds: binds, subj: "")
     obligation(v: inout v, st: st, pos: e.pos, what: "precondition of '" ++ name ++ "': " ++ pretty_expr(r), goal: g)
   end for
-  // Measured on the arguments as passed in.
-  if name == v.fname then
+  // A call within the caller's group of mutually recursive functions decreases the
+  // caller's measure: the callee's measure, on the arguments as passed in, is smaller.
+  let same = name == v.fname
+  let k = scc_of_fn(info: v.info, name: v.fname)
+  if same or ((k >= 0) and (scc_of_fn(info: v.info, name: name) == k)) then
     match v.dec
     case Some(value: d) then
-      let entry = spec_with(v: inout v, e: d, binds: v.params, subj: "")
-      let now = spec_with(v: inout v, e: d, binds: binds, subj: "")
-      let what = "recursive call to '" ++ name ++ "' decreases its measure: " ++ pretty_expr(d)
+      var cd = d
+      match fi.dec
+      case Some(value: x) then
+        set cd = x
+      case None then
+      end match
+      let e0 = spec_with(v: inout v, e: d, binds: v.params, subj: "")
+      let entry = as_measure(v: inout v, d: d, t: e0)
+      let n0 = spec_with(v: inout v, e: cd, binds: binds, subj: "")
+      let now = as_measure(v: inout v, d: cd, t: n0)
+      var what = "recursive call to '" ++ name ++ "' decreases its measure: " ++ pretty_expr(d)
+      if not same then
+        set what = "call to '" ++ name ++ "' decreases the measure of '" ++ v.fname ++ "': " ++ pretty_expr(cd) ++ " < " ++ pretty_expr(d)
+      end if
       obligation(v: inout v, st: st, pos: e.pos, what: what, goal: "(and (>= " ++ entry ++ " 0) (< " ++ now ++ " " ++ entry ++ "))")
     case None then
     end match

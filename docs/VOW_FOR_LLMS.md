@@ -298,9 +298,13 @@ after the loop `i = n`. So `invariant len(out) == i` gives `len(out) == n` after
 **Prove termination with `decreases`.** For a `while` loop, give a measure that is
 non-negative at the top of an iteration and smaller at its end:
 `while lo < hi invariant ... decreases hi - lo do`. For a recursive function, put
-`decreases n` in its contract. If the measure needs help, add a progress invariant
+`decreases n` in its contract. For recursion over a tree or list, the measure can be
+the value itself: `decreases t` proves that recursing on the fields of a `match` arm
+(or on `xs[i]`) terminates. Functions that call each other each need a measure, and
+each call must make it smaller. If the measure needs help, add a progress invariant
 (`let start = i` before the loop, `invariant i > start` inside). Without a measure, a
-contract only says what holds *if* the code returns.
+contract only says what holds *if* the code returns. `vowc check --totality` lists the
+functions not proved to terminate, and why.
 
 **Nested loops need progress invariants.** A loop's measure must drop on every path,
 including paths through inner loops. After an inner loop the verifier only knows the
@@ -319,8 +323,7 @@ end while
 with one directly recursive function. It is proved to terminate with
 `decreases len(s) - pos` because every recursive call starts after a consumed `(`,
 and its `ensures (pos <= result.pos) and (result.pos <= len(s))` lets the caller's loop
-prove progress. Mutual recursion can't be measured yet, so put the recursion in one
-function.
+prove progress.
 
 **Proofs about built strings.** The verifier tracks the bytes of strings built with
 `++`, `slice` and `char`, so a property such as "no `<` anywhere" can be an invariant

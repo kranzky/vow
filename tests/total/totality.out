@@ -1,0 +1,5 @@
+ok
+proved to terminate: 5 of 8 functions
+  spin has a 'while' loop without 'decreases' at total/totality.vow:61:3
+  uses_spin calls 'spin', which is not proved to terminate
+  main calls 'uses_spin', which is not proved to terminate

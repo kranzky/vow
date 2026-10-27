@@ -41,7 +41,8 @@ Must-have, language and proofs:
 - [x] `old(x)` for inout postconditions and loop invariants
 - [ ] Recursive spec functions (needs termination)
 - [x] Termination measures (`decreases`) for while loops and direct recursion (opt-in)
-- [ ] Termination for mutual recursion; report which functions are proved total
+- [x] Termination for mutual recursion and structural measures (`decreases t` on trees
+      and lists); `vowc check --totality` reports which functions are proved to terminate
 - [x] Generics: functions, structs and enums; type arguments inferred; each generic
       function verified once for all types and compiled per type
 - [ ] Float, with documented verification semantics

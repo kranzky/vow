@@ -5,6 +5,7 @@ import "check.vow"
 import "verify.vow"
 import "codegen.vow"
 import "hash.vow"
+import "total.vow"
 import "runtime_h.vow"
 
 fn vow_version() -> String do
@@ -24,6 +25,7 @@ fn usage() -> String do
     "  --json        machine-readable diagnostics (one JSON object per line)\n" ++
     "  --no-verify   skip the Z3 verifier (unsafe: contracts are not checked)\n" ++
     "  --no-cache    ignore and do not update the verification cache\n" ++
+    "  --totality    with check: also report which functions are proved to terminate\n" ++
     "  -o <path>     output executable for build\n"
 end fn usage
 
@@ -71,6 +73,31 @@ fn report(diags: List<Diag>, files: List<String>, json: Bool) uses console do
     eprint(render(d: d, files: files, json: json))
   end for
 end fn report
+
+fn print_totality(ts: List<Totality>, json: Bool) uses console do
+  var n = 0
+  for t in ts do
+    if len(t.reason) == 0 then
+      set n = n + 1
+    end if
+  end for
+  if json then
+    for t in ts do
+      var total = "true"
+      if len(t.reason) > 0 then
+        set total = "false"
+      end if
+      print("{\"kind\":\"totality\",\"function\":" ++ json_str(t.name) ++ ",\"total\":" ++ total ++ ",\"reason\":" ++ json_str(t.reason) ++ "}\n")
+    end for
+    return
+  end if
+  print("proved to terminate: " ++ int_to_str(n) ++ " of " ++ int_to_str(len(ts)) ++ " functions\n")
+  for t in ts do
+    if len(t.reason) > 0 then
+      print("  " ++ t.name ++ " " ++ t.reason ++ "\n")
+    end if
+  end for
+end fn print_totality
 
 fn basename_stem(path: String) -> String do
   var base = path
@@ -189,6 +216,7 @@ fn main() uses console, fs, proc do
   var json = false
   var no_verify = false
   var no_cache = false
+  var totality_report = false
   var out = ""
   var run_args: List<String> = []
   var i = 2
@@ -200,6 +228,8 @@ fn main() uses console, fs, proc do
       set no_verify = true
     elif a == "--no-cache" then
       set no_cache = true
+    elif a == "--totality" then
+      set totality_report = true
     elif (a == "-o") and ((i + 1) < len(argv)) then
       set out = argv[i + 1]
       set i = i + 1
@@ -223,11 +253,19 @@ fn main() uses console, fs, proc do
     end for
     return
   end if
-  let c = check_program(items: src.items, files: src.files, next_id: src.next_id)
+  var c = check_program(items: src.items, files: src.files, next_id: src.next_id)
   if len(c.errs) > 0 then
     report(diags: c.errs, files: src.files, json: json)
     exit(1)
   end if
+  let rec = recursion(items: src.items, info: c.info)
+  let merrs = measure_errors(items: src.items, r: rec)
+  if len(merrs) > 0 then
+    report(diags: merrs, files: src.files, json: json)
+    exit(1)
+  end if
+  let info0 = c.info
+  set c = c with (info: info0 with (scc: rec.scc, recursive: rec.recursive))
   if cmd == "hash" then
     for h in hash_program(items: src.items, info: c.info) do
       print(h.name ++ "  body=" ++ h.body ++ " contract=" ++ h.contract ++ " key=" ++ h.key ++ "\n")
@@ -308,6 +346,9 @@ fn main() uses console, fs, proc do
   let code = generate(items: src.items, info: c.info, files: src.files, verified: verified)
   if cmd == "check" then
     print("ok\n")
+    if totality_report then
+      print_totality(ts: totality(items: src.items, info: c.info, r: rec, files: src.files), json: json)
+    end if
   elif cmd == "emit-c" then
     print(code)
   elif (cmd == "build") or (cmd == "run") then
