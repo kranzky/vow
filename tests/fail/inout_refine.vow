@@ -2,4 +2,5 @@
 fn drop(n: inout Int where it >= 0) do
   set n = n - 1
 end fn drop
+
 fn main() do end fn main

@@ -107,8 +107,9 @@ vowc check hello.vow      # verify only
 vowc build hello.vow -o hello
 ```
 
-Commands: `check`, `build -o <exe>`, `run`, `emit-c`, `hash`, `version`. Options:
-`--json` (machine-readable diagnostics), `--no-verify`, `--no-cache`.
+Commands: `check`, `build -o <exe>`, `run`, `fmt`, `emit-c`, `hash`, `version`, `help`.
+Options: `--json` (machine-readable diagnostics), `--no-verify`, `--no-cache`,
+`--totality` (with `check`), `--check` (with `fmt`).
 
 To build from source instead, you need only a C compiler and Z3:
 

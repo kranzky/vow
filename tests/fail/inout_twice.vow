@@ -4,6 +4,7 @@ fn swap(x: inout Int, y: inout Int) do
   set x = y
   set y = t
 end fn swap
+
 fn main() do
   var a = 1
   swap(x: inout a, y: inout a)

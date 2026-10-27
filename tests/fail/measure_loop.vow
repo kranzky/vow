@@ -5,4 +5,5 @@ fn spin() do
     set i = i + 0
   end while
 end fn spin
+
 fn main() do end fn main

@@ -79,6 +79,26 @@ for f in ../examples/*.vow; do
     echo "$got" | head -10
   fi
 done
+# vowc fmt (not in the frozen bootstrap compiler): the messy input formats to the
+# expected layout, which is already formatted, and every Vow file in the repository is.
+if [ -z "$VOW_FROZEN" ]; then
+  fdir=$(mktemp -d)
+  cp fmt/messy.vow "$fdir/messy.vow"
+  "$VOWC" fmt "$fdir/messy.vow" >/dev/null 2>&1
+  if cmp -s "$fdir/messy.vow" fmt/messy.expected && "$VOWC" fmt "$fdir/messy.vow" --check >/dev/null 2>&1; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1)); echo "FAIL fmt/messy.vow"; diff fmt/messy.expected "$fdir/messy.vow" | head -10
+  fi
+  rm -rf "$fdir"
+  unformatted=$(find ../compiler ../std ../examples ../tests ../tools ../bench -name '*.vow' ! -path '*/fmt/messy.vow' |
+    while read -r f; do "$VOWC" fmt "$f" --check 2>/dev/null | grep 'not formatted'; done)
+  if [ -z "$unformatted" ]; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1)); echo "FAIL some files are not formatted:"; echo "$unformatted"
+  fi
+fi
 # The pinned Z3 version must be the same in the compiler and the installer.
 pinned=$(sed -n 's/^VERSION=//p' ../tools/install-z3.sh)
 if grep -A1 'fn tested_z3_version' ../compiler/verify.vow | grep -q "\"$pinned\""; then

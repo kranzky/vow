@@ -5,4 +5,5 @@ fn f(n: Int) -> Int decreases n do
   end if
   return f(n + 1)
 end fn f
+
 fn main() do end fn main

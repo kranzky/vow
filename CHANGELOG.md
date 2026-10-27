@@ -2,6 +2,15 @@
 
 ## v0.7.0 (unreleased)
 
+- `vowc fmt file.vow` rewrites a file in the canonical layout. It changes only
+  whitespace and writes nothing unless the result has the same tokens and comments;
+  `--check` only reports. Every Vow file in the repository is formatted, and the tests
+  check that it stays so.
+- Faster verification of programs that use structural `==`: each type's equality axiom
+  is now stated only in the proofs of functions that compare such values, after the
+  check that their definitions are consistent. In the global preamble it made Z3 spend
+  its whole timeout on every function's consistency check (verifier version 5).
+
 - Z3 is pinned: Vow is tested with Z3 5.3.2, which `tools/install-z3.sh` installs
   (checking its SHA-256) and CI uses. `vowc version` shows the Z3 it finds, and when a
   proof is left undecided by a different Z3, `vowc` says which version it is tested with.

@@ -449,6 +449,29 @@ For each function the compiler computes:
 Verified keys are stored in `<file>.vowcache`. Unchanged functions are not re-verified.
 `vowc hash file.vow` prints each function's hashes.
 
+## Formatting
+
+`vowc fmt file.vow` rewrites a file in the canonical layout, changing only whitespace:
+line breaks, comments and tokens are kept, and the result is written only if it lexes
+to the same tokens and has the same comments. `--check` reports instead of writing.
+
+- Indentation is two spaces per block. `end`, `else`, `elif` and `case` line up with the
+  line that opened their block (so `case` lines up with `match`). `requires`, `ensures`,
+  `invariant`, `decreases` and `uses` on their own lines are indented one step under
+  their header. A line that continues a statement (inside an open bracket, or after a
+  line ending in a binary operator) is indented one step past the statement, or two
+  when the statement opens a block (`fn`, `if`, `elif`, `while`, `for`, `match`,
+  `case`).
+- One space separates tokens, except: none just inside `()`, `[]`, `{}`; none before
+  `,`, `:` or `.`, or after `.`; none around `..`; none after a unary `-`; none before
+  the `(` or `[` of a call or index; none inside type arguments (`Map<String, Int>`). A
+  `<` opens type arguments right after a capitalised name written without a space, or
+  after the name in a `fn`, `struct`, `enum` or `type` declaration; otherwise it compares.
+- A comment on its own line is indented like the code after it (or, before `end`, like
+  the block's body). A trailing comment keeps its distance from the code.
+- No trailing whitespace; at most one blank line in a row; exactly one blank line
+  between top-level declarations; none at the start or end of the file; a final newline.
+
 ## Runtime model
 
 Every value is one 64-bit word. Integers and booleans are unboxed. Strings, lists,

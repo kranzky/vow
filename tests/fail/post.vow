@@ -5,4 +5,5 @@ fn abs(x: Int) -> Int ensures result >= 0 do
   end if
   return x
 end fn abs
+
 fn main() do end fn main

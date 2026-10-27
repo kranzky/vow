@@ -3,9 +3,11 @@ fn bump(x: inout Int) -> Int do
   set x = x + 1
   return x
 end fn bump
+
 fn add(x: inout Int, by: Int) do
   set x = x + by
 end fn add
+
 fn main() do
   var n = 0
   add(x: inout n, by: bump(inout n))

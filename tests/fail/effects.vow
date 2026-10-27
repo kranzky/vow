@@ -2,7 +2,9 @@
 fn shout(s: String) uses console do
   print(s)
 end fn shout
+
 fn quiet() do
   shout("hi")
 end fn quiet
+
 fn main() do end fn main

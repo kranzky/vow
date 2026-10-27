@@ -77,7 +77,8 @@ Must-have, runtime and portability:
 - [ ] More standard modules and a C FFI; `net`/`time`/`random` effects
 
 Must-have, tooling:
-- [ ] `vowc fmt`, `vowc test`, LSP (hover shows type and known facts)
+- [x] `vowc fmt` (whitespace only; every file in the repository is formatted, and CI checks it)
+- [ ] `vowc test`, LSP (hover shows type and known facts)
 - [x] Pinned Z3 version (5.3.2, installed by `tools/install-z3.sh`; CI uses it)
 - [ ] Verifier performance (incremental solving)
 

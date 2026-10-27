@@ -31,6 +31,7 @@ vowc check file.vow            # type-check and verify
 vowc run file.vow -- args      # verify, compile, run
 vowc build file.vow -o prog    # verify and compile
 vowc check file.vow --json     # one JSON diagnostic per line (for tools)
+vowc fmt file.vow              # rewrite in the canonical layout (whitespace only)
 ```
 
 ## 2. Rules that cause most errors
@@ -605,6 +606,8 @@ fn main() uses fs, console do
 4. For each proof failure: read the obligation and the counterexample, then add the
    missing invariant, `ensures` or guard.
 5. Re-run. Unchanged functions are cached and skipped, so iteration is fast.
+6. Run `vowc fmt` on the file before handing it over. It changes only whitespace (it
+   checks that the tokens and comments are unchanged), so it is always safe.
 
 ## 8. Larger examples
 

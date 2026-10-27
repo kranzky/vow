@@ -6,6 +6,7 @@ import "verify.vow"
 import "codegen.vow"
 import "hash.vow"
 import "total.vow"
+import "fmt.vow"
 import "runtime_h.vow"
 
 fn vow_version() -> String do
@@ -22,6 +23,7 @@ fn usage() -> String do
     "  run     build and run (remaining arguments after -- go to the program)\n" ++
     "  emit-c  print the generated C\n" ++
     "  hash    print each function's body hash and verification key\n" ++
+    "  fmt     rewrite the file in the canonical layout (--check: only report)\n" ++
     "  version print the compiler version (no file needed)\n" ++
     "  help    print this message\n\n" ++
     "options:\n" ++
@@ -103,6 +105,51 @@ fn print_totality(ts: List<Totality>, json: Bool) uses console do
     end if
   end for
 end fn print_totality
+
+// vowc fmt: the file must lex and parse; the result must have the same tokens and
+// comments, or nothing is written.
+fn format_file(file: String, only_report: Bool, json: Bool) uses console, fs, proc do
+  match read_file(file)
+  case None then
+    eprint("vowc: cannot read '" ++ file ++ "'\n")
+    exit(1)
+  case Some(value: src) then
+    let lx = lex(src: src, file: 0)
+    match lx.err
+    case Some(value: d) then
+      report(diags: [d], files: [file], json: json)
+      exit(1)
+    case None then
+    end match
+    if len(lx.toks) > 0 then
+      var p = new_parser(toks: lx.toks, first_id: 0)
+      let _ = parse_file(inout p)
+      match p.err
+      case Some(value: d) then
+        report(diags: [d], files: [file], json: json)
+        exit(1)
+      case None then
+      end match
+    end if
+    let out = format_source(src)
+    if out == src then
+      return
+    end if
+    if (not same_tokens(a: src, b: out)) or not same_strings(a: comments_of(src), b: comments_of(out)) then
+      eprint("vowc: internal error: formatting '" ++ file ++ "' would change its tokens; nothing was written\n")
+      exit(1)
+    end if
+    if only_report then
+      print(file ++ ": not formatted (vowc fmt " ++ file ++ " rewrites it)\n")
+      exit(1)
+    end if
+    if not write_file(path: file, contents: out) then
+      eprint("vowc: cannot write '" ++ file ++ "'\n")
+      exit(1)
+    end if
+    print(file ++ ": formatted\n")
+  end match
+end fn format_file
 
 fn basename_stem(path: String) -> String do
   var base = path
@@ -233,6 +280,7 @@ fn main() uses console, fs, proc do
   var no_cache = false
   var totality_report = false
   var line_directives = true
+  var fmt_check = false
   var out = ""
   var run_args: List<String> = []
   var i = 2
@@ -248,6 +296,8 @@ fn main() uses console, fs, proc do
       set totality_report = true
     elif a == "--no-line-directives" then
       set line_directives = false
+    elif a == "--check" then
+      set fmt_check = true
     elif (a == "-o") and ((i + 1) < len(argv)) then
       set out = argv[i + 1]
       set i = i + 1
@@ -260,6 +310,10 @@ fn main() uses console, fs, proc do
     end if
     set i = i + 1
   end while
+  if cmd == "fmt" then
+    format_file(file: file, only_report: fmt_check, json: json)
+    return
+  end if
   let src = load(file)
   if len(src.errs) > 0 then
     report(diags: src.errs, files: src.files, json: json)

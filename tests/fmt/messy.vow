@@ -1,0 +1,43 @@
+// language: 0.7
+// Messy layout that vowc fmt must normalise.
+
+
+struct Pair <A,B>
+   first :A,
+second: B ,
+end struct Pair
+fn  sum ( xs:List<Int> )->Int
+      ensures result>=-1
+  do
+var s=0
+    for x in xs do
+  set s = s+x   // running total
+        end for
+      // a comment before end
+   if s<0 then
+return -1
+  elif s == 0 then
+          return 0
+    else
+ return s
+end if
+end fn sum
+
+
+
+fn main( ) uses console do
+let p = Pair(first: 1,
+second: "x")
+  let xs = [ 1,2 , 3 ]
+  match Option.Some(value:p.first)
+     case Some(value : v) then
+    print(int_to_str(sum(xs)) ++
+"\n")
+        case None then
+end match
+  assert len(xs)==3
+  assert forall i in 0 .. len(xs) : xs[i] >= 1
+  let neg = - xs [ 0 ]
+  print(int_to_str(neg) ++ "\n")
+end fn main
+

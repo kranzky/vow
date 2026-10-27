@@ -89,8 +89,10 @@ struct Verifier
   dec: Option<Expr>,
   params: Map<String, String>,
   hole_facts: Map<Int, List<String>>,
-  // Recursive specification functions whose definitions this query has.
+  // Recursive specification functions whose definitions this query has, and the
+  // structural equality predicates it defines.
   sf_done: List<String>,
+  eq_done: List<String>,
   // Whether goals assume the field refinements of the struct values they name; off
   // only to compare the SMT with the frozen bootstrap verifier (tests/differential.sh).
   hyps: Bool,
@@ -115,7 +117,7 @@ fn new_verifier(info: Info) -> Verifier do
   end for
   let loops: List<LoopCtx> = []
   return Verifier(info: info, n: 0, decls: [], defs: [], qdefs: [], obs: [], preamble: pre, strs: {}, loops: loops,
-    fname: "", ret: plain(Ty.TUnit), post: [], dec: Option.None, params: {}, hole_facts: {}, sf_done: [], hyps: true)
+    fname: "", ret: plain(Ty.TUnit), post: [], dec: Option.None, params: {}, hole_facts: {}, sf_done: [], eq_done: [], hyps: true)
 end fn new_verifier
 
 fn sort_of(t: Ty) -> String do
@@ -209,15 +211,18 @@ fn eq_fn(v: inout Verifier, t: Ty) -> String do
   else
   end match
   let name = "eq_" ++ mangle(ty_show(t))
-  if has(map: v.preamble, key: "(declare-fun " ++ name ++ " (Val Val) Bool)") then
+  if contains_str(xs: v.eq_done, x: name) then
     return name
   end if
   // Declared before the body is built, since a recursive type's body refers to it.
+  set v = v with (eq_done: push(list: v.eq_done, item: name))
   let _ = global_fn(v: inout v, name: name, args: "Val Val", sort: "Bool")
   let body = eq_body(v: inout v, t: t)
   let app = "(" ++ name ++ " ea eb)"
-  let ax = "(assert (forall ((ea Val) (eb Val)) (! (= " ++ app ++ " " ++ body ++ ") :pattern (" ++ app ++ "))))"
-  set v = v with (preamble: insert(map: v.preamble, key: ax, value: true))
+  // Only in the queries of functions that compare such values, and after the check
+  // that their definitions are consistent: a quantified axiom in that check would leave
+  // Z3 searching for a model of it until the timeout.
+  add_qdef(v: inout v, d: "(assert (forall ((ea Val) (eb Val)) (! (= " ++ app ++ " " ++ body ++ ") :pattern (" ++ app ++ "))))")
   return name
 end fn eq_fn
 
@@ -486,7 +491,7 @@ fn verify_fn(v: inout Verifier, f: FnDecl) -> FnVc do
   // A generic function is verified once, with its type parameters as unknown types
   // (values of the uninterpreted sort Val), which covers every instance.
   let info = v.info
-  set v = v with (n: 0, decls: [], defs: [], qdefs: [], obs: [], strs: {}, loops: empty_loops, fname: f.name, params: {}, sf_done: [],
+  set v = v with (n: 0, decls: [], defs: [], qdefs: [], obs: [], strs: {}, loops: empty_loops, fname: f.name, params: {}, sf_done: [], eq_done: [],
     info: info with (tenv: identity_env(f.tparams)))
   var fi = FnInfo(name: f.name, params: [], io: [], ret: plain(Ty.TUnit), effects: [], pre: [], post: [],
     dec: Option.None, inline: Option.None, spec_body: Option.None, spec_rec: false, pos: f.pos)

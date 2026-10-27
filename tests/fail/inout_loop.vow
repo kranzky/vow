@@ -2,6 +2,7 @@
 fn inc(x: inout Int) do
   set x = x + 1
 end fn inc
+
 fn main() do
   var n = 0
   for i in 0..3 do

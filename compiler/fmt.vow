@@ -1,0 +1,378 @@
+// vowc fmt: the canonical layout of a Vow file. Line breaks, comments and tokens are
+// kept; only whitespace changes:
+// - two spaces of indentation per block; 'end', 'else', 'elif' and 'case' line up with
+//   the line that opened the block; 'requires', 'ensures', 'invariant', 'decreases' and
+//   'uses' lines are indented one step under their header; a line continuing an open
+//   bracket one step past its statement, or two when the statement opens a block (fn,
+//   if, elif, while, for, match, case), to set it apart from the body;
+// - one space between tokens, but none just inside brackets, before ',' ':' '.', around
+//   '..', after a unary '-', before the '(' or '[' of a call or index, or inside type
+//   arguments (List<Int>);
+// - a trailing comment keeps its distance from the code; a comment on its own line is
+//   indented like the code after it;
+// - no trailing whitespace, at most one blank line in a row, none at the start or end of
+//   the file, and a final newline.
+// vowc fmt writes the result only if it lexes to the same tokens as the original.
+
+import "parser.vow"
+
+struct RawTok
+  // "word", "kw", "num", "str", "chr", "hole", "sym" or "comment".
+  kind: String,
+  text: String,
+  // The spaces before it in the source.
+  gap: Int,
+end struct RawTok
+
+// The tokens of one line, as written (strings and characters keep their escapes).
+fn raw_tokens(line: String) -> List<RawTok> do
+  let kws = keywords()
+  let syms = symbols()
+  var out: List<RawTok> = []
+  var gap = 0
+  var i = 0
+  let n = len(line)
+  while i < n invariant i >= 0 decreases n - i do
+    let c = line[i]
+    if (c == ' ') or (c == '\t') or (c == '\r') then
+      set gap = gap + 1
+      set i = i + 1
+      continue
+    end if
+    var j = i + 1
+    var kind = "sym"
+    if (c == '/') and (j < n) and (line[j] == '/') then
+      set j = n
+      set kind = "comment"
+    elif is_alnum(c) then
+      while (j < n) and is_alnum(line[j]) invariant (i < j) and (j <= n) decreases n - j do
+        set j = j + 1
+      end while
+      set kind = "word"
+      if is_digit(c) then
+        set kind = "num"
+      elif contains_str(xs: kws, x: slice(of: line, from: i, to: j)) then
+        set kind = "kw"
+      end if
+    elif (c == '?') and (j < n) and is_alnum(line[j]) then
+      while (j < n) and is_alnum(line[j]) invariant (i < j) and (j <= n) decreases n - j do
+        set j = j + 1
+      end while
+      set kind = "hole"
+    elif c == '"' then
+      while (j < n) and (line[j] != '"') invariant (i < j) and (j <= n) decreases n - j do
+        if (line[j] == '\\') and ((j + 1) < n) then
+          set j = j + 2
+        else
+          set j = j + 1
+        end if
+      end while
+      if j < n then
+        set j = j + 1
+      end if
+      set kind = "str"
+    elif c == '\'' then
+      set j = i + 3
+      if ((i + 1) < n) and (line[i + 1] == '\\') then
+        set j = i + 4
+      end if
+      if j > n then
+        set j = n
+      end if
+      set kind = "chr"
+    else
+      for s in syms do
+        if ((j - i) == 1) and (len(s) > 1) and starts_at(s: line, at: i, p: s) then
+          set j = i + len(s)
+        end if
+      end for
+    end if
+    if j > n then
+      set j = n
+    end if
+    if j <= i then
+      set j = i + 1
+    end if
+    set out = push(list: out, item: RawTok(kind: kind, text: slice(of: line, from: i, to: j), gap: gap))
+    set gap = 0
+    set i = j
+  end while
+  return out
+end fn raw_tokens
+
+fn is_value_kw(t: RawTok) -> Bool do
+  return (t.kind == "kw") and contains_str(xs: ["result", "it", "true", "false"], x: t.text)
+end fn is_value_kw
+
+// Whether a token ends an operand, so that a following '-' is binary and a following
+// '(' or '[' is a call or an index.
+fn ends_operand(t: RawTok) -> Bool do
+  if contains_str(xs: ["word", "num", "str", "chr", "hole"], x: t.kind) or is_value_kw(t) then
+    return true
+  end if
+  return contains_str(xs: [")", "]", "}"], x: t.text)
+end fn ends_operand
+
+// One line of code at the given indentation. Type arguments are written without spaces
+// (see opens_type_args).
+fn layout_line(toks: List<RawTok>, ind: Int) -> String do
+  var parts = [repeat(s: "  ", n: ind)]
+  var angle = 0
+  var prev = RawTok(kind: "", text: "", gap: 0)
+  var prev_open = false
+  var prev_close = false
+  var prev_unary = false
+  var first = true
+  for i in 0..len(toks) do
+    let t = toks[i]
+    var space = true
+    var opens = false
+    var closes = false
+    if opens_type_args(toks: toks, i: i) then
+      set opens = true
+    elif (t.text == ">") and (angle > 0) then
+      set closes = true
+    end if
+    if first then
+      set space = false
+    elif t.kind == "comment" then
+      set space = true
+    elif opens or closes or prev_open or prev_unary then
+      set space = false
+    elif contains_str(xs: ["(", "[", "{", "."], x: prev.text) then
+      set space = false
+    elif contains_str(xs: [")", "]", "}", ",", ".", ":"], x: t.text) then
+      set space = false
+    elif (t.text == "..") or (prev.text == "..") then
+      set space = false
+    elif ((t.text == "(") or (t.text == "[")) and (ends_operand(prev) or prev_close) then
+      set space = false
+    end if
+    if t.kind == "comment" then
+      var g = t.gap
+      if g < 1 then
+        set g = 1
+      end if
+      set parts = push(list: parts, item: repeat(s: " ", n: g))
+    elif space then
+      set parts = push(list: parts, item: " ")
+    end if
+    set parts = push(list: parts, item: t.text)
+    set prev_unary = (t.text == "-") and (first or not (ends_operand(prev) or prev_close))
+    if opens then
+      set angle = angle + 1
+    elif closes then
+      set angle = angle - 1
+    end if
+    set prev_open = opens
+    set prev_close = closes
+    set prev = t
+    set first = false
+  end for
+  return join(parts: parts, sep: "")
+end fn layout_line
+
+// Whether toks[i] is a '<' that opens type arguments: right after a capitalised type
+// name (List<Int>), or after the name in a declaration (fn last<T>, struct Pair <A, B>),
+// with a '>' later on the line. Otherwise it compares.
+fn opens_type_args(toks: List<RawTok>, i: Int) -> Bool do
+  if (i < 1) or (i >= len(toks)) then
+    return false
+  end if
+  let prev = toks[i - 1]
+  if (toks[i].text != "<") or (prev.kind != "word") or (len(prev.text) == 0) then
+    return false
+  end if
+  let capital = (prev.text[0] >= 'A') and (prev.text[0] <= 'Z') and (toks[i].gap == 0)
+  var declared = false
+  if i >= 2 then
+    let k = toks[i - 2]
+    set declared = (k.kind == "kw") and contains_str(xs: ["fn", "struct", "enum", "type"], x: k.text)
+  end if
+  if not (capital or declared) then
+    return false
+  end if
+  for j in (i + 1)..len(toks) do
+    if toks[j].text == ">" then
+      return true
+    end if
+  end for
+  return false
+end fn opens_type_args
+
+// Whether the line's last '>' closes type arguments (-> List<T>) rather than comparing.
+fn ends_type_args(toks: List<RawTok>) -> Bool do
+  var angle = 0
+  var closed = false
+  for i in 0..len(toks) do
+    let t = toks[i]
+    if t.kind != "comment" then
+      set closed = false
+      if opens_type_args(toks: toks, i: i) then
+        set angle = angle + 1
+      elif (t.text == ">") and (angle > 0) then
+        set angle = angle - 1
+        set closed = true
+      end if
+    end if
+  end for
+  return closed
+end fn ends_type_args
+
+// Whether toks[i] is a keyword in its structural role, not a label (x.end, f(do: 1)).
+fn structural(toks: List<RawTok>, i: Int) -> Bool do
+  if (i < 0) or (i >= len(toks)) then
+    return false
+  end if
+  if toks[i].kind != "kw" then
+    return false
+  end if
+  if (i > 0) and (toks[i - 1].text == ".") then
+    return false
+  end if
+  if ((i + 1) < len(toks)) and (toks[i + 1].text == ":") then
+    return false
+  end if
+  return true
+end fn structural
+
+fn format_source(src: String) -> String do
+  var out: List<String> = []
+  // Blank lines ("") and comment lines waiting for the indentation of the next code line.
+  var pending: List<String> = []
+  var lvl = 0
+  var depth = 0
+  // The indentation for lines continuing the current statement: after an open bracket,
+  // or after a line that ends with a binary operator.
+  var cont = 0
+  var trailing_op = false
+  // Whether the last code line ended a top-level item: the next one gets a blank line.
+  var item_ended = false
+  for line in split(s: src, sep: '\n') do
+    let toks = raw_tokens(line)
+    if len(toks) == 0 then
+      let k = len(pending)
+      if ((len(out) > 0) or (k > 0)) and ((k == 0) or (pending[k - 1] != "")) then
+        set pending = push(list: pending, item: "")
+      end if
+      continue
+    end if
+    if toks[0].kind == "comment" then
+      set pending = push(list: pending, item: toks[0].text)
+      continue
+    end if
+    let first = toks[0].text
+    let head = structural(toks: toks, i: 0)
+    var ind = lvl
+    if (depth > 0) or trailing_op then
+      set ind = cont
+    elif head and contains_str(xs: ["end", "else", "elif", "case"], x: first) then
+      set ind = lvl - 1
+    elif head and contains_str(xs: ["requires", "ensures", "invariant", "decreases", "uses"], x: first) then
+      set ind = lvl + 1
+    end if
+    if ind < 0 then
+      set ind = 0
+    end if
+    // Comments before an 'end' belong to the block it closes.
+    var cind = ind
+    if head and (first == "end") then
+      set cind = lvl
+    end if
+    if item_ended and ((len(pending) == 0) or (pending[0] != "")) then
+      set pending = [""] ++ pending
+    end if
+    for p in pending do
+      if len(p) == 0 then
+        set out = push(list: out, item: "")
+      else
+        set out = push(list: out, item: repeat(s: "  ", n: cind) ++ p)
+      end if
+    end for
+    set pending = []
+    set out = push(list: out, item: layout_line(toks: toks, ind: ind))
+    if (depth == 0) and not trailing_op then
+      set cont = ind + 1
+      if head and contains_str(xs: ["fn", "if", "elif", "while", "for", "match", "case"], x: first) then
+        set cont = ind + 2
+      end if
+    end if
+    let reopens = head and contains_str(xs: ["elif", "case"], x: first)
+    for i in 0..len(toks) do
+      let t = toks[i].text
+      if contains_str(xs: ["(", "[", "{"], x: t) then
+        set depth = depth + 1
+      elif contains_str(xs: [")", "]", "}"], x: t) and (depth > 0) then
+        set depth = depth - 1
+      end if
+      if structural(toks: toks, i: i) then
+        if (t == "do") or ((t == "then") and not reopens) then
+          set lvl = lvl + 1
+        elif t == "end" then
+          set lvl = lvl - 1
+        elif (i == 0) and contains_str(xs: ["match", "struct", "enum"], x: t) then
+          set lvl = lvl + 1
+        end if
+      end if
+    end for
+    var last = toks[len(toks) - 1]
+    if (last.kind == "comment") and (len(toks) > 1) then
+      set last = toks[len(toks) - 2]
+    end if
+    set item_ended = head and (first == "end") and (lvl == 0)
+    let ops = ["++", "+", "-", "*", "/", "%", "==", "!=", "<", "<=", ">", ">=", "=", "->", "and", "or", "implies"]
+    set trailing_op = (last.kind != "comment") and contains_str(xs: ops, x: last.text) and not ends_type_args(toks)
+  end for
+  // Comments at the end of the file; trailing blank lines are dropped.
+  for p in pending do
+    if len(p) > 0 then
+      set out = push(list: out, item: repeat(s: "  ", n: lvl) ++ p)
+    end if
+  end for
+  while (len(out) > 0) and (out[len(out) - 1] == "") do
+    set out = slice(of: out, from: 0, to: len(out) - 1)
+  end while
+  return join(parts: out, sep: "\n") ++ "\n"
+end fn format_source
+
+// Whether two sources lex to the same tokens (whitespace and comments aside).
+fn same_tokens(a: String, b: String) -> Bool do
+  let la = lex(src: a, file: 0)
+  let lb = lex(src: b, file: 0)
+  if is_some(la.err) or is_some(lb.err) or (len(la.toks) != len(lb.toks)) then
+    return false
+  end if
+  for i in 0..len(la.toks) do
+    let x = la.toks[i]
+    let y = lb.toks[i]
+    if (x.kind != y.kind) or (x.text != y.text) or (x.num != y.num) then
+      return false
+    end if
+  end for
+  return true
+end fn same_tokens
+
+// The comments of a source, in order.
+fn comments_of(src: String) -> List<String> do
+  var out: List<String> = []
+  for line in split(s: src, sep: '\n') do
+    for t in raw_tokens(line) do
+      if t.kind == "comment" then
+        set out = push(list: out, item: t.text)
+      end if
+    end for
+  end for
+  return out
+end fn comments_of
+
+fn same_strings(a: List<String>, b: List<String>) -> Bool do
+  if len(a) != len(b) then
+    return false
+  end if
+  for i in 0..len(a) do
+    if a[i] != b[i] then
+      return false
+    end if
+  end for
+  return true
+end fn same_strings
