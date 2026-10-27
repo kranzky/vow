@@ -1,0 +1,28 @@
+// language: 0.7
+// std/json.vow: parsing, printing and reading values.
+
+import "std/json.vow"
+
+fn show(s: String) uses console do
+  match json_parse(s)
+  case Ok(value: j) then
+    print(json_text(j) ++ "\n")
+  case Err(error: e) then
+    print("error: " ++ e ++ "\n")
+  end match
+end fn show
+
+fn main() uses console do
+  show("{\"jsonrpc\": \"2.0\", \"id\": 1, \"params\": {\"x\": [1, -2, true, null, \"a\\nb\\u00e9\\ud83d\\ude00\"]}}")
+  show("[]")
+  show("  {}  ")
+  show("[1, 2,]")
+  show("1.5")
+  show("\"unterminated")
+  show("{\"a\" 1}")
+  match json_parse("{\"id\": 7, \"method\": \"initialize\"}")
+  case Ok(value: j) then
+    print(value_or(opt: json_get_string(j: j, key: "method"), default: "?") ++ " " ++ int_to_str(value_or(opt: json_get_int(j: j, key: "id"), default: -1)) ++ "\n")
+  case Err(error: e) then
+  end match
+end fn main

@@ -137,7 +137,7 @@ end fn main
 ```
 
 Built-ins: `len push slice join int_to_str str_to_int char insert lookup has keys hash
-panic print eprint read_file write_file args getenv run exit`. Signatures are in the
+panic print eprint read_line read_bytes read_file write_file args getenv run exit`. Signatures are in the
 spec. `print` adds no newline.
 
 ### The standard library
@@ -158,6 +158,13 @@ your own string helpers:
 | `trim(s)`, `trim_start(s)`, `trim_end(s)` | no longer than `s`; no surrounding space |
 | `replace(s: s, old: o, new: n)`, `repeat(s: s, n: k)` | proved to terminate |
 | `to_lower(s)`, `to_upper(s)` | same length; no upper (lower) case letters |
+
+`import "std/json.vow"` parses and prints JSON. A value is a `Json`: `JNull`,
+`JBool(value)`, `JNum(value)` (integers only, until Vow has floats), `JStr(value)`,
+`JArr(items)` or `JObj(keys, values)`. `json_parse(s) -> Result<Json, String>` (the
+error gives the byte offset), `json_text(j)` prints compact JSON, `json_quote(s)` makes a
+JSON string literal, and `json_get(j, key)`, `json_get_string`, `json_get_int`,
+`json_string(j)` and `json_int(j)` read values (`None` when absent or of another type).
 | `compare(a: x, b: y) -> Int` | byte-wise order: -1, 0 or 1 (strings have no `<`) |
 
 Library names share the global namespace, so don't define your own `trim` in a file

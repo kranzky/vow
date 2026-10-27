@@ -998,6 +998,36 @@ static V vargs(void) {
     return l;
 }
 
+// Standard input. Both flush stdout first, so a prompt or a response is out before the
+// program waits.
+static V vread_line(void) {
+    fflush(stdout);
+    size_t cap = 0;
+    char *buf = NULL;
+    ssize_t n = getline(&buf, &cap, stdin);
+    if (n < 0) {
+        free(buf);
+        return vnone();
+    }
+    if (n > 0 && buf[n - 1] == '\n') n--;
+    V s = vstr_new(buf, (int64_t)n);
+    free(buf);
+    return vsome(s, 1);
+}
+
+// Up to n bytes (fewer at the end of input). The string is allocated at the length read,
+// since an object's size class is computed from its length when it is freed.
+static V vread_bytes(V n) {
+    fflush(stdout);
+    size_t want = VI(n) > 0 ? (size_t)VI(n) : 0;
+    char *buf = malloc(want > 0 ? want : 1);
+    if (!buf) vow_panic("out of memory");
+    size_t got = fread(buf, 1, want, stdin);
+    V s = vstr_new(buf, (int64_t)got);
+    free(buf);
+    return s;
+}
+
 static V vgetenv(V name) {
     const char *v = getenv(VS(name)->data);
     if (!v) return vnone();

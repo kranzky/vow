@@ -1,0 +1,8 @@
+{"jsonrpc":"2.0","id":1,"params":{"x":[1,-2,true,null,"a\nbé😀"]}}
+[]
+{}
+error: expected a JSON value at byte 6
+error: numbers with fractions or exponents are not supported at byte 1
+error: unterminated string at byte 13
+error: expected ':' at byte 5
+initialize 7

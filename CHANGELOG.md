@@ -2,6 +2,10 @@
 
 ## v0.7.0 (unreleased)
 
+- `std/json.vow`: a verified JSON parser and printer (integer numbers only, until Vow
+  has floats). Its reader's termination is proved with `old(x)` contracts.
+- `read_line()` and `read_bytes(n)` read standard input (`uses console`).
+
 - `vowc test file.vow` verifies the program, then runs each function named `test_...`
   in the file, each in its own process: a failed `check` or a panic fails only that
   test, and its output (with the panic's source line) is shown. A file of tests needs

@@ -217,6 +217,11 @@ fn builtin_params(name: String) -> Option<List<String>> do
     return Option.Some(value: ["argv", "input"])
   case "exit" then
     return Option.Some(value: ["code"])
+  case "read_line" then
+    let none: List<String> = []
+    return Option.Some(value: none)
+  case "read_bytes" then
+    return Option.Some(value: ["n"])
   else
     return Option.None
   end match
@@ -235,7 +240,7 @@ fn is_builtin(name: String) -> Bool do
 end fn is_builtin
 
 fn builtin_effect(name: String) -> String do
-  if (name == "print") or (name == "eprint") then
+  if (name == "print") or (name == "eprint") or (name == "read_line") or (name == "read_bytes") then
     return "console"
   elif (name == "read_file") or (name == "write_file") or (name == "make_dir") or (name == "list_dir") then
     return "fs"
@@ -2932,7 +2937,10 @@ fn check_call(c: inout Checker, e: Expr, callee: Expr, args: List<Arg>, expected
         return Ty.TUnknown
       end if
       if len(a) == 0 then
-        // args() is the only built-in without parameters.
+        // The built-ins without parameters: args() and read_line().
+        if name == "read_line" then
+          return Ty.TOpt(inner: Ty.TStr)
+        end if
         return Ty.TList(elem: Ty.TStr)
       end if
       return builtin_call(c: inout c, e: e, name: name, a: a, expected: expected)
@@ -3387,6 +3395,9 @@ fn builtin_call(c: inout Checker, e: Expr, name: String, a: List<Expr> where len
   case "getenv" then
     want(c: inout c, x: a[0], t: Ty.TStr, what: "the variable name")
     return Ty.TOpt(inner: Ty.TStr)
+  case "read_bytes" then
+    want(c: inout c, x: a[0], t: Ty.TInt, what: "the number of bytes")
+    return Ty.TStr
   case "make_dir" then
     want(c: inout c, x: a[0], t: Ty.TStr, what: "the path")
     return Ty.TBool

@@ -2,12 +2,15 @@
 
 import "parser.vow"
 import "std_text.vow"
+import "std_json.vow"
 
 // Standard library modules, embedded in the compiler. `import "std/text.vow"` names
 // the module "<std>/text.vow", wherever the importing file is.
 fn std_source(name: String) -> Option<String> do
   if name == "text.vow" then
     return Option.Some(value: std_text())
+  elif name == "json.vow" then
+    return Option.Some(value: std_json())
   end if
   return Option.None
 end fn std_source

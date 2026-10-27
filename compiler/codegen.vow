@@ -1405,6 +1405,10 @@ fn gen_builtin(g: inout Gen, e: Expr, name: String, p: List<Val>, pe: List<Expr>
     return owned_tmp(g: inout g, rhs: "vlist_dir(" ++ v0.c ++ ")", heap: true)
   case "getenv" then
     return owned_tmp(g: inout g, rhs: "vgetenv(" ++ v0.c ++ ")", heap: true)
+  case "read_line" then
+    return owned_tmp(g: inout g, rhs: "vread_line()", heap: true)
+  case "read_bytes" then
+    return owned_tmp(g: inout g, rhs: "vread_bytes(" ++ v0.c ++ ")", heap: true)
   case "run" then
     return owned_tmp(g: inout g, rhs: "vrun(" ++ v0.c ++ ", " ++ v1.c ++ ")", heap: true)
   case "is_some" then

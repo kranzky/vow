@@ -348,6 +348,8 @@ SMT-LIB. The divisor must be provably non-zero.
 | `hash(s) -> String` | FNV-1a 64-bit, 16 hex digits |
 | `panic(msg)` | prints `vow: panic at <file>:<line>: msg` to stderr, exits with status 101; never returns |
 | `print(s)`, `eprint(s)` | `uses console`; no newline is added |
+| `read_line() -> Option<String>` | `uses console`; the next line of standard input without its `\n`, or `None` at the end |
+| `read_bytes(n) -> String` | `uses console`; up to `n` bytes of standard input (fewer at the end) |
 | `read_file(path) -> Option<String>` | `uses fs` |
 | `write_file(path: p, contents: c) -> Bool` | `uses fs` |
 | `make_dir(path) -> Bool` | `uses fs`; creates missing parents; true if the directory exists afterwards |

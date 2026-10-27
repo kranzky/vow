@@ -48,7 +48,7 @@ test-site: build/vowsite
 	@echo "== vowsite"
 	@VOWSITE=$(CURDIR)/build/vowsite tools/vowsite/tests/run.sh
 
-bootstrap: build/vowc compiler/runtime_h.vow compiler/std_text.vow
+bootstrap: build/vowc compiler/runtime_h.vow compiler/std_text.vow compiler/std_json.vow
 	@mkdir -p build
 	@echo "== stage 1: the seed compiler verifies and builds the current source"
 	build/vowc build compiler/vowc.vow -o build/stage1 --no-cache
@@ -69,6 +69,10 @@ compiler/runtime_h.vow: runtime/vow_rt.h tools/embed.vow
 compiler/std_text.vow: std/text.vow tools/embed.vow
 	$(MAKE) build/vowc
 	build/vowc run tools/embed.vow -- std/text.vow std_text > $@
+
+compiler/std_json.vow: std/json.vow tools/embed.vow
+	$(MAKE) build/vowc
+	build/vowc run tools/embed.vow -- std/json.vow std_json > $@
 
 clean:
 	rm -rf build bootstrap/target
