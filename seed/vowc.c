@@ -39706,7 +39706,7 @@ static V f_runtime_header(void) {
 int main(int argc, char **argv) {
     vow_argc = argc;
     vow_argv = argv;
-    vow_s[0] = vow_immortal(vstr_new("0.4.0", 5));
+    vow_s[0] = vow_immortal(vstr_new("0.5.0", 5));
     vow_s[1] = vow_immortal(vstr_new("usage: vowc <command> <file.vow> [options]\012\012", 44));
     vow_s[2] = vow_immortal(vstr_new("commands:\012", 10));
     vow_s[3] = vow_immortal(vstr_new("  check   type-check and verify\012", 32));
