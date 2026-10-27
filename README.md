@@ -126,8 +126,8 @@ make test                             # test suite (also needs Rust for the froz
 
 ## Status
 
-The current release is **v0.3.0**; the main branch adds generics, `Result` and `try`
-(see the [changelog](CHANGELOG.md)). Vow is an experiment, not yet a V1. Notable gaps:
+The current release is **v0.4.0**, which adds generics, `Result` and `try` (see the
+[changelog](CHANGELOG.md)). Vow is an experiment, not yet a V1. Notable gaps:
 no floats or modules; termination is proved only where measures are given; Unix only.
 See the roadmap.
 
