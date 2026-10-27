@@ -292,6 +292,9 @@ fn main() uses console, fs, proc do
       end match
     end if
     var v = new_verifier(c.info)
+    if is_some(getenv("VOW_SMT_V03")) then
+      set v = v with (hyps: false)
+    end if
     var vcs: List<FnVc> = []
     for item in src.items do
       match item

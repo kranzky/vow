@@ -52,8 +52,8 @@ Must-have, language and proofs:
 - [x] `Result<T, E>` and `try` (also for `Option`)
 - [x] Structural `==` for structs, enums, lists and options, and on type parameters
 - [ ] Modules with visibility, then packages
-- [ ] Field refinements assumed inside specifications (today they are assumed only
-      when code reads a field, not in `assert`, `ensures` and the like)
+- [x] Field refinements assumed inside specifications: a goal assumes the field
+      refinements of the struct values it names
 - [ ] Generic functions usable in specifications
 - [ ] Contracts that can describe what is inside a `Result` or an `Option` (today the
       workaround is a wrapper struct with a refined field)

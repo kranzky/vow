@@ -91,6 +91,9 @@ struct Verifier
   hole_facts: Map<Int, List<String>>,
   // Recursive specification functions whose definitions this query has.
   sf_done: List<String>,
+  // Whether goals assume the field refinements of the struct values they name; off
+  // only to compare the SMT with the frozen bootstrap verifier (tests/differential.sh).
+  hyps: Bool,
 end struct Verifier
 
 fn prelude() -> List<String> do
@@ -112,7 +115,7 @@ fn new_verifier(info: Info) -> Verifier do
   end for
   let loops: List<LoopCtx> = []
   return Verifier(info: info, n: 0, decls: [], defs: [], qdefs: [], obs: [], preamble: pre, strs: {}, loops: loops,
-    fname: "", ret: plain(Ty.TUnit), post: [], dec: Option.None, params: {}, hole_facts: {}, sf_done: [])
+    fname: "", ret: plain(Ty.TUnit), post: [], dec: Option.None, params: {}, hole_facts: {}, sf_done: [], hyps: true)
 end fn new_verifier
 
 fn sort_of(t: Ty) -> String do
@@ -524,12 +527,12 @@ end fn verify_fn
 fn check_post(v: inout Verifier, st: St, pos: Pos, val: String) do
   let ret = v.ret
   for p in ret.preds do
-    let g = spec_term(v: inout v, e: p, st: st, subj: val, res: "")
+    let g = spec_goal(v: inout v, e: p, st: st, subj: val, res: "")
     obligation(v: inout v, st: st, pos: pos, what: "return value of '" ++ v.fname ++ "' satisfies " ++ pretty_expr(p), goal: g)
   end for
   let ens = v.post
   for e in ens do
-    let g = spec_term(v: inout v, e: e, st: st, subj: "", res: val)
+    let g = spec_goal(v: inout v, e: e, st: st, subj: "", res: val)
     obligation(v: inout v, st: st, pos: pos, what: "postcondition of '" ++ v.fname ++ "': " ++ pretty_expr(e), goal: g)
   end for
 end fn check_post
@@ -538,6 +541,131 @@ end fn check_post
 
 // Names resolve through the current environment; parameters keep their entry values.
 fn spec_term(v: inout Verifier, e: Expr, st: St, subj: String, res: String) -> String do
+  let binds = spec_binds(v: v, st: st)
+  return sexpr(v: inout v, e: e, sp: Spec(binds: binds, subj: subj, res: res, fuel: 2, scc: -1))
+end fn spec_term
+
+// A specification to prove at this point: as spec_term, assuming the field refinements
+// of the struct values it names (see struct_hyps).
+fn spec_goal(v: inout Verifier, e: Expr, st: St, subj: String, res: String) -> String do
+  let sp = Spec(binds: spec_binds(v: v, st: st), subj: subj, res: res, fuel: 2, scc: -1)
+  let g = sexpr(v: inout v, e: e, sp: sp)
+  if not v.hyps then
+    return g
+  end if
+  return with_hyps(hyps: struct_hyps(v: inout v, e: e, sp: sp), goal: g)
+end fn spec_goal
+
+fn goal_with(v: inout Verifier, e: Expr, binds: Map<String, String>, subj: String) -> String do
+  let sp = Spec(binds: binds, subj: subj, res: "", fuel: 2, scc: -1)
+  let g = sexpr(v: inout v, e: e, sp: sp)
+  if not v.hyps then
+    return g
+  end if
+  return with_hyps(hyps: struct_hyps(v: inout v, e: e, sp: sp), goal: g)
+end fn goal_with
+
+fn with_hyps(hyps: List<String>, goal: String) -> String do
+  if len(hyps) == 0 then
+    return goal
+  end if
+  return "(=> " ++ and_all(hyps) ++ " " ++ goal ++ ")"
+end fn with_hyps
+
+// The field refinements of the struct values a specification names: variables,
+// parameters, it, result and old(x), and struct fields of those, recursively. A goal may
+// assume them: wherever it is proved, those names hold real values of their types.
+// They are not stated as facts, because a value built on a path that cannot happen is
+// not constrained to be real.
+fn struct_hyps(v: inout Verifier, e: Expr, sp: Spec) -> List<String> do
+  var named: List<NamedTerm> = []
+  named_values(v: v, e: e, sp: sp, out: inout named)
+  var out: List<String> = []
+  for n in named do
+    struct_facts(v: inout v, t: n.ty, term: n.term, depth: 3, out: inout out)
+  end for
+  return out
+end fn struct_hyps
+
+struct NamedTerm
+  ty: Ty,
+  term: String,
+end struct NamedTerm
+
+fn named_values(v: Verifier, e: Expr, sp: Spec, out: inout List<NamedTerm>) do
+  var term = ""
+  match e.kind
+  case Var(name: n) then
+    match lookup(map: sp.binds, key: n)
+    case Some(value: t) then
+      set term = t
+    case None then
+    end match
+  case It then
+    set term = sp.subj
+  case Result then
+    set term = sp.res
+  case Call(callee: c, args: args) then
+    match call_info(info: v.info, e: e)
+    case Some(value: ci) then
+      if ci.kind == "old" then
+        set term = bind_of(binds: sp.binds, n: "old(" ++ ci.name ++ ")")
+      end if
+    case None then
+    end match
+    for a in args do
+      named_values(v: v, e: a.value, sp: sp, out: inout out)
+    end for
+  case Index(obj: o, idx: i) then
+    named_values(v: v, e: o, sp: sp, out: inout out)
+    named_values(v: v, e: i, sp: sp, out: inout out)
+  case Field(obj: o, name: f) then
+    named_values(v: v, e: o, sp: sp, out: inout out)
+  case Unary(op: op, x: x) then
+    named_values(v: v, e: x, sp: sp, out: inout out)
+  case Binary(op: op, l: l, r: r) then
+    named_values(v: v, e: l, sp: sp, out: inout out)
+    named_values(v: v, e: r, sp: sp, out: inout out)
+  case Quant(q: q, name: qn, lo: lo, hi: hi, body: b) then
+    named_values(v: v, e: lo, sp: sp, out: inout out)
+    named_values(v: v, e: hi, sp: sp, out: inout out)
+    named_values(v: v, e: b, sp: sp with (binds: insert(map: sp.binds, key: qn, value: "")), out: inout out)
+  else
+  end match
+  if len(term) == 0 then
+    return
+  end if
+  let t = type_of(info: v.info, e: e)
+  match t
+  case TStruct(name: sn) then
+    for x in out do
+      if x.term == term then
+        return
+      end if
+    end for
+    set out = push(list: out, item: NamedTerm(ty: t, term: term))
+  else
+  end match
+end fn named_values
+
+fn struct_facts(v: inout Verifier, t: Ty, term: String, depth: Int, out: inout List<String>) do
+  match t
+  case TStruct(name: sn) then
+    let binds = struct_binds(v: inout v, sn: sn, ov: term)
+    for fl in struct_fields(info: v.info, name: sn) do
+      let ft = bind_of(binds: binds, n: fl.name)
+      for p in fl.rty.preds do
+        set out = push(list: out, item: spec_with(v: inout v, e: p, binds: binds, subj: ft))
+      end for
+      if depth > 0 then
+        struct_facts(v: inout v, t: fl.rty.ty, term: ft, depth: depth - 1, out: inout out)
+      end if
+    end for
+  else
+  end match
+end fn struct_facts
+
+fn spec_binds(v: Verifier, st: St) -> Map<String, String> do
   var binds: Map<String, String> = {}
   for k in keys(st.env) do
     set binds = insert(map: binds, key: k, value: env_term(st: st, n: k))
@@ -553,8 +681,8 @@ fn spec_term(v: inout Verifier, e: Expr, st: St, subj: String, res: String) -> S
     case None then
     end match
   end for
-  return sexpr(v: inout v, e: e, sp: Spec(binds: binds, subj: subj, res: res, fuel: 2, scc: -1))
-end fn spec_term
+  return binds
+end fn spec_binds
 
 fn spec_with(v: inout Verifier, e: Expr, binds: Map<String, String>, subj: String) -> String do
   return sexpr(v: inout v, e: e, sp: Spec(binds: binds, subj: subj, res: "", fuel: 2, scc: -1))
@@ -1018,14 +1146,14 @@ end fn check_preds
 
 fn check_entry(v: inout Verifier, st: St, invs: List<Expr>) do
   for i in invs do
-    let g = spec_term(v: inout v, e: i, st: st, subj: "", res: "")
+    let g = spec_goal(v: inout v, e: i, st: st, subj: "", res: "")
     obligation(v: inout v, st: st, pos: i.pos, what: "loop invariant holds on entry: " ++ pretty_expr(i), goal: g)
   end for
 end fn check_entry
 
 fn check_invs(v: inout Verifier, st: St, invs: List<Expr>, what: String) do
   for i in invs do
-    let g = spec_term(v: inout v, e: i, st: st, subj: "", res: "")
+    let g = spec_goal(v: inout v, e: i, st: st, subj: "", res: "")
     obligation(v: inout v, st: st, pos: i.pos, what: "loop invariant " ++ what ++ ": " ++ pretty_expr(i), goal: g)
   end for
 end fn check_invs
@@ -1255,8 +1383,13 @@ fn vstmt(v: inout Verifier, s: Stmt, st: inout St) do
     check_invs(v: inout v, st: inner, invs: invs, what: "is preserved")
     set st = head
   case Assert(e: e) then
-    let g = spec_term(v: inout v, e: e, st: st, subj: "", res: "")
-    obligation(v: inout v, st: st, pos: s.pos, what: "assertion: " ++ pretty_expr(e), goal: g)
+    let sp = Spec(binds: spec_binds(v: v, st: st), subj: "", res: "", fuel: 2, scc: -1)
+    let g = sexpr(v: inout v, e: e, sp: sp)
+    var goal = g
+    if v.hyps then
+      set goal = with_hyps(hyps: struct_hyps(v: inout v, e: e, sp: sp), goal: g)
+    end if
+    obligation(v: inout v, st: st, pos: s.pos, what: "assertion: " ++ pretty_expr(e), goal: goal)
     add_fact(st: inout st, f: g)
     add_src(st: inout st, f: pretty_expr(e))
   case Check(e: e) then
@@ -1857,7 +1990,7 @@ fn vcall_user(v: inout Verifier, e: Expr, name: String, p: List<String>, pe: Lis
     if (i < len(p)) and (i < len(pe)) then
       let fp = fi.params[i]
       for pr in fp.rty.preds do
-        let g = spec_with(v: inout v, e: pr, binds: binds, subj: p[i])
+        let g = goal_with(v: inout v, e: pr, binds: binds, subj: p[i])
         let what = "argument '" ++ fp.name ++ "' of '" ++ name ++ "' satisfies " ++ pretty_expr(pr)
         obligation(v: inout v, st: st, pos: pe[i].pos, what: what, goal: g)
       end for
@@ -1865,7 +1998,7 @@ fn vcall_user(v: inout Verifier, e: Expr, name: String, p: List<String>, pe: Lis
     end if
   end for
   for r in fi.pre do
-    let g = spec_with(v: inout v, e: r, binds: binds, subj: "")
+    let g = goal_with(v: inout v, e: r, binds: binds, subj: "")
     obligation(v: inout v, st: st, pos: e.pos, what: "precondition of '" ++ name ++ "': " ++ pretty_expr(r), goal: g)
   end for
   // A call within the caller's group of mutually recursive functions decreases the

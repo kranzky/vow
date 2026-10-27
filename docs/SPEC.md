@@ -376,7 +376,13 @@ obligations to Z3 in SMT-LIB 2.
   return refinements at each `return`; `assert`; loop invariants on entry and
   preservation.
 - **Assumptions:** branch conditions; `match` tags; refinements of parameters, fields
-  read and call results; callee `ensures`; `check`; invariants at loop heads.
+  read and call results; callee `ensures`; `check`; invariants at loop heads. A
+  specification being proved (an `assert`, `ensures`, loop invariant, callee
+  `requires` or refinement) also assumes the field refinements of the struct values it
+  names (variables, parameters, `it`, `result`, `old(x)`, and their struct fields): on
+  any path that runs, those are real values of their types. These are hypotheses of
+  the goal, not facts, since a value built on a path that cannot happen need not be
+  real; and they cover only values reached by name and field, not list elements.
 - Loops: variables assigned in the body (by `set` or as `inout` arguments) are
   havocked at the loop head, then the invariants and loop condition are assumed.
   Invariants must hold on entry, after each iteration and at every `break` and

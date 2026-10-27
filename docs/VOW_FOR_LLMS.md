@@ -216,7 +216,8 @@ do ...
 Then a caller can write `let i = index_of_str(...)` and `if i >= 0 then xs[i]`.
 
 **Refine struct fields to carry invariants.** A field refinement is checked at every
-construction and `with` update, and assumed at every read. A cursor that is always
+construction and `with` update, and assumed at every read, in code and in
+specifications (`assert c.pos < len(c.toks)` holds for any `Cursor`). A cursor that is always
 valid (from `examples/cursor.vow`):
 
 ```

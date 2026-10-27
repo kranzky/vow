@@ -16,6 +16,9 @@
   of the proofs of their own recursive group, whose termination they rely on.
 - Fixed: a variant without fields (`Tree.Leaf`) in a specification made Z3 reject the
   query; it now denotes a value with that variant's tag.
+- Specifications assume the field refinements of the struct values they name:
+  `assert l.count == len(l.values)` is proved for a parameter `l` whose `count` field is
+  refined that way. Before, only code that read a field assumed them.
 
 ## v0.5.0
 

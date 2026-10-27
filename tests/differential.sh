@@ -1,6 +1,9 @@
 #!/bin/sh
 # The bootstrap (Rust) and self-hosted verifiers must emit byte-identical SMT for every
 # program in the v0.3 language. (Their C differs: only the self-hosted compiler emits reference counting.)
+# VOW_SMT_V03 turns off what the self-hosted verifier has added to v0.3 programs since
+# (goals assuming the field refinements of the struct values they name), so the shared
+# encoding is compared exactly.
 cd "$(dirname "$0")/.." || exit 1
 RUST=${RUST_VOWC:-bootstrap/target/release/vowc}
 VOWC=${VOWC:-build/vowc}
@@ -12,7 +15,7 @@ for f in tests/run/*.vow examples/*.vow bench/*/*.vow tools/vowsite/vowsite.vow 
   # The Rust bootstrap is frozen at the v0.3 language.
   grep -q '^// language:' "$f" && continue
   VOW_SMT_DUMP="$tmp/a.smt2" "$RUST" check "$f" --no-cache >/dev/null 2>&1
-  VOW_SMT_DUMP="$tmp/b.smt2" "$VOWC" check "$f" --no-cache >/dev/null 2>&1
+  VOW_SMT_DUMP="$tmp/b.smt2" VOW_SMT_V03=1 "$VOWC" check "$f" --no-cache >/dev/null 2>&1
   if cmp -s "$tmp/a.smt2" "$tmp/b.smt2"; then
     pass=$((pass + 1))
   else

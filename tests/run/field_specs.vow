@@ -1,0 +1,33 @@
+// language: 0.6
+// Specifications assume the field refinements of the struct values they name.
+
+struct Labelled
+  values: List<Int>,
+  count: Int where it == len(values),
+end struct Labelled
+
+struct Outer
+  inner: Labelled,
+  limit: Int where it >= 0,
+end struct Outer
+
+fn check_it(l: Labelled, o: Outer) -> Int
+  requires l.count > 0
+  ensures result == l.values[0]
+do
+  assert l.count == len(l.values)
+  assert o.inner.count == len(o.inner.values)
+  return l.values[0]
+end fn check_it
+
+fn limit_of(o: Outer) -> Int
+  ensures result >= 0
+do
+  return o.limit
+end fn limit_of
+
+fn main() uses console do
+  let l = Labelled(values: [7, 8], count: 2)
+  let o = Outer(inner: l, limit: 4)
+  print(int_to_str(check_it(l: l, o: o)) ++ " " ++ int_to_str(limit_of(o)) ++ "\n")
+end fn main
