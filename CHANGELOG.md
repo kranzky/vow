@@ -14,6 +14,7 @@
   they have a measure: `ensures len(out) == (len(old(out)) + size(t))`. Recursive ones
   are defined by axioms unfolded at most twice per use; their definitions are kept out
   of the proofs of their own recursive group, whose termination they rely on.
+- `vowc`, `vowc help` and `vowc --help` point to the guide for LLMs.
 - Fixed: a variant without fields (`Tree.Leaf`) in a specification made Z3 reject the
   query; it now denotes a value with that variant's tag.
 - Specifications assume the field refinements of the struct values they name:
