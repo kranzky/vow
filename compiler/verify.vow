@@ -32,6 +32,10 @@ struct FnVc
   defs: List<String>,
   qdefs: List<String>,
   obs: List<Ob>,
+  // Whether the queries define recursive specification functions by axioms. Z3's
+  // model-based instantiation then spends its whole timeout on a false claim, so it is
+  // turned off: such a claim is reported as not proved at once.
+  axioms: Bool,
 end struct FnVc
 
 struct VVar
@@ -47,11 +51,15 @@ struct St
   dead: Bool,
 end struct St
 
-// subj and res are "" when absent.
+// subj and res are "" when absent. While the definition of a recursive specification
+// function is being built, scc is its group and fuel the layer that calls within the
+// group use (see spec_fn_axioms); otherwise scc is -1 and fuel 2.
 struct Spec
   binds: Map<String, String>,
   subj: String,
   res: String,
+  fuel: Int,
+  scc: Int,
 end struct Spec
 
 // A loop being verified: its invariants; for a range loop, the loop variable and its
@@ -81,6 +89,8 @@ struct Verifier
   dec: Option<Expr>,
   params: Map<String, String>,
   hole_facts: Map<Int, List<String>>,
+  // Recursive specification functions whose definitions this query has.
+  sf_done: List<String>,
 end struct Verifier
 
 fn prelude() -> List<String> do
@@ -102,7 +112,7 @@ fn new_verifier(info: Info) -> Verifier do
   end for
   let loops: List<LoopCtx> = []
   return Verifier(info: info, n: 0, decls: [], defs: [], qdefs: [], obs: [], preamble: pre, strs: {}, loops: loops,
-    fname: "", ret: plain(Ty.TUnit), post: [], dec: Option.None, params: {}, hole_facts: {})
+    fname: "", ret: plain(Ty.TUnit), post: [], dec: Option.None, params: {}, hole_facts: {}, sf_done: [])
 end fn new_verifier
 
 fn sort_of(t: Ty) -> String do
@@ -473,10 +483,10 @@ fn verify_fn(v: inout Verifier, f: FnDecl) -> FnVc do
   // A generic function is verified once, with its type parameters as unknown types
   // (values of the uninterpreted sort Val), which covers every instance.
   let info = v.info
-  set v = v with (n: 0, decls: [], defs: [], qdefs: [], obs: [], strs: {}, loops: empty_loops, fname: f.name, params: {},
+  set v = v with (n: 0, decls: [], defs: [], qdefs: [], obs: [], strs: {}, loops: empty_loops, fname: f.name, params: {}, sf_done: [],
     info: info with (tenv: identity_env(f.tparams)))
   var fi = FnInfo(name: f.name, params: [], io: [], ret: plain(Ty.TUnit), effects: [], pre: [], post: [],
-    dec: Option.None, inline: Option.None, pos: f.pos)
+    dec: Option.None, inline: Option.None, spec_body: Option.None, spec_rec: false, pos: f.pos)
   match get_fn(info: v.info, name: f.name)
   case Some(value: x) then
     set fi = x
@@ -508,7 +518,7 @@ fn verify_fn(v: inout Verifier, f: FnDecl) -> FnVc do
   if (not st.dead) and (ty_show(fi.ret.ty) == "Unit") then
     check_post(v: inout v, st: st, pos: f.pos, val: "0")
   end if
-  return FnVc(name: f.name, decls: v.decls, defs: v.defs, qdefs: v.qdefs, obs: v.obs)
+  return FnVc(name: f.name, decls: v.decls, defs: v.defs, qdefs: v.qdefs, obs: v.obs, axioms: len(v.sf_done) > 0)
 end fn verify_fn
 
 fn check_post(v: inout Verifier, st: St, pos: Pos, val: String) do
@@ -543,11 +553,11 @@ fn spec_term(v: inout Verifier, e: Expr, st: St, subj: String, res: String) -> S
     case None then
     end match
   end for
-  return sexpr(v: inout v, e: e, sp: Spec(binds: binds, subj: subj, res: res))
+  return sexpr(v: inout v, e: e, sp: Spec(binds: binds, subj: subj, res: res, fuel: 2, scc: -1))
 end fn spec_term
 
 fn spec_with(v: inout Verifier, e: Expr, binds: Map<String, String>, subj: String) -> String do
-  return sexpr(v: inout v, e: e, sp: Spec(binds: binds, subj: subj, res: ""))
+  return sexpr(v: inout v, e: e, sp: Spec(binds: binds, subj: subj, res: "", fuel: 2, scc: -1))
 end fn spec_with
 
 fn sexpr(v: inout Verifier, e: Expr, sp: Spec) -> String do
@@ -590,7 +600,7 @@ fn sexpr(v: inout Verifier, e: Expr, sp: Spec) -> String do
     end for
     let a0 = arg_str(p: p, i: 0)
     if ci.kind == "user" then
-      return inline_call(v: inout v, name: ci.name, args: p)
+      return spec_call(v: inout v, name: ci.name, args: p, sp: sp)
     end if
     if ci.name == "len" then
       return "(len " ++ a0 ++ ")"
@@ -609,6 +619,16 @@ fn sexpr(v: inout Verifier, e: Expr, sp: Spec) -> String do
     let bt = sexpr(v: inout v, e: body, sp: inner)
     return quant_term(q: q, v: qv, lo: a, hi: b, body: bt)
   case Field(obj: o, name: f) then
+    // A variant written without fields (Tree.Leaf): a value with its tag.
+    match call_info(info: v.info, e: e)
+    case Some(value: ci) then
+      if ci.kind == "variant" then
+        let r = fresh(v: inout v, sort: "Val")
+        add_def(v: inout v, d: "(assert (= (tag " ++ r ++ ") " ++ int_to_str(ci.variant) ++ "))")
+        return r
+      end if
+    case None then
+    end match
     let ot = type_of(info: v.info, e: o)
     let ft = type_of(info: v.info, e: e)
     let ov = sexpr(v: inout v, e: o, sp: sp)
@@ -649,24 +669,222 @@ fn sexpr(v: inout Verifier, e: Expr, sp: Spec) -> String do
   end match
 end fn sexpr
 
-// The body of an expression function with its parameters bound to args.
-fn inline_call(v: inout Verifier, name: String, args: List<String>) -> String do
+// A call to a specification function in a specification (sp is the caller's). An
+// expression function's body is inlined, as is the body of any other non-recursive
+// one; a recursive one is an uninterpreted function defined by axioms.
+fn spec_call(v: inout Verifier, name: String, args: List<String>, sp: Spec) -> String do
   match get_fn(info: v.info, name: name)
   case Some(value: fi) then
+    var binds: Map<String, String> = {}
+    for i in 0..len(fi.params) do
+      set binds = insert(map: binds, key: fi.params[i].name, value: arg_str(p: args, i: i))
+    end for
     match fi.inline
     case Some(value: body) then
-      var binds: Map<String, String> = {}
-      for i in 0..len(fi.params) do
-        set binds = insert(map: binds, key: fi.params[i].name, value: arg_str(p: args, i: i))
-      end for
-      return sexpr(v: inout v, e: body, sp: Spec(binds: binds, subj: "", res: ""))
+      return sexpr(v: inout v, e: body, sp: sp with (binds: binds, subj: "", res: ""))
+    case None then
+    end match
+    match fi.spec_body
+    case Some(value: body) then
+      if not fi.spec_rec then
+        return tree_term(v: inout v, stmts: body, sp: sp with (binds: binds, subj: "", res: ""))
+      end if
+      var layer = 2
+      let k = scc_of_fn(info: v.info, name: name)
+      if (k >= 0) and (k == sp.scc) then
+        set layer = sp.fuel
+      end if
+      spec_fn_axioms(v: inout v, fi: fi, body: body)
+      if len(args) == 0 then
+        return layer_name(name: name, layer: layer)
+      end if
+      return "(" ++ layer_name(name: name, layer: layer) ++ " " ++ join(parts: args, sep: " ") ++ ")"
     case None then
       return "false"
     end match
   case None then
     return "false"
   end match
-end fn inline_call
+end fn spec_call
+
+fn layer_name(name: String, layer: Int) -> String do
+  if layer >= 2 then
+    return "sf_" ++ mangle(name)
+  end if
+  return "sf" ++ int_to_str(layer) ++ "_" ++ mangle(name)
+end fn layer_name
+
+// The term a specification function's body denotes: 'let' binds, 'if' and 'match'
+// choose, 'return' gives the value. Statements after an 'if' or 'match' whose branch
+// falls through follow that branch.
+fn tree_term(v: inout Verifier, stmts: List<Stmt>, sp: Spec) -> String do
+  var cur = sp
+  for i in 0..len(stmts) do
+    let rest = slice(of: stmts, from: i + 1, to: len(stmts))
+    match stmts[i].kind
+    case Let(name: n, ty: t, value: x, mutable: m) then
+      let xt = sexpr(v: inout v, e: x, sp: cur)
+      set cur = cur with (binds: insert(map: cur.binds, key: n, value: xt))
+    case Return(value: rv) then
+      match rv
+      case Some(value: x) then
+        return sexpr(v: inout v, e: x, sp: cur)
+      case None then
+        return "0"
+      end match
+    case If(arms: arms, els: els) then
+      var t = ""
+      match els
+      case Some(value: b) then
+        set t = tree_term(v: inout v, stmts: b ++ rest, sp: cur)
+      case None then
+        set t = tree_term(v: inout v, stmts: rest, sp: cur)
+      end match
+      var k = len(arms)
+      while k > 0 invariant k <= len(arms) do
+        set k = k - 1
+        let c = sexpr(v: inout v, e: arms[k].cond, sp: cur)
+        let a = tree_term(v: inout v, stmts: arms[k].body ++ rest, sp: cur)
+        set t = "(ite " ++ c ++ " " ++ a ++ " " ++ t ++ ")"
+      end while
+      return t
+    case Match(scrut: sc, cases: cases, els: els) then
+      return match_term(v: inout v, sc: sc, cases: cases, els: els, rest: rest, sp: cur)
+    else
+    end match
+  end for
+  return "0"
+end fn tree_term
+
+fn match_term(v: inout Verifier, sc: Expr, cases: List<Case>, els: Option<List<Stmt>>, rest: List<Stmt>,
+    sp: Spec) -> String do
+  let sv = sexpr(v: inout v, e: sc, sp: sp)
+  let stype = type_of(info: v.info, e: sc)
+  var variants: List<VariantInfo> = []
+  match variants_of(info: v.info, t: stype)
+  case Some(value: vs) then
+    set variants = vs
+  case None then
+  end match
+  var ename = ty_show(stype)
+  match stype
+  case TOpt(inner: x) then
+    set ename = "Option"
+  else
+  end match
+  // The last arm is the default: with no 'else', the cases are exhaustive.
+  var t = ""
+  var k = len(cases)
+  match els
+  case Some(value: b) then
+    set t = tree_term(v: inout v, stmts: b ++ rest, sp: sp)
+  case None then
+    if k > 0 then
+      set k = k - 1
+      set t = arm_term(v: inout v, cs: cases[k], sv: sv, variants: variants, ename: ename, rest: rest, sp: sp)
+    end if
+  end match
+  while k > 0 invariant k <= len(cases) do
+    set k = k - 1
+    let cs = cases[k]
+    var g = "false"
+    match cs.pat
+    case PInt(value: n) then
+      set g = "(= " ++ sv ++ " " ++ int_lit(n) ++ ")"
+    case PStr(value: x) then
+      set g = "(= " ++ sv ++ " " ++ str_const(v: inout v, s: x) ++ ")"
+    case PVariant(name: name, binds: bs) then
+      set g = "(= (tag " ++ sv ++ ") " ++ int_to_str(find_variant(vs: variants, name: name)) ++ ")"
+    end match
+    let a = arm_term(v: inout v, cs: cs, sv: sv, variants: variants, ename: ename, rest: rest, sp: sp)
+    set t = "(ite " ++ g ++ " " ++ a ++ " " ++ t ++ ")"
+  end while
+  return t
+end fn match_term
+
+fn arm_term(v: inout Verifier, cs: Case, sv: String, variants: List<VariantInfo>, ename: String,
+    rest: List<Stmt>, sp: Spec) -> String do
+  var cur = sp
+  match cs.pat
+  case PVariant(name: name, binds: bs) then
+    let vi = find_variant(vs: variants, name: name)
+    if vi >= 0 then
+      for fl in variants[vi].fields do
+        for b in bs do
+          if b.field == fl.name then
+            let f = vfield_fn(v: inout v, ename: ename, vname: name, field: fl.name, t: fl.rty.ty)
+            set cur = cur with (binds: insert(map: cur.binds, key: b.binder, value: "(" ++ f ++ " " ++ sv ++ ")"))
+          end if
+        end for
+      end for
+    end if
+  else
+  end match
+  return tree_term(v: inout v, stmts: cs.body ++ rest, sp: cur)
+end fn arm_term
+
+// The definition of a recursive specification function f, in three layers so that
+// the solver unfolds it a bounded number of times: sf_f's body calls sf1_f, sf1_f's
+// body calls sf0_f, and sf0_f has no definition; all three are the same function.
+// Each layer also gets f's postconditions. The axioms hold where f's preconditions
+// do. They are left out of the queries for f's own group: their consistency rests on
+// f terminating, which those queries prove.
+fn spec_fn_axioms(v: inout Verifier, fi: FnInfo, body: List<Stmt>) do
+  let rsort = sort_of(fi.ret.ty)
+  var sorts: List<String> = []
+  var vars: List<String> = []
+  var decl: List<String> = []
+  var binds: Map<String, String> = {}
+  for i in 0..len(fi.params) do
+    let s = sort_of(fi.params[i].rty.ty)
+    let x = "sa" ++ int_to_str(i)
+    set sorts = push(list: sorts, item: s)
+    set vars = push(list: vars, item: x)
+    set decl = push(list: decl, item: "(" ++ x ++ " " ++ s ++ ")")
+    set binds = insert(map: binds, key: fi.params[i].name, value: x)
+  end for
+  for layer in [0, 1, 2] do
+    let _ = global_fn(v: inout v, name: layer_name(name: fi.name, layer: layer), args: join(parts: sorts, sep: " "), sort: rsort)
+  end for
+  let k = scc_of_fn(info: v.info, name: fi.name)
+  if (k == scc_of_fn(info: v.info, name: v.fname)) or contains_str(xs: v.sf_done, x: fi.name) or (len(vars) == 0) then
+    return
+  end if
+  set v = v with (sf_done: push(list: v.sf_done, item: fi.name))
+  let top = Spec(binds: binds, subj: "", res: "", fuel: 2, scc: -1)
+  var pre: List<String> = []
+  for i in 0..len(fi.params) do
+    for p in fi.params[i].rty.preds do
+      set pre = push(list: pre, item: sexpr(v: inout v, e: p, sp: top with (subj: "sa" ++ int_to_str(i))))
+    end for
+  end for
+  for r in fi.pre do
+    set pre = push(list: pre, item: sexpr(v: inout v, e: r, sp: top))
+  end for
+  let guard = and_all(pre)
+  let args = join(parts: vars, sep: " ")
+  let q = "(forall (" ++ join(parts: decl, sep: " ") ++ ") (! "
+  for layer in [2, 1] do
+    let app = "(" ++ layer_name(name: fi.name, layer: layer) ++ " " ++ args ++ ")"
+    let def = tree_term(v: inout v, stmts: body, sp: top with (fuel: layer - 1, scc: k))
+    add_qdef(v: inout v, d: "(assert " ++ q ++ "(=> " ++ guard ++ " (= " ++ app ++ " " ++ def ++ ")) :pattern (" ++ app ++ "))))")
+    let lower = "(" ++ layer_name(name: fi.name, layer: layer - 1) ++ " " ++ args ++ ")"
+    add_qdef(v: inout v, d: "(assert " ++ q ++ "(= " ++ app ++ " " ++ lower ++ ") :pattern (" ++ app ++ "))))")
+  end for
+  for layer in [2, 1, 0] do
+    let app = "(" ++ layer_name(name: fi.name, layer: layer) ++ " " ++ args ++ ")"
+    var post: List<String> = []
+    for p in fi.ret.preds do
+      set post = push(list: post, item: sexpr(v: inout v, e: p, sp: top with (subj: app)))
+    end for
+    for en in fi.post do
+      set post = push(list: post, item: sexpr(v: inout v, e: en, sp: top with (res: app)))
+    end for
+    if len(post) > 0 then
+      add_qdef(v: inout v, d: "(assert " ++ q ++ "(=> " ++ guard ++ " " ++ and_all(post) ++ ") :pattern (" ++ app ++ "))))")
+    end if
+  end for
+end fn spec_fn_axioms
 
 // The SMT function giving the contents of a String or List ("" for other types).
 fn content_fn(t: Ty) -> String do
@@ -727,7 +945,7 @@ fn translatable(v: Verifier, e: Expr) -> Bool do
       elif ci.kind == "user" then
         match get_fn(info: v.info, name: ci.name)
         case Some(value: fi) then
-          set ok = is_some(fi.inline)
+          set ok = is_some(fi.inline) or is_some(fi.spec_body)
         case None then
         end match
       end if
@@ -1487,7 +1705,7 @@ fn vexpr(v: inout Verifier, e: Expr, st: inout St) -> String do
     end for
     let qv = fresh_q(inout v)
     set binds = insert(map: binds, key: qn, value: qv)
-    let bt = sexpr(v: inout v, e: body, sp: Spec(binds: binds, subj: "", res: ""))
+    let bt = sexpr(v: inout v, e: body, sp: Spec(binds: binds, subj: "", res: "", fuel: 2, scc: -1))
     return define(v: inout v, sort: "Bool", term: quant_term(q: q, v: qv, lo: a, hi: b, body: bt))
   case Binary(op: op, l: l, r: r) then
     if (op == "and") or (op == "or") or (op == "implies") then
@@ -1628,7 +1846,7 @@ end struct Update
 
 fn vcall_user(v: inout Verifier, e: Expr, name: String, p: List<String>, pe: List<Expr>, st: inout St) -> String do
   var fi = FnInfo(name: name, params: [], io: [], ret: plain(Ty.TUnknown), effects: [], pre: [], post: [],
-    dec: Option.None, inline: Option.None, pos: e.pos)
+    dec: Option.None, inline: Option.None, spec_body: Option.None, spec_rec: false, pos: e.pos)
   match get_fn(info: v.info, name: name)
   case Some(value: x) then
     set fi = x
@@ -1702,9 +1920,9 @@ fn vcall_user(v: inout Verifier, e: Expr, name: String, p: List<String>, pe: Lis
     end if
   end for
   let res = fresh(v: inout v, sort: sort_of(fi.ret.ty))
-  if is_some(fi.inline) then
-    // Expression functions are transparent: the result is the body.
-    let t = inline_call(v: inout v, name: name, args: p)
+  if is_some(fi.inline) or is_some(fi.spec_body) then
+    // Specification functions are transparent: the result is what the body denotes.
+    let t = spec_call(v: inout v, name: name, args: p, sp: Spec(binds: {}, subj: "", res: "", fuel: 2, scc: -1))
     add_fact(st: inout st, f: "(= " ++ res ++ " " ++ t ++ ")")
   end if
   for pr in fi.ret.preds do
@@ -1712,7 +1930,7 @@ fn vcall_user(v: inout Verifier, e: Expr, name: String, p: List<String>, pe: Lis
     add_fact(st: inout st, f: t)
   end for
   for en in fi.post do
-    let t = sexpr(v: inout v, e: en, sp: Spec(binds: post, subj: "", res: res))
+    let t = sexpr(v: inout v, e: en, sp: Spec(binds: post, subj: "", res: res, fuel: 2, scc: -1))
     add_fact(st: inout st, f: t)
   end for
   for u in updated do
@@ -1866,6 +2084,9 @@ fn script_for(pre: List<String>, vcs: List<FnVc>, model: Option<Ob>) -> String d
   set s = s ++ pre
   for vc in vcs do
     set s = push(list: s, item: "(push 1) ; fn " ++ vc.name)
+    if vc.axioms then
+      set s = push(list: s, item: "(set-option :smt.mbqi false)")
+    end if
     set s = s ++ vc.decls
     set s = s ++ vc.defs
     var obs: List<Ob> = vc.obs
@@ -1897,6 +2118,9 @@ fn script_for(pre: List<String>, vcs: List<FnVc>, model: Option<Ob>) -> String d
       set s = push(list: s, item: "(pop 1)")
     end for
     set s = push(list: s, item: "(pop 1)")
+    if vc.axioms then
+      set s = push(list: s, item: "(set-option :smt.mbqi true)")
+    end if
   end for
   return join(parts: s, sep: "\n") ++ "\n"
 end fn script_for
@@ -2035,7 +2259,11 @@ fn discharge(pre: List<String>, vcs: List<FnVc>) -> Discharged uses proc, fs do
           end if
         end for
       end if
-      set failures = push(list: failures, item: Failure(fn_name: vc.name, ob: ob, verdict: a, model: model))
+      var verdict = a
+      if vc.axioms and (a == "unknown") then
+        set verdict = "unknown-unfolded"
+      end if
+      set failures = push(list: failures, item: Failure(fn_name: vc.name, ob: ob, verdict: verdict, model: model))
     end for
   end for
   return Discharged(error: "", failures: failures)
@@ -2043,7 +2271,9 @@ end fn discharge
 
 fn failure_diag(f: Failure) -> Diag do
   var d = diag(pos: f.ob.pos, msg: "cannot prove " ++ f.ob.what)
-  if f.verdict == "unknown" then
+  if f.verdict == "unknown-unfolded" then
+    set d = with_note(d: d, note: "not proved: it may be false, or need more steps than the verifier takes (a recursive specification function is unfolded at most twice per use); assert the intermediate steps")
+  elif f.verdict == "unknown" then
     set d = with_note(d: d, note: "Z3 gave up (timeout or incomplete theory); add an assertion, invariant or check to help it")
   elif len(f.model) > 0 then
     var parts: List<String> = []

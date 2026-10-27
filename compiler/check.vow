@@ -92,6 +92,10 @@ struct FnInfo
   // For a pure, non-recursive function whose whole body is 'return e': that e.
   // Such a function may be used in specifications, where it is inlined.
   inline: Option<Expr>,
+  // For any other specification function (see compute_inline): its body, and whether
+  // it is recursive.
+  spec_body: Option<List<Stmt>>,
+  spec_rec: Bool,
   pos: Pos,
 end struct FnInfo
 
@@ -149,6 +153,9 @@ struct Info
   recursive: Map<String, Bool>,
   // Whether any measure is structural (not an Int).
   structural: Bool,
+  // Why a function a specification reaches cannot be used there, when that is not
+  // evident from its body.
+  spec_notes: Map<String, String>,
 end struct Info
 
 // ---- built-in functions ----
@@ -937,7 +944,7 @@ fn new_info() -> Info do
     value: [FieldInfo(name: "code", rty: plain(Ty.TInt)), FieldInfo(name: "out", rty: plain(Ty.TStr))])
   return Info(structs: structs, enums: {}, aliases: {}, fns: {}, types: {}, calls: {}, holes: [],
     gfns: {}, gstructs: {}, genums: {}, tenv: {}, inst_args: {}, origins: {}, pending: [], instances: [],
-    next_id: 0, scc: {}, recursive: {}, structural: false)
+    next_id: 0, scc: {}, recursive: {}, structural: false, spec_notes: {})
 end fn new_info
 
 fn alias_ready(info: Info, te: TypeExpr, alias_names: List<String>) -> Bool do
@@ -1256,7 +1263,7 @@ fn fn_signature(c: inout Checker, f: FnDecl) -> FnInfo do
     set effs = push(list: effs, item: u.name)
   end for
   return FnInfo(name: f.name, params: params, io: io, ret: ret, effects: effs, pre: f.pre,
-    post: f.post, dec: f.dec, inline: Option.None, pos: f.pos)
+    post: f.post, dec: f.dec, inline: Option.None, spec_body: Option.None, spec_rec: false, pos: f.pos)
 end fn fn_signature
 
 fn check_contracts(c: inout Checker, f: FnDecl) do
@@ -1437,84 +1444,340 @@ fn expect_measure(c: inout Checker, pos: Pos, t: Ty) do
   end if
 end fn expect_measure
 
-struct Candidate
-  name: String,
-  body: Expr,
-end struct Candidate
-
-// The functions that may be used in specifications: pure, returning a value, no
-// inout parameters, a body that is exactly 'return e' where e is a specification
-// expression, and not recursive (so inlining terminates).
+// The functions that may be used in specifications ("specification functions"): pure,
+// returning a value, no inout parameters, not generic, and a body built only from
+// 'let', 'if', 'match', 'assert' and 'return' over specification expressions, so it
+// denotes a value. A recursive one needs a 'decreases' measure, so that it denotes a
+// function. A non-recursive one whose body is exactly 'return e' is inlined (inline);
+// any other is translated from its body (spec_body). Functions with other bodies are
+// considered only when a specification reaches them.
 fn compute_inline(c: inout Checker, items: List<Item>) do
-  var cand: Map<String, Expr> = {}
+  var bodies: Map<String, List<Stmt>> = {}
+  var single: Map<String, Expr> = {}
+  var named: List<String> = []
   for item in items do
+    spec_calls_item(item: item, out: inout named)
     match item
     case FnItem(decl: f) then
       match get_fn(info: c.info, name: f.name)
       case Some(value: fi) then
-        var pure = (len(fi.effects) == 0) and (ty_show(fi.ret.ty) != "Unit")
+        var pure = (len(fi.effects) == 0) and (ty_show(fi.ret.ty) != "Unit") and (len(f.tparams) == 0)
         for b in fi.io do
           if b then
             set pure = false
           end if
         end for
-        if pure and (len(f.body) == 1) and (len(f.tparams) == 0) then
-          match f.body[0].kind
-          case Return(value: rv) then
-            match rv
-            case Some(value: e) then
-              set cand = insert(map: cand, key: f.name, value: e)
-            case None then
+        if pure and tree_shaped(f.body) and terminates(f.body) then
+          set bodies = insert(map: bodies, key: f.name, value: f.body)
+          if len(f.body) == 1 then
+            match f.body[0].kind
+            case Return(value: rv) then
+              match rv
+              case Some(value: e) then
+                set single = insert(map: single, key: f.name, value: e)
+              case None then
+              end match
+            else
             end match
-          else
-          end match
+          end if
         end if
       case None then
       end match
     else
     end match
   end for
+  // Specifications reach these functions, directly or through specification functions.
+  var used: Map<String, Bool> = {}
+  var todo = named
+  while len(todo) > 0 do
+    let n = todo[len(todo) - 1]
+    set todo = slice(of: todo, from: 0, to: len(todo) - 1)
+    if has(map: used, key: n) then
+      continue
+    end if
+    set used = insert(map: used, key: n, value: true)
+    match lookup(map: bodies, key: n)
+    case Some(value: b) then
+      for x in tree_callees(b) do
+        set todo = push(list: todo, item: x)
+      end for
+    case None then
+    end match
+  end while
+  var cand: Map<String, Bool> = {}
+  for n in keys(bodies) do
+    if has(map: single, key: n) or has(map: used, key: n) then
+      set cand = insert(map: cand, key: n, value: true)
+    end if
+  end for
+  var notes: Map<String, String> = {}
   var changed = true
   while changed do
     var drop: List<String> = []
     for n in keys(cand) do
-      match lookup(map: cand, key: n)
-      case Some(value: e) then
-        var seen: List<String> = []
-        if (not spec_safe(c: c, e: e, cand: cand)) or reaches(from: n, target: n, cand: cand, seen: inout seen) then
-          set drop = push(list: drop, item: n)
+      let b = value_or(opt: lookup(map: bodies, key: n), default: [])
+      var safe = true
+      for e in tree_exprs(b) do
+        if not spec_safe(c: c, e: e, cand: cand) then
+          set safe = false
         end if
-      case None then
-      end match
-    end for
-    set changed = len(drop) > 0
-    var kept: Map<String, Expr> = {}
-    for n in keys(cand) do
-      if not contains_str(xs: drop, x: n) then
-        match lookup(map: cand, key: n)
-        case Some(value: e) then
-          set kept = insert(map: kept, key: n, value: e)
-        case None then
-        end match
+      end for
+      var seen: List<String> = []
+      if not safe then
+        set drop = push(list: drop, item: n)
+      elif reaches(from: n, target: n, bodies: bodies, cand: cand, seen: inout seen) and not has_measure(c: c, n: n) then
+        set drop = push(list: drop, item: n)
+        set notes = insert(map: notes, key: n, value: "it is recursive and has no 'decreases' measure")
       end if
     end for
-    set cand = kept
+    set changed = len(drop) > 0
+    for n in drop do
+      set cand = remove_key(m: cand, k: n)
+    end for
   end while
   for n in keys(cand) do
-    match lookup(map: cand, key: n)
-    case Some(value: e) then
-      match get_fn(info: c.info, name: n)
-      case Some(value: fi) then
-        let info = c.info
-        set c = c with (info: info with (fns: insert(map: info.fns, key: n, value: fi with (inline: Option.Some(value: e)))))
+    match get_fn(info: c.info, name: n)
+    case Some(value: fi) then
+      var seen: List<String> = []
+      let rec = reaches(from: n, target: n, bodies: bodies, cand: cand, seen: inout seen)
+      var fi2 = fi
+      match lookup(map: single, key: n)
+      case Some(value: e) then
+        if rec then
+          set fi2 = fi with (spec_body: lookup(map: bodies, key: n), spec_rec: true)
+        else
+          set fi2 = fi with (inline: Option.Some(value: e))
+        end if
       case None then
+        set fi2 = fi with (spec_body: lookup(map: bodies, key: n), spec_rec: rec)
       end match
+      let info = c.info
+      set c = c with (info: info with (fns: insert(map: info.fns, key: n, value: fi2)))
     case None then
     end match
   end for
+  let info = c.info
+  set c = c with (info: info with (spec_notes: notes))
 end fn compute_inline
 
-fn spec_safe(c: Checker, e: Expr, cand: Map<String, Expr>) -> Bool do
+fn has_measure(c: Checker, n: String) -> Bool do
+  match get_fn(info: c.info, name: n)
+  case Some(value: fi) then
+    return is_some(fi.dec)
+  case None then
+    return false
+  end match
+end fn has_measure
+
+fn remove_key(m: Map<String, Bool>, k: String) -> Map<String, Bool> do
+  var out: Map<String, Bool> = {}
+  for x in keys(m) do
+    if x != k then
+      set out = insert(map: out, key: x, value: true)
+    end if
+  end for
+  return out
+end fn remove_key
+
+// A body made only of 'let', 'if', 'match', 'assert' and 'return e'.
+fn tree_shaped(stmts: List<Stmt>) -> Bool do
+  for s in stmts do
+    match s.kind
+    case Let(name: n, ty: t, value: v, mutable: m) then
+      if m then
+        return false
+      end if
+    case Return(value: v) then
+      if not is_some(v) then
+        return false
+      end if
+    case Assert(e: e) then
+    case If(arms: arms, els: els) then
+      for a in arms do
+        if not tree_shaped(a.body) then
+          return false
+        end if
+      end for
+      match els
+      case Some(value: b) then
+        if not tree_shaped(b) then
+          return false
+        end if
+      case None then
+      end match
+    case Match(scrut: sc, cases: cases, els: els) then
+      for cs in cases do
+        if not tree_shaped(cs.body) then
+          return false
+        end if
+      end for
+      match els
+      case Some(value: b) then
+        if not tree_shaped(b) then
+          return false
+        end if
+      case None then
+      end match
+    else
+      return false
+    end match
+  end for
+  return true
+end fn tree_shaped
+
+// The expressions of a tree-shaped body ('assert's excluded: they are proved, not
+// evaluated).
+fn tree_exprs(stmts: List<Stmt>) -> List<Expr> do
+  var out: List<Expr> = []
+  for s in stmts do
+    match s.kind
+    case Let(name: n, ty: t, value: v, mutable: m) then
+      set out = push(list: out, item: v)
+    case Return(value: v) then
+      match v
+      case Some(value: e) then
+        set out = push(list: out, item: e)
+      case None then
+      end match
+    case If(arms: arms, els: els) then
+      for a in arms do
+        set out = push(list: out, item: a.cond)
+        set out = out ++ tree_exprs(a.body)
+      end for
+      match els
+      case Some(value: b) then
+        set out = out ++ tree_exprs(b)
+      case None then
+      end match
+    case Match(scrut: sc, cases: cases, els: els) then
+      set out = push(list: out, item: sc)
+      for cs in cases do
+        set out = out ++ tree_exprs(cs.body)
+      end for
+      match els
+      case Some(value: b) then
+        set out = out ++ tree_exprs(b)
+      case None then
+      end match
+    else
+    end match
+  end for
+  return out
+end fn tree_exprs
+
+fn tree_callees(stmts: List<Stmt>) -> List<String> do
+  var out: List<String> = []
+  for e in tree_exprs(stmts) do
+    callees(e: e, out: inout out)
+  end for
+  return out
+end fn tree_callees
+
+// The names called in specification positions of an item: contracts, refinements,
+// assertions, checks, loop invariants and measures.
+fn spec_calls_item(item: Item, out: inout List<String>) do
+  match item
+  case FnItem(decl: f) then
+    for e in f.pre ++ f.post do
+      callees(e: e, out: inout out)
+    end for
+    for p in f.params do
+      spec_calls_type(t: p.ty, out: inout out)
+    end for
+    match f.ret
+    case Some(value: t) then
+      spec_calls_type(t: t, out: inout out)
+    case None then
+    end match
+    match f.dec
+    case Some(value: d) then
+      callees(e: d, out: inout out)
+    case None then
+    end match
+    spec_calls_block(stmts: f.body, out: inout out)
+  case StructItem(decl: s) then
+    for p in s.fields do
+      spec_calls_type(t: p.ty, out: inout out)
+    end for
+  case EnumItem(decl: e) then
+    for vd in e.variants do
+      for p in vd.fields do
+        spec_calls_type(t: p.ty, out: inout out)
+      end for
+    end for
+  case AliasItem(decl: a) then
+    spec_calls_type(t: a.ty, out: inout out)
+  end match
+end fn spec_calls_item
+
+fn spec_calls_type(t: TypeExpr, out: inout List<String>) do
+  match t.refine
+  case Some(value: r) then
+    callees(e: r, out: inout out)
+  case None then
+  end match
+  for a in t.args do
+    spec_calls_type(t: a, out: inout out)
+  end for
+end fn spec_calls_type
+
+fn spec_calls_block(stmts: List<Stmt>, out: inout List<String>) do
+  for s in stmts do
+    match s.kind
+    case Let(name: n, ty: t, value: v, mutable: m) then
+      match t
+      case Some(value: x) then
+        spec_calls_type(t: x, out: inout out)
+      case None then
+      end match
+    case Assert(e: e) then
+      callees(e: e, out: inout out)
+    case Check(e: e) then
+      callees(e: e, out: inout out)
+    case If(arms: arms, els: els) then
+      for a in arms do
+        spec_calls_block(stmts: a.body, out: inout out)
+      end for
+      match els
+      case Some(value: b) then
+        spec_calls_block(stmts: b, out: inout out)
+      case None then
+      end match
+    case While(cond: c, invs: invs, dec: dec, body: body) then
+      for i in invs do
+        callees(e: i, out: inout out)
+      end for
+      match dec
+      case Some(value: d) then
+        callees(e: d, out: inout out)
+      case None then
+      end match
+      spec_calls_block(stmts: body, out: inout out)
+    case ForRange(name: v, lo: lo, hi: hi, invs: invs, body: body) then
+      for i in invs do
+        callees(e: i, out: inout out)
+      end for
+      spec_calls_block(stmts: body, out: inout out)
+    case ForEach(name: v, list: l, invs: invs, body: body) then
+      for i in invs do
+        callees(e: i, out: inout out)
+      end for
+      spec_calls_block(stmts: body, out: inout out)
+    case Match(scrut: sc, cases: cases, els: els) then
+      for cs in cases do
+        spec_calls_block(stmts: cs.body, out: inout out)
+      end for
+      match els
+      case Some(value: b) then
+        spec_calls_block(stmts: b, out: inout out)
+      case None then
+      end match
+    else
+    end match
+  end for
+end fn spec_calls_block
+
+fn spec_safe(c: Checker, e: Expr, cand: Map<String, Bool>) -> Bool do
   match e.kind
   case IntLit(value: v) then
     return true
@@ -1589,20 +1852,23 @@ fn callees(e: Expr, out: inout List<String>) do
 end fn callees
 
 // True if 'from' can reach 'target' through calls among the candidates.
-fn reaches(from: String, target: String, cand: Map<String, Expr>, seen: inout List<String>) -> Bool do
-  match lookup(map: cand, key: from)
+// Whether from can call target through specification functions.
+fn reaches(from: String, target: String, bodies: Map<String, List<Stmt>>, cand: Map<String, Bool>,
+    seen: inout List<String>) -> Bool do
+  if not has(map: cand, key: from) then
+    return false
+  end if
+  match lookup(map: bodies, key: from)
   case None then
     return false
   case Some(value: body) then
-    var cs: List<String> = []
-    callees(e: body, out: inout cs)
-    for x in cs do
+    for x in tree_callees(body) do
       if x == target then
         return true
       end if
       if not contains_str(xs: seen, x: x) then
         set seen = push(list: seen, item: x)
-        if reaches(from: x, target: target, cand: cand, seen: inout seen) then
+        if reaches(from: x, target: target, bodies: bodies, cand: cand, seen: inout seen) then
           return true
         end if
       end if
@@ -2688,8 +2954,13 @@ fn check_call(c: inout Checker, e: Expr, callee: Expr, args: List<Arg>, expected
   end match
   match get_fn(info: c.info, name: name)
   case Some(value: fi) then
-    if c.spec and not is_some(fi.inline) then
-      err(c: inout c, pos: e.pos, msg: "'" ++ name ++ "' cannot be used in a specification: only pure, non-recursive functions whose whole body is 'return <expression>' can")
+    if c.spec and not (is_some(fi.inline) or is_some(fi.spec_body)) then
+      match lookup(map: c.info.spec_notes, key: name)
+      case Some(value: why) then
+        err(c: inout c, pos: e.pos, msg: "'" ++ name ++ "' cannot be used in a specification: " ++ why)
+      case None then
+        err(c: inout c, pos: e.pos, msg: "'" ++ name ++ "' cannot be used in a specification: only pure functions whose bodies use just let, if, match, assert and return over specification expressions can")
+      end match
       return Ty.TUnknown
     end if
     for u in fi.effects do

@@ -9,6 +9,13 @@
   proves recursion on its parts terminates (tree and rose-tree walks).
 - `vowc check --totality` reports which functions are proved to terminate, and for
   the others, why not (an unmeasured loop or recursion, or a call to such a function).
+- Specification functions: any pure function whose body uses only `let`, `if`,
+  `match`, `assert` and `return` can be used in contracts, and recursive ones too when
+  they have a measure: `ensures len(out) == (len(old(out)) + size(t))`. Recursive ones
+  are defined by axioms unfolded at most twice per use; their definitions are kept out
+  of the proofs of their own recursive group, whose termination they rely on.
+- Fixed: a variant without fields (`Tree.Leaf`) in a specification made Z3 reject the
+  query; it now denotes a value with that variant's tag.
 
 ## v0.5.0
 

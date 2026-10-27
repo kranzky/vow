@@ -1,0 +1,97 @@
+// language: 0.6
+// Specification functions: bodies of let, if, match and return, recursive ones with
+// measures, used in contracts, invariants and assertions.
+
+enum Tree
+  Leaf,
+  Node(left: Tree, value: Int, right: Tree),
+end enum Tree
+
+fn size(t: Tree) -> Int
+  ensures result >= 0
+  decreases t
+do
+  match t
+  case Leaf then
+    return 0
+  case Node(left: l, value: v, right: r) then
+    return (size(l) + 1) + size(r)
+  end match
+end fn size
+
+fn sum(xs: List<Int>, from: Int where (0 <= it) and (it <= len(xs))) -> Int
+  decreases len(xs) - from
+do
+  if from == len(xs) then
+    return 0
+  end if
+  return xs[from] + sum(xs: xs, from: from + 1)
+end fn sum
+
+fn clamp(x: Int, hi: Int) -> Int do
+  if x > hi then
+    return hi
+  end if
+  let y = x
+  if y < 0 then
+    return 0
+  end if
+  return y
+end fn clamp
+
+fn in_order(t: Tree, out: inout List<Int>)
+  ensures len(out) == (len(old(out)) + size(t))
+  decreases t
+do
+  match t
+  case Leaf then
+  case Node(left: l, value: v, right: r) then
+    in_order(t: l, out: inout out)
+    set out = push(list: out, item: v)
+    in_order(t: r, out: inout out)
+  end match
+end fn in_order
+
+fn total(xs: List<Int>) -> Int
+  ensures result == sum(xs: xs, from: 0)
+do
+  var s = 0
+  var i = len(xs)
+  while i > 0
+    invariant (0 <= i) and (i <= len(xs))
+    invariant s == sum(xs: xs, from: i)
+    decreases i
+  do
+    set i = i - 1
+    set s = s + xs[i]
+  end while
+  return s
+end fn total
+
+fn is_even(n: Int where it >= 0) -> Bool decreases n do
+  if n == 0 then
+    return true
+  end if
+  return is_odd(n - 1)
+end fn is_even
+
+fn is_odd(n: Int where it >= 0) -> Bool decreases n do
+  if n == 0 then
+    return false
+  end if
+  return is_even(n - 1)
+end fn is_odd
+
+fn main() uses console do
+  let t = Tree.Node(left: Tree.Leaf, value: 1, right: Tree.Node(left: Tree.Leaf, value: 2, right: Tree.Leaf))
+  var xs: List<Int> = []
+  in_order(t: t, out: inout xs)
+  assert len(xs) == size(t)
+  let n = clamp(x: 15, hi: 10)
+  assert n == clamp(x: 15, hi: 10)
+  assert n == 10
+  assert size(Tree.Leaf) == 0
+  assert not is_even(1)
+  assert is_odd(1)
+  print(int_to_str(len(xs)) ++ " " ++ int_to_str(total([1, 2, 3])) ++ " " ++ int_to_str(n) ++ "\n")
+end fn main

@@ -164,6 +164,38 @@ end fn is_sorted
 fn search(xs: List<Int>, target: Int) -> Int requires is_sorted(xs) ...
 ```
 
+More generally, a pure function returning a value, with no `inout` parameters and no
+type parameters, whose body uses only `let`, `if`/`elif`/`else`, `match`, `assert` and
+`return` over specification expressions (and calls only such functions) is a
+**specification function**, and may be called in specifications. A recursive one
+(alone or with others) needs a `decreases` measure:
+
+```
+fn size(t: Tree) -> Int
+  ensures result >= 0
+  decreases t
+do
+  match t
+  case Leaf then
+    return 0
+  case Node(left: l, value: v, right: r) then
+    return (size(l) + 1) + size(r)
+  end match
+end fn size
+
+fn in_order(t: Tree, out: inout List<Int>)
+  ensures len(out) == (len(old(out)) + size(t))
+```
+
+A non-recursive specification function's body is translated into a term. A recursive
+one is a function of the logic defined by its body, under its preconditions, along with
+its postconditions; each use is unfolded at most twice, so a claim that needs deeper
+unfolding needs intermediate `assert`s. These definitions are left out of the proofs of
+the function's own recursive group: they are consistent only because the function
+terminates, which those proofs establish. A specification function is transparent to the
+verifier only when a specification uses it; elsewhere its calls are known by their
+contracts alone, like any other function's.
+
 `struct` and `enum` are shown above. Fields and variants are comma-separated, with an
 optional trailing comma. `type Name = T` declares an alias.
 
@@ -376,7 +408,7 @@ Specification expressions (`requires`, `ensures`, `where`, `invariant`, `decreas
 `assert`, `check`) are restricted to pure, total-in-the-logic forms: literals,
 variables, `it`, `result`, arithmetic, comparisons, boolean operators, quantifiers,
 field access, indexing, the built-ins `len`, `value_or`, `is_some` and `is_none`,
-calls to expression functions, and (in `ensures` and loop invariants) `old(x)`.
+calls to specification functions, and (in `ensures` and loop invariants) `old(x)`.
 
 Generic functions are verified once for all type arguments (see Generics); calls to
 them are checked against their contracts with the type arguments of the call.
@@ -401,8 +433,10 @@ For each function the compiler computes:
 - **body hash:** FNV-1a over a canonical rendering of the function;
 - **verification key:** the body hash combined with the contract hashes of every
   function called in the body or the specifications, and the hash of all type
-  declarations. An expression function's contract hash covers its body, because callers'
-  proofs see it.
+  declarations. A specification function's contract hash covers its body, because
+  callers' proofs see it, and the hash of all type declarations also covers every
+  specification function's body (so a change to one invalidates proofs that use it
+  indirectly).
 
 Verified keys are stored in `<file>.vowcache`. Unchanged functions are not re-verified.
 `vowc hash file.vow` prints each function's hashes.

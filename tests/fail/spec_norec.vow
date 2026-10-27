@@ -1,0 +1,13 @@
+// error: 'count' cannot be used in a specification: it is recursive and has no 'decreases' measure
+// language: 0.6
+
+fn count(n: Int) -> Int do
+  if n <= 0 then
+    return 0
+  end if
+  return 1 + count(n - 1)
+end fn count
+
+fn main() do
+  assert count(0) == 0
+end fn main

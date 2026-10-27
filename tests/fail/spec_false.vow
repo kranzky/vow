@@ -1,0 +1,32 @@
+// error: cannot prove postcondition of 'total': result == sum(xs: xs, from: 0)
+// language: 0.6
+
+fn sum(xs: List<Int>, from: Int where (0 <= it) and (it <= len(xs))) -> Int
+  decreases len(xs) - from
+do
+  if from == len(xs) then
+    return 0
+  end if
+  return xs[from] + sum(xs: xs, from: from + 1)
+end fn sum
+
+// Off by one: the loop skips the first element.
+fn total(xs: List<Int>) -> Int
+  ensures result == sum(xs: xs, from: 0)
+do
+  var s = 0
+  var i = len(xs)
+  while i > 1
+    invariant (1 <= i) or (len(xs) == 0)
+    invariant i <= len(xs)
+    invariant s == sum(xs: xs, from: i)
+    decreases i
+  do
+    set i = i - 1
+    set s = s + xs[i]
+  end while
+  return s
+end fn total
+
+fn main() do
+end fn main

@@ -1,0 +1,15 @@
+// error: 'total' cannot be used in a specification: only pure functions whose bodies use just let, if, match, assert and return over specification expressions can
+// language: 0.6
+
+fn total(xs: List<Int>) -> Int do
+  var s = 0
+  for x in xs do
+    set s = s + x
+  end for
+  return s
+end fn total
+
+fn main() do
+  let xs = [1, 2]
+  assert total(xs) == 3
+end fn main

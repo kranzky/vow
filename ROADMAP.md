@@ -39,7 +39,8 @@ Must-have, language and proofs:
       fuzzing of the two verifiers
 - [x] Quantified specs (`forall`/`exists` over ranges) and expression functions in specs
 - [x] `old(x)` for inout postconditions and loop invariants
-- [ ] Recursive spec functions (needs termination)
+- [x] Specification functions with `let`/`if`/`match` bodies, recursive ones with
+      measures (defined by axioms, unfolded twice per use)
 - [x] Termination measures (`decreases`) for while loops and direct recursion (opt-in)
 - [x] Termination for mutual recursion and structural measures (`decreases t` on trees
       and lists); `vowc check --totality` reports which functions are proved to terminate

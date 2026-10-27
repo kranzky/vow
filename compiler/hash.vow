@@ -137,7 +137,7 @@ end fn calls_in_block
 fn is_inline(info: Info, name: String) -> Bool do
   match get_fn(info: info, name: name)
   case Some(value: fi) then
-    return is_some(fi.inline)
+    return is_some(fi.inline) or is_some(fi.spec_body)
   case None then
     return false
   end match
@@ -159,7 +159,9 @@ fn hash_program(items: List<Item>, info: Info) -> List<FnHash> do
       set types = push(list: types, item: pretty_item(item) ++ "\n")
     end match
   end for
-  // Type refinements may call expression functions, whose bodies are inlined.
+  // Type refinements may call specification functions, whose bodies are part of the
+  // logic. All of them are covered here, so a change to one invalidates every proof
+  // that could rely on it, however indirectly.
   for item in items do
     match item
     case FnItem(decl: f) then

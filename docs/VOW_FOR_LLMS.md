@@ -269,6 +269,31 @@ whose whole body is `return <spec expression>` can be used inside specifications
 verifier at runtime too, so `if is_sorted(xs) then ...` teaches the verifier that
 `xs` is sorted.
 
+**Recursive functions in contracts.** A pure function whose body uses only `let`,
+`if`, `match`, `assert` and `return` can be used in specifications, recursive ones too
+when they have a `decreases` measure. This lets a contract say what a recursive
+walk produces:
+
+```
+fn size(t: Tree) -> Int ensures result >= 0 decreases t do
+  match t
+  case Leaf then
+    return 0
+  case Node(left: l, value: v, right: r) then
+    return (size(l) + 1) + size(r)
+  end match
+end fn size
+
+fn in_order(t: Tree, out: inout List<Int>)
+  ensures len(out) == (len(old(out)) + size(t))
+  decreases t
+do ...
+```
+
+The verifier unfolds such a function at most twice per use. To prove something about
+a long chain (`sum(xs, 0)` for a long list), carry it in a loop invariant
+(`invariant s == sum(xs: xs, from: i)`) rather than asking for it all at once.
+
 **Give every helper the contract its callers need.** The verifier reasons about a
 call from the callee's signature alone. A single-expression function is transparent;
 anything else exposes only its `ensures`. Two cases catch people out:
@@ -336,8 +361,8 @@ common split: prove each small piece (for example, every escaped text fragment),
 **Specifications are restricted.** Inside `requires`, `ensures`, `where`, `invariant`,
 `decreases`, `assert` and `check` you may use literals, variables, `it`, `result`,
 arithmetic, comparisons, `and or not implies`, quantifiers, `len`, `value_or`,
-`is_some`, `is_none`, field access, indexing and expression functions. Other calls
-are rejected.
+`is_some`, `is_none`, field access, indexing and specification functions (above).
+Other calls are rejected.
 
 **Escape hatches, in order of preference:**
 1. Add the missing fact as an invariant, `ensures`, or refinement.

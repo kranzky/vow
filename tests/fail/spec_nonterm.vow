@@ -1,0 +1,12 @@
+// error: cannot prove recursive call to 'bad' decreases its measure: n
+// language: 0.6
+
+// A definition that does not terminate would be contradictory (bad(n) = bad(n) + 1),
+// so its measure must be proved before it can be used.
+fn bad(n: Int) -> Int decreases n do
+  return bad(n) + 1
+end fn bad
+
+fn main() do
+  assert bad(0) == (bad(0) + 1)
+end fn main
