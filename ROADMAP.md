@@ -23,7 +23,7 @@
 - [x] M10: vow.kranzky.com: static site with the spec, the LLM guide, `llms.txt` and
       examples (GitHub Pages + CNAME)
 - [ ] M11: Backends beyond C, in order: `#line` directives so C-level errors and
-      debuggers point at `.vow` lines; bundled `zig cc` to remove the C toolchain
+      debuggers point at `.vow` lines (done); bundled `zig cc` to remove the C toolchain
       dependency; a WebAssembly backend (powers a browser playground on the site);
       QBE only if compile speed becomes the bottleneck; a native backend last, if ever
 - [x] M12 (built by OpenAI Codex from the docs alone, without the compiler source; brief
@@ -64,7 +64,8 @@ Must-have, runtime and portability:
       `set_at`; fannkuch-redux went from 4.34 s and 19.7 GB to 0.39 s and 1 MB
 - [x] `HashMap` alongside the persistent ordered `Map`, tree inserts in place, and
       fields moved out of structs on update; k-nucleotide went from 1.11 s to 0.21 s
-- [ ] Windows `run()`, `#line` mapping, readable panics
+- [x] `#line` mapping; panics name the `.vow` file and line
+- [ ] Windows `run()`
 - [x] `std/text.vow` (verified text library), `make_dir`, `list_dir`
 - [ ] More standard modules and a C FFI; `net`/`time`/`random` effects
 

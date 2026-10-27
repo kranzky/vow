@@ -1,0 +1,8 @@
+// language: 0.6
+// A failed check reports its line and the condition.
+
+fn main() uses console, proc do
+  let n = len(args())
+  check n > 5
+  print("unreachable\n")
+end fn main

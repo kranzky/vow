@@ -1,0 +1,12 @@
+// language: 0.6
+// Built with --no-verify, bounds are checked at runtime and failures are located.
+// vowflags: --no-verify
+
+fn main() uses console do
+  let xs = [1, 2, 3]
+  var i = 0
+  while i < 5 do
+    print(int_to_str(xs[i]) ++ "\n")
+    set i = i + 1
+  end while
+end fn main

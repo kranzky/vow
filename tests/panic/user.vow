@@ -1,0 +1,13 @@
+// language: 0.6
+// panic(msg) reports where it was called.
+
+fn positive(n: Int) -> Int do
+  if n < 0 then
+    panic("negative: " ++ int_to_str(n))
+  end if
+  return n
+end fn positive
+
+fn main() uses console do
+  print(int_to_str(positive(-3)) ++ "\n")
+end fn main

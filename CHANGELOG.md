@@ -15,6 +15,11 @@
   are defined by axioms unfolded at most twice per use; their definitions are kept out
   of the proofs of their own recursive group, whose termination they rely on.
 - `vowc`, `vowc help` and `vowc --help` point to the guide for LLMs.
+- Generated C carries `#line` directives, so C compiler errors and debuggers point at
+  `.vow` lines (`--no-line-directives` turns them off; the committed seed uses it).
+- Runtime panics name the source line: `vow: panic at calc.vow:12: integer overflow in
+  '*'`. This covers overflow, `panic(msg)`, and bounds checks in unverified builds, at
+  no cost when nothing fails (the benchmarks are unchanged).
 - Fixed: a variant without fields (`Tree.Leaf`) in a specification made Z3 reject the
   query; it now denotes a value with that variant's tag.
 - Specifications assume the field refinements of the struct values they name:

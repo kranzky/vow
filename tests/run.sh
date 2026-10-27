@@ -1,8 +1,9 @@
 #!/bin/sh
 # Runs every tests/run/*.vow and compares stdout with the matching .out file; checks
 # that every tests/fail/*.vow is rejected with the message in its first line
-# ("// error: <text>"); and compares `check --totality` on tests/total/*.vow with the
-# matching .out file.
+# ("// error: <text>"); compares `check --totality` on tests/total/*.vow with the
+# matching .out file; and checks that each tests/panic/*.vow program, built (with the
+# flags on its "// vowflags:" line) and run, panics with the message in its .err file.
 cd "$(dirname "$0")" || exit 1
 VOWC=${VOWC:-"$(pwd)/../bootstrap/target/debug/vowc"}
 pass=0
@@ -47,6 +48,26 @@ for f in total/*.vow; do
     echo "$got" | diff "$exp" - | head -20
   fi
 done
+tmpd=$(mktemp -d)
+for f in panic/*.vow; do
+  skip "$f" && continue
+  flags=$(sed -n 's|^// vowflags: ||p' "$f")
+  exp="${f%.vow}.err"
+  if "$VOWC" build "$f" -o "$tmpd/prog" $flags >/dev/null 2>&1; then
+    "$tmpd/prog" >/dev/null 2>"$tmpd/err"
+    got=$(cat "$tmpd/err")
+  else
+    got="(did not build)"
+  fi
+  if [ "$got" = "$(cat "$exp")" ]; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1))
+    echo "FAIL $f"
+    echo "$got" | diff "$exp" - | head -10
+  fi
+done
+rm -rf "$tmpd"
 for f in ../examples/*.vow; do
   skip "$f" && continue
   got=$("$VOWC" check "$f" 2>&1)

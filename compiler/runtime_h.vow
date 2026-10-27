@@ -49,12 +49,25 @@ fn runtime_header() -> String do
     "    exit(101);\n" ++
     "}\n" ++
     "\n" ++
+    "// Generated code carries #line directives, so __FILE__ and __LINE__ where it calls a\n" ++
+    "// checked operation name the .vow source line. Each checked operation is a macro that\n" ++
+    "// passes them on (vadd(a, b) is vadd_at(a, b, __FILE__, __LINE__)); they are used only\n" ++
+    "// when the check fails.\n" ++
+    "static __attribute__((noreturn, cold)) void vow_panic_at(const char *file, int line, const char *msg) {\n" ++
+    "    fflush(stdout);\n" ++
+    "    fprintf(stderr, \"vow: panic at %s:%d: %s\\n\", file, line, msg);\n" ++
+    "    exit(101);\n" ++
+    "}\n" ++
+    "\n" ++
+    "#define VOW_PANIC(msg) vow_panic_at(__FILE__, __LINE__, (msg))\n" ++
+    "#define VOW_AT const char *vow_f, int vow_l\n" ++
+    "\n" ++
     "#ifdef VOW_VERIFIED\n" ++
     "#define VOW_REQUIRE(cond, msg) ((void)0)\n" ++
     "#else\n" ++
     "#define VOW_REQUIRE(cond, msg) \\\n" ++
     "    do {                       \\\n" ++
-    "        if (!(cond)) vow_panic(msg); \\\n" ++
+    "        if (!(cond)) vow_panic_at(vow_f, vow_l, msg); \\\n" ++
     "    } while (0)\n" ++
     "#endif\n" ++
     "\n" ++
@@ -296,40 +309,47 @@ fn runtime_header() -> String do
     "\n" ++
     "// ---- integers ----\n" ++
     "\n" ++
-    "static inline V vadd(V a, V b) {\n" ++
+    "static inline V vadd_at(V a, V b, VOW_AT) {\n" ++
     "    int64_t r;\n" ++
-    "    if (__builtin_add_overflow(VI(a), VI(b), &r)) vow_panic(\"integer overflow in '+'\");\n" ++
+    "    if (__builtin_add_overflow(VI(a), VI(b), &r)) vow_panic_at(vow_f, vow_l, \"integer overflow in '+'\");\n" ++
     "    return (V)r;\n" ++
     "}\n" ++
-    "static inline V vsub(V a, V b) {\n" ++
+    "static inline V vsub_at(V a, V b, VOW_AT) {\n" ++
     "    int64_t r;\n" ++
-    "    if (__builtin_sub_overflow(VI(a), VI(b), &r)) vow_panic(\"integer overflow in '-'\");\n" ++
+    "    if (__builtin_sub_overflow(VI(a), VI(b), &r)) vow_panic_at(vow_f, vow_l, \"integer overflow in '-'\");\n" ++
     "    return (V)r;\n" ++
     "}\n" ++
-    "static inline V vmul(V a, V b) {\n" ++
+    "static inline V vmul_at(V a, V b, VOW_AT) {\n" ++
     "    int64_t r;\n" ++
-    "    if (__builtin_mul_overflow(VI(a), VI(b), &r)) vow_panic(\"integer overflow in '*'\");\n" ++
+    "    if (__builtin_mul_overflow(VI(a), VI(b), &r)) vow_panic_at(vow_f, vow_l, \"integer overflow in '*'\");\n" ++
     "    return (V)r;\n" ++
     "}\n" ++
-    "static inline V vneg(V a) {\n" ++
-    "    if (VI(a) == INT64_MIN) vow_panic(\"integer overflow in unary '-'\");\n" ++
+    "static inline V vneg_at(V a, VOW_AT) {\n" ++
+    "    if (VI(a) == INT64_MIN) vow_panic_at(vow_f, vow_l, \"integer overflow in unary '-'\");\n" ++
     "    return (V)(-VI(a));\n" ++
     "}\n" ++
     "// Euclidean division: the remainder is always non-negative (matches SMT-LIB).\n" ++
-    "static inline V vdiv(V a, V b) {\n" ++
+    "static inline V vdiv_at(V a, V b, VOW_AT) {\n" ++
     "    VOW_REQUIRE(VI(b) != 0, \"division by zero\");\n" ++
-    "    if (VI(a) == INT64_MIN && VI(b) == -1) vow_panic(\"integer overflow in '/'\");\n" ++
+    "    if (VI(a) == INT64_MIN && VI(b) == -1) vow_panic_at(vow_f, vow_l, \"integer overflow in '/'\");\n" ++
     "    int64_t q = VI(a) / VI(b), r = VI(a) % VI(b);\n" ++
     "    if (r < 0) q = VI(b) > 0 ? q - 1 : q + 1;\n" ++
     "    return (V)q;\n" ++
     "}\n" ++
-    "static inline V vmod(V a, V b) {\n" ++
+    "static inline V vmod_at(V a, V b, VOW_AT) {\n" ++
     "    VOW_REQUIRE(VI(b) != 0, \"division by zero\");\n" ++
     "    if (VI(b) == -1) return 0;\n" ++
     "    int64_t r = VI(a) % VI(b);\n" ++
     "    if (r < 0) r = VI(b) > 0 ? r + VI(b) : r - VI(b);\n" ++
     "    return (V)r;\n" ++
     "}\n" ++
+    "\n" ++
+    "#define vadd(a, b) vadd_at((a), (b), __FILE__, __LINE__)\n" ++
+    "#define vsub(a, b) vsub_at((a), (b), __FILE__, __LINE__)\n" ++
+    "#define vmul(a, b) vmul_at((a), (b), __FILE__, __LINE__)\n" ++
+    "#define vneg(a) vneg_at((a), __FILE__, __LINE__)\n" ++
+    "#define vdiv(a, b) vdiv_at((a), (b), __FILE__, __LINE__)\n" ++
+    "#define vmod(a, b) vmod_at((a), (b), __FILE__, __LINE__)\n" ++
     "\n" ++
     "// ---- strings (all functions borrow their arguments) ----\n" ++
     "\n" ++
@@ -364,21 +384,27 @@ fn runtime_header() -> String do
     "    return VS(a)->len < VS(b)->len ? -1 : (VS(a)->len > VS(b)->len ? 1 : 0);\n" ++
     "}\n" ++
     "\n" ++
-    "static inline V vstr_byte(V s, V i) {\n" ++
+    "static inline V vstr_byte_at(V s, V i, VOW_AT) {\n" ++
     "    VOW_REQUIRE(VI(i) >= 0 && VI(i) < VS(s)->len, \"string index out of bounds\");\n" ++
     "    return (V)(unsigned char)VS(s)->data[VI(i)];\n" ++
     "}\n" ++
     "\n" ++
-    "static V vstr_slice(V s, V from, V to) {\n" ++
+    "#define vstr_byte(s, i) vstr_byte_at((s), (i), __FILE__, __LINE__)\n" ++
+    "\n" ++
+    "static V vstr_slice_at(V s, V from, V to, VOW_AT) {\n" ++
     "    VOW_REQUIRE(0 <= VI(from) && VI(from) <= VI(to) && VI(to) <= VS(s)->len, \"string slice out of bounds\");\n" ++
     "    return vstr_new(VS(s)->data + VI(from), VI(to) - VI(from));\n" ++
     "}\n" ++
     "\n" ++
-    "static V vchar(V code) {\n" ++
+    "#define vstr_slice(s, from, to) vstr_slice_at((s), (from), (to), __FILE__, __LINE__)\n" ++
+    "\n" ++
+    "static V vchar_at(V code, VOW_AT) {\n" ++
     "    VOW_REQUIRE(VI(code) >= 0 && VI(code) < 256, \"char code out of range\");\n" ++
     "    char c = (char)VI(code);\n" ++
     "    return vstr_new(&c, 1);\n" ++
     "}\n" ++
+    "\n" ++
+    "#define vchar(code) vchar_at((code), __FILE__, __LINE__)\n" ++
     "\n" ++
     "static V vint_to_str(V n) {\n" ++
     "    char buf[32];\n" ++
@@ -504,10 +530,12 @@ fn runtime_header() -> String do
     "static inline V vlist_len(V l) { return (V)VL(l)->len; }\n" ++
     "\n" ++
     "// Borrowed.\n" ++
-    "static inline V vlist_get(V l, V i) {\n" ++
+    "static inline V vlist_get_at(V l, V i, VOW_AT) {\n" ++
     "    VOW_REQUIRE(VI(i) >= 0 && VI(i) < VL(l)->len, \"list index out of bounds\");\n" ++
     "    return VB(VL(l)->buf)->items[VI(i)];\n" ++
     "}\n" ++
+    "\n" ++
+    "#define vlist_get(l, i) vlist_get_at((l), (i), __FILE__, __LINE__)\n" ++
     "\n" ++
     "// Consumes l and x. Appends in place when the buffer has room just past this list's\n" ++
     "// end (no other list can see that slot); reuses the header when it is unshared.\n" ++
@@ -553,7 +581,7 @@ fn runtime_header() -> String do
     "}\n" ++
     "\n" ++
     "// Consumes l and x: element i replaced, in place when l and its buffer are unshared.\n" ++
-    "static V vlist_set_at(V l, V i, V x) {\n" ++
+    "static V vlist_set_at_at(V l, V i, V x, VOW_AT) {\n" ++
     "    VOW_REQUIRE(VI(i) >= 0 && VI(i) < VL(l)->len, \"set_at index out of bounds\");\n" ++
     "    VList *L = VL(l);\n" ++
     "    int heap = VH(l)->flags;\n" ++
@@ -577,8 +605,10 @@ fn runtime_header() -> String do
     "    return r;\n" ++
     "}\n" ++
     "\n" ++
+    "#define vlist_set_at(l, i, x) vlist_set_at_at((l), (i), (x), __FILE__, __LINE__)\n" ++
+    "\n" ++
     "// Borrows l.\n" ++
-    "static V vlist_slice(V l, V from, V to) {\n" ++
+    "static V vlist_slice_at(V l, V from, V to, VOW_AT) {\n" ++
     "    VOW_REQUIRE(0 <= VI(from) && VI(from) <= VI(to) && VI(to) <= VL(l)->len, \"list slice out of bounds\");\n" ++
     "    int heap = VH(l)->flags;\n" ++
     "    int64_t n = VI(to) - VI(from);\n" ++
@@ -591,6 +621,8 @@ fn runtime_header() -> String do
     "    VB(nb)->used = n;\n" ++
     "    return vlist_make(n, nb, heap);\n" ++
     "}\n" ++
+    "\n" ++
+    "#define vlist_slice(l, from, to) vlist_slice_at((l), (from), (to), __FILE__, __LINE__)\n" ++
     "\n" ++
     "// Consumes a, borrows b.\n" ++
     "static V vlist_cat(V a, V b) {\n" ++

@@ -55,8 +55,8 @@ bootstrap: build/vowc compiler/runtime_h.vow compiler/std_text.vow
 	@echo "== stage 2: stage 1 verifies and builds itself"
 	build/stage1 build compiler/vowc.vow -o build/stage2 --no-cache
 	@echo "== fixpoint: stage 2 and stage 3 must emit identical C"
-	build/stage1 emit-c compiler/vowc.vow > build/stage2.c
-	build/stage2 emit-c compiler/vowc.vow > build/stage3.c
+	build/stage1 emit-c compiler/vowc.vow --no-line-directives > build/stage2.c
+	build/stage2 emit-c compiler/vowc.vow --no-line-directives > build/stage3.c
 	cmp build/stage2.c build/stage3.c
 	cp build/stage3.c seed/vowc.c
 	cp build/stage2 build/vowc

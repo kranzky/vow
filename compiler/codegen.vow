@@ -43,6 +43,13 @@ struct Gen
   steal_ids: List<Int>,
   // Types compared with '==' part by part, each needing a veq_ function.
   eqs: List<Ty>,
+  // The source position of the code being generated, and the .vow line (and file) the
+  // next C line is attributed to, given the #line directives so far (-1: none yet).
+  src: Pos,
+  mapped_file: Int,
+  mapped_next: Int,
+  // Whether to emit #line directives at all.
+  lines: Bool,
 end struct Gen
 
 fn c_string(s: String) -> String do
@@ -80,10 +87,10 @@ fn c_params(f: FnDecl) -> String do
   return join(parts: ps, sep: ", ")
 end fn c_params
 
-fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool) -> String do
+fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool, lines: Bool) -> String do
   var g = Gen(info: info, files: files, out: [], ind: 0, tmp: 0, strs: [], str_index: {}, io_params: [],
     owned_vars: [], scope_marks: [], loop_marks: [], temps: [], temp_marks: [], move_id: -1,
-    moved: false, inout_vars: [], steal_ids: [], eqs: [])
+    moved: false, inout_vars: [], steal_ids: [], eqs: [], src: no_pos(), mapped_file: -1, mapped_next: -1, lines: lines)
   // Generic functions are compiled through their instances.
   var fns: List<FnDecl> = []
   for item in items do
@@ -129,7 +136,8 @@ fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool) 
   end for
   set c = push(list: c, item: "")
   set c = c ++ eq_defs
-  set c = c ++ body
+  // The functions come last: from their first #line directive on, every C line is
+  // attributed to Vow source.
   set c = push(list: c, item: "int main(int argc, char **argv) {")
   set c = push(list: c, item: "    vow_argc = argc;")
   set c = push(list: c, item: "    vow_argv = argv;")
@@ -142,13 +150,28 @@ fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool) 
   set c = push(list: c, item: "    vow_report_leaks();")
   set c = push(list: c, item: "    return 0;")
   set c = push(list: c, item: "}")
+  set c = push(list: c, item: "")
+  set c = c ++ body
   return join(parts: c, sep: "\n") ++ "\n"
 end fn generate
 
 // ---- emitting ----
 
+// Emits a C line, preceded by a #line directive when it would otherwise be attributed
+// to the wrong .vow line, so that C compiler errors, debuggers and runtime panics point
+// at the Vow source.
 fn line(g: inout Gen, s: String) do
+  let p = g.src
+  if g.lines and (p.file >= 0) and (p.file < len(g.files)) and (p.line > 0) then
+    if (p.file != g.mapped_file) or (p.line != g.mapped_next) then
+      set g = g with (out: push(list: g.out, item: "#line " ++ int_to_str(p.line) ++ " " ++ c_string(g.files[p.file])),
+        mapped_file: p.file, mapped_next: p.line)
+    end if
+  end if
   set g = g with (out: push(list: g.out, item: repeat(s: "    ", n: g.ind) ++ s))
+  if g.mapped_file >= 0 then
+    set g = g with (mapped_next: g.mapped_next + 1)
+  end if
 end fn line
 
 fn fresh_tmp(g: inout Gen) -> String do
@@ -180,6 +203,16 @@ fn loc(g: Gen, pos: Pos) -> String do
   end if
   return f ++ ":" ++ int_to_str(pos.line)
 end fn loc
+
+// A call that panics with message msg (a C expression), naming the source position
+// explicitly, so that it does not depend on #line directives.
+fn panic_at(g: Gen, pos: Pos, msg: String) -> String do
+  var f = "?"
+  if (pos.file >= 0) and (pos.file < len(g.files)) then
+    set f = g.files[pos.file]
+  end if
+  return "vow_panic_at(" ++ c_string(f) ++ ", " ++ int_to_str(pos.line) ++ ", " ++ msg ++ ");"
+end fn panic_at
 
 // The C name of a function: f_name, or i_ and the mangled name for an instance of a
 // generic function.
@@ -552,7 +585,7 @@ fn gen_function(g: inout Gen, f: FnDecl) do
       set io = push(list: io, item: p.name)
     end if
   end for
-  set g = g with (io_params: io, owned_vars: [], scope_marks: [], loop_marks: [], temps: [], temp_marks: [])
+  set g = g with (io_params: io, owned_vars: [], scope_marks: [], loop_marks: [], temps: [], temp_marks: [], src: f.pos)
   line(g: inout g, s: "static V " ++ c_fn(f.name) ++ "(" ++ c_params(f) ++ ") {")
   indent(inout g)
   gen_scoped(g: inout g, stmts: f.body)
@@ -599,6 +632,7 @@ fn loop_mark(g: Gen) -> Int do
 end fn loop_mark
 
 fn gen_stmt(g: inout Gen, s: Stmt) do
+  set g = g with (src: s.pos)
   match s.kind
   case Let(name: name, ty: ty, value: value, mutable: m) then
     let v = gen_top(g: inout g, e: value)
@@ -690,14 +724,14 @@ fn gen_stmt(g: inout Gen, s: Stmt) do
     line(g: inout g, s: "#ifndef VOW_VERIFIED")
     let c = gen_top(g: inout g, e: e)
     flush(inout g)
-    let msg = "assertion failed at " ++ loc(g: g, pos: s.pos) ++ ": " ++ pretty_expr(e)
-    line(g: inout g, s: "if (!" ++ c.c ++ ") vow_panic(" ++ c_string(msg) ++ ");")
+    let msg = "assertion failed: " ++ pretty_expr(e)
+    line(g: inout g, s: "if (!" ++ c.c ++ ") " ++ panic_at(g: g, pos: s.pos, msg: c_string(msg)))
     line(g: inout g, s: "#endif")
   case Check(e: e) then
     let c = gen_top(g: inout g, e: e)
     flush(inout g)
-    let msg = "check failed at " ++ loc(g: g, pos: s.pos) ++ ": " ++ pretty_expr(e)
-    line(g: inout g, s: "if (!" ++ c.c ++ ") vow_panic(" ++ c_string(msg) ++ ");")
+    let msg = "check failed: " ++ pretty_expr(e)
+    line(g: inout g, s: "if (!" ++ c.c ++ ") " ++ panic_at(g: g, pos: s.pos, msg: c_string(msg)))
   case Break then
     drop_to(g: inout g, mark: loop_mark(g))
     line(g: inout g, s: "break;")
@@ -1331,7 +1365,7 @@ fn gen_builtin(g: inout Gen, e: Expr, name: String, p: List<Val>, pe: List<Expr>
   case "keys" then
     return owned_tmp(g: inout g, rhs: map_ops(t0) ++ "_keys(" ++ v0.c ++ ", " ++ map_flags(t0) ++ ")", heap: true)
   case "panic" then
-    line(g: inout g, s: "vow_panic(VS(" ++ v0.c ++ ")->data);")
+    line(g: inout g, s: panic_at(g: g, pos: e.pos, msg: "VS(" ++ v0.c ++ ")->data"))
     return plain_val("0")
   case "exit" then
     line(g: inout g, s: "vexit(" ++ v0.c ++ ");")

@@ -29,6 +29,8 @@ fn usage() -> String do
     "  --no-verify   skip the Z3 verifier (unsafe: contracts are not checked)\n" ++
     "  --no-cache    ignore and do not update the verification cache\n" ++
     "  --totality    with check: also report which functions are proved to terminate\n" ++
+    "  --no-line-directives  emit C without #line directives (errors, debuggers and\n" ++
+    "                panics then refer to the C rather than the .vow source)\n" ++
     "  -o <path>     output executable for build\n"
 end fn usage
 
@@ -224,6 +226,7 @@ fn main() uses console, fs, proc do
   var no_verify = false
   var no_cache = false
   var totality_report = false
+  var line_directives = true
   var out = ""
   var run_args: List<String> = []
   var i = 2
@@ -237,6 +240,8 @@ fn main() uses console, fs, proc do
       set no_cache = true
     elif a == "--totality" then
       set totality_report = true
+    elif a == "--no-line-directives" then
+      set line_directives = false
     elif (a == "-o") and ((i + 1) < len(argv)) then
       set out = argv[i + 1]
       set i = i + 1
@@ -353,7 +358,7 @@ fn main() uses console, fs, proc do
     end if
     set verified = not no_verify
   end if
-  let code = generate(items: src.items, info: c.info, files: src.files, verified: verified)
+  let code = generate(items: src.items, info: c.info, files: src.files, verified: verified, lines: line_directives)
   if cmd == "check" then
     print("ok\n")
     if totality_report then

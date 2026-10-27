@@ -1,0 +1,14 @@
+// language: 0.6
+// A runtime panic names the .vow line that caused it.
+
+fn grow(n: Int) -> Int do
+  var x = n
+  for i in 0..100 do
+    set x = x * 1000
+  end for
+  return x
+end fn grow
+
+fn main() uses console do
+  print(int_to_str(grow(7)) ++ "\n")
+end fn main

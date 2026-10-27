@@ -418,6 +418,11 @@ never compiles, so it can't be shipped by accident.
 
 `kind` is `"error"` or `"hole"`.
 
+**Runtime panics** name the source line: `vow: panic at calc.vow:12: integer overflow
+in '*'` (exit status 101). In a verified program the only runtime failures are integer
+overflow, `panic(msg)` and a failed `check`; bounds and division are proved. `vowc check
+file.vow --totality` lists the functions not proved to terminate, with the reason.
+
 ## 6. Idioms
 
 **Mutable state through `inout`** (from `compiler/codegen.vow`):

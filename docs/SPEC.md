@@ -346,7 +346,7 @@ SMT-LIB. The divisor must be provably non-zero.
 | `has(map: m, key: k) -> Bool` | |
 | `keys(m) -> List<K>` | ascending order, for both map types |
 | `hash(s) -> String` | FNV-1a 64-bit, 16 hex digits |
-| `panic(msg)` | aborts; never returns |
+| `panic(msg)` | prints `vow: panic at <file>:<line>: msg` to stderr, exits with status 101; never returns |
 | `print(s)`, `eprint(s)` | `uses console`; no newline is added |
 | `read_file(path) -> Option<String>` | `uses fs` |
 | `write_file(path: p, contents: c) -> Bool` | `uses fs` |
@@ -463,3 +463,10 @@ A `Map` is a balanced tree: a shared map copies only the path to the changed key
 snapshots are cheap. A `HashMap` is an open-addressing hash table: lookups and inserts
 are faster, but an insert into a shared table copies the whole table. The two types
 hold the same values and are verified identically; only their cost differs.
+
+The generated C carries `#line` directives, so C compiler messages and debuggers refer
+to `.vow` lines (`--no-line-directives` leaves them out). A runtime failure prints
+`vow: panic at <file>:<line>: <message>` to stderr and exits with status 101: integer
+overflow, `panic(msg)`, a failed `check`, and, in programs built with `--no-verify`,
+out-of-bounds indexes, slices and `set_at`, division by zero and `char` codes out of
+range (verified programs cannot fail these, so the checks are compiled out).

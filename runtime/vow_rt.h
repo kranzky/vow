@@ -46,12 +46,25 @@ static __attribute__((noreturn)) void vow_panic(const char *msg) {
     exit(101);
 }
 
+// Generated code carries #line directives, so __FILE__ and __LINE__ where it calls a
+// checked operation name the .vow source line. Each checked operation is a macro that
+// passes them on (vadd(a, b) is vadd_at(a, b, __FILE__, __LINE__)); they are used only
+// when the check fails.
+static __attribute__((noreturn, cold)) void vow_panic_at(const char *file, int line, const char *msg) {
+    fflush(stdout);
+    fprintf(stderr, "vow: panic at %s:%d: %s\n", file, line, msg);
+    exit(101);
+}
+
+#define VOW_PANIC(msg) vow_panic_at(__FILE__, __LINE__, (msg))
+#define VOW_AT const char *vow_f, int vow_l
+
 #ifdef VOW_VERIFIED
 #define VOW_REQUIRE(cond, msg) ((void)0)
 #else
 #define VOW_REQUIRE(cond, msg) \
     do {                       \
-        if (!(cond)) vow_panic(msg); \
+        if (!(cond)) vow_panic_at(vow_f, vow_l, msg); \
     } while (0)
 #endif
 
@@ -293,40 +306,47 @@ static void vow_report_leaks(void) {
 
 // ---- integers ----
 
-static inline V vadd(V a, V b) {
+static inline V vadd_at(V a, V b, VOW_AT) {
     int64_t r;
-    if (__builtin_add_overflow(VI(a), VI(b), &r)) vow_panic("integer overflow in '+'");
+    if (__builtin_add_overflow(VI(a), VI(b), &r)) vow_panic_at(vow_f, vow_l, "integer overflow in '+'");
     return (V)r;
 }
-static inline V vsub(V a, V b) {
+static inline V vsub_at(V a, V b, VOW_AT) {
     int64_t r;
-    if (__builtin_sub_overflow(VI(a), VI(b), &r)) vow_panic("integer overflow in '-'");
+    if (__builtin_sub_overflow(VI(a), VI(b), &r)) vow_panic_at(vow_f, vow_l, "integer overflow in '-'");
     return (V)r;
 }
-static inline V vmul(V a, V b) {
+static inline V vmul_at(V a, V b, VOW_AT) {
     int64_t r;
-    if (__builtin_mul_overflow(VI(a), VI(b), &r)) vow_panic("integer overflow in '*'");
+    if (__builtin_mul_overflow(VI(a), VI(b), &r)) vow_panic_at(vow_f, vow_l, "integer overflow in '*'");
     return (V)r;
 }
-static inline V vneg(V a) {
-    if (VI(a) == INT64_MIN) vow_panic("integer overflow in unary '-'");
+static inline V vneg_at(V a, VOW_AT) {
+    if (VI(a) == INT64_MIN) vow_panic_at(vow_f, vow_l, "integer overflow in unary '-'");
     return (V)(-VI(a));
 }
 // Euclidean division: the remainder is always non-negative (matches SMT-LIB).
-static inline V vdiv(V a, V b) {
+static inline V vdiv_at(V a, V b, VOW_AT) {
     VOW_REQUIRE(VI(b) != 0, "division by zero");
-    if (VI(a) == INT64_MIN && VI(b) == -1) vow_panic("integer overflow in '/'");
+    if (VI(a) == INT64_MIN && VI(b) == -1) vow_panic_at(vow_f, vow_l, "integer overflow in '/'");
     int64_t q = VI(a) / VI(b), r = VI(a) % VI(b);
     if (r < 0) q = VI(b) > 0 ? q - 1 : q + 1;
     return (V)q;
 }
-static inline V vmod(V a, V b) {
+static inline V vmod_at(V a, V b, VOW_AT) {
     VOW_REQUIRE(VI(b) != 0, "division by zero");
     if (VI(b) == -1) return 0;
     int64_t r = VI(a) % VI(b);
     if (r < 0) r = VI(b) > 0 ? r + VI(b) : r - VI(b);
     return (V)r;
 }
+
+#define vadd(a, b) vadd_at((a), (b), __FILE__, __LINE__)
+#define vsub(a, b) vsub_at((a), (b), __FILE__, __LINE__)
+#define vmul(a, b) vmul_at((a), (b), __FILE__, __LINE__)
+#define vneg(a) vneg_at((a), __FILE__, __LINE__)
+#define vdiv(a, b) vdiv_at((a), (b), __FILE__, __LINE__)
+#define vmod(a, b) vmod_at((a), (b), __FILE__, __LINE__)
 
 // ---- strings (all functions borrow their arguments) ----
 
@@ -361,21 +381,27 @@ static int vstr_cmp(V a, V b) {
     return VS(a)->len < VS(b)->len ? -1 : (VS(a)->len > VS(b)->len ? 1 : 0);
 }
 
-static inline V vstr_byte(V s, V i) {
+static inline V vstr_byte_at(V s, V i, VOW_AT) {
     VOW_REQUIRE(VI(i) >= 0 && VI(i) < VS(s)->len, "string index out of bounds");
     return (V)(unsigned char)VS(s)->data[VI(i)];
 }
 
-static V vstr_slice(V s, V from, V to) {
+#define vstr_byte(s, i) vstr_byte_at((s), (i), __FILE__, __LINE__)
+
+static V vstr_slice_at(V s, V from, V to, VOW_AT) {
     VOW_REQUIRE(0 <= VI(from) && VI(from) <= VI(to) && VI(to) <= VS(s)->len, "string slice out of bounds");
     return vstr_new(VS(s)->data + VI(from), VI(to) - VI(from));
 }
 
-static V vchar(V code) {
+#define vstr_slice(s, from, to) vstr_slice_at((s), (from), (to), __FILE__, __LINE__)
+
+static V vchar_at(V code, VOW_AT) {
     VOW_REQUIRE(VI(code) >= 0 && VI(code) < 256, "char code out of range");
     char c = (char)VI(code);
     return vstr_new(&c, 1);
 }
+
+#define vchar(code) vchar_at((code), __FILE__, __LINE__)
 
 static V vint_to_str(V n) {
     char buf[32];
@@ -501,10 +527,12 @@ static V vlist_empty(int heap) { return vlist_make(0, 0, heap); }
 static inline V vlist_len(V l) { return (V)VL(l)->len; }
 
 // Borrowed.
-static inline V vlist_get(V l, V i) {
+static inline V vlist_get_at(V l, V i, VOW_AT) {
     VOW_REQUIRE(VI(i) >= 0 && VI(i) < VL(l)->len, "list index out of bounds");
     return VB(VL(l)->buf)->items[VI(i)];
 }
+
+#define vlist_get(l, i) vlist_get_at((l), (i), __FILE__, __LINE__)
 
 // Consumes l and x. Appends in place when the buffer has room just past this list's
 // end (no other list can see that slot); reuses the header when it is unshared.
@@ -550,7 +578,7 @@ static V vlist_push(V l, V x) {
 }
 
 // Consumes l and x: element i replaced, in place when l and its buffer are unshared.
-static V vlist_set_at(V l, V i, V x) {
+static V vlist_set_at_at(V l, V i, V x, VOW_AT) {
     VOW_REQUIRE(VI(i) >= 0 && VI(i) < VL(l)->len, "set_at index out of bounds");
     VList *L = VL(l);
     int heap = VH(l)->flags;
@@ -574,8 +602,10 @@ static V vlist_set_at(V l, V i, V x) {
     return r;
 }
 
+#define vlist_set_at(l, i, x) vlist_set_at_at((l), (i), (x), __FILE__, __LINE__)
+
 // Borrows l.
-static V vlist_slice(V l, V from, V to) {
+static V vlist_slice_at(V l, V from, V to, VOW_AT) {
     VOW_REQUIRE(0 <= VI(from) && VI(from) <= VI(to) && VI(to) <= VL(l)->len, "list slice out of bounds");
     int heap = VH(l)->flags;
     int64_t n = VI(to) - VI(from);
@@ -588,6 +618,8 @@ static V vlist_slice(V l, V from, V to) {
     VB(nb)->used = n;
     return vlist_make(n, nb, heap);
 }
+
+#define vlist_slice(l, from, to) vlist_slice_at((l), (from), (to), __FILE__, __LINE__)
 
 // Consumes a, borrows b.
 static V vlist_cat(V a, V b) {
