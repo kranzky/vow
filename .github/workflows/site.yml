@@ -21,8 +21,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Install Z3
-        run: sudo apt-get update && sudo apt-get install -y z3
+      - name: Install Z3 (the pinned version)
+        run: |
+          tools/install-z3.sh "$HOME/z3"
+          echo "$HOME/z3" >> "$GITHUB_PATH"
       - name: Build vowc from the seed, then the site with vowsite
         run: make && make site
       - uses: actions/upload-pages-artifact@v3

@@ -78,7 +78,8 @@ Must-have, runtime and portability:
 
 Must-have, tooling:
 - [ ] `vowc fmt`, `vowc test`, LSP (hover shows type and known facts)
-- [ ] Verifier performance (incremental solving), pinned Z3 version
+- [x] Pinned Z3 version (5.3.2, installed by `tools/install-z3.sh`; CI uses it)
+- [ ] Verifier performance (incremental solving)
 
 Release criteria:
 - [ ] Agent benchmark for 1.0: Astra (OpenAI's most capable coding model) builds the

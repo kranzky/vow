@@ -210,6 +210,12 @@ fn main() uses console, fs, proc do
   let argv = args()
   if (len(argv) >= 1) and (argv[0] == "version") then
     print("vowc " ++ vow_version() ++ " (" ++ verifier_version() ++ ")\n")
+    let z = z3_version()
+    if len(z) == 0 then
+      print("z3 not found (tested with " ++ tested_z3_version() ++ "; tools/install-z3.sh installs it, VOW_Z3 selects it)\n")
+    else
+      print("z3 " ++ z ++ " (tested with " ++ tested_z3_version() ++ ")\n")
+    end if
     return
   end if
   if (len(argv) >= 1) and contains_str(xs: ["help", "--help", "-h"], x: argv[0]) then
@@ -354,6 +360,18 @@ fn main() uses console, fs, proc do
         set diags = push(list: diags, item: failure_diag(f))
       end for
       report(diags: diags, files: src.files, json: json)
+      var undecided = false
+      for f in r.failures do
+        if starts_with(s: f.verdict, p: "unknown") then
+          set undecided = true
+        end if
+      end for
+      if undecided and not json then
+        let z = z3_version()
+        if z != tested_z3_version() then
+          eprint("note: Z3 " ++ z ++ " did not decide some proofs; vowc is tested with Z3 " ++ tested_z3_version() ++ ", which may (tools/install-z3.sh installs it)\n")
+        end if
+      end if
       exit(1)
     end if
     set verified = not no_verify

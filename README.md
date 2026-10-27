@@ -97,7 +97,9 @@ curl -fsSL https://vow.kranzky.com/install.sh | sh
 ```
 
 `vowc` also needs a C compiler (`cc`) and [Z3](https://github.com/Z3Prover/z3)
-(`brew install z3` or `apt install z3`). Then:
+(`brew install z3`). Vow is tested with Z3 5.3.2: `tools/install-z3.sh` installs exactly
+that release, and `vowc version` shows which Z3 it finds. Linux distribution packages are
+often much older and may leave hard proofs undecided. Then:
 
 ```
 vowc run hello.vow        # verify, compile and run

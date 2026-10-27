@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.7.0 (unreleased)
+
+- Z3 is pinned: Vow is tested with Z3 5.3.2, which `tools/install-z3.sh` installs
+  (checking its SHA-256) and CI uses. `vowc version` shows the Z3 it finds, and when a
+  proof is left undecided by a different Z3, `vowc` says which version it is tested with.
+
 ## v0.6.0
 
 Termination, recursive specification functions and readable panics.

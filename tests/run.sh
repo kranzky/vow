@@ -79,5 +79,12 @@ for f in ../examples/*.vow; do
     echo "$got" | head -10
   fi
 done
+# The pinned Z3 version must be the same in the compiler and the installer.
+pinned=$(sed -n 's/^VERSION=//p' ../tools/install-z3.sh)
+if grep -A1 'fn tested_z3_version' ../compiler/verify.vow | grep -q "\"$pinned\""; then
+  pass=$((pass + 1))
+else
+  fail=$((fail + 1)); echo "FAIL tools/install-z3.sh pins Z3 $pinned, but tested_z3_version() differs"
+fi
 echo "$pass passed, $fail failed"
 [ "$fail" -eq 0 ]

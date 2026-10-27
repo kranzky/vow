@@ -56,5 +56,6 @@ if ! command -v cc >/dev/null 2>&1; then
   echo "vow: vowc needs a C compiler: on macOS run 'xcode-select --install', on Linux install gcc"
 fi
 if ! command -v z3 >/dev/null 2>&1; then
-  echo "vow: vowc needs Z3 to verify programs: 'brew install z3' or 'apt install z3'"
+  echo "vow: vowc needs Z3 to verify programs: 'brew install z3', or the tested release from"
+  echo "     https://github.com/Z3Prover/z3/releases/tag/z3-5.3.2 (distribution packages are often old)"
 fi

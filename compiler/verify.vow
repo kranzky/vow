@@ -2202,15 +2202,34 @@ struct Discharged
   failures: List<Failure>,
 end struct Discharged
 
-fn run_z3(script: String) -> Output uses proc do
-  var z3 = "z3"
+// The Z3 release Vow is tested with (tools/install-z3.sh installs it). Whether a hard
+// query times out can differ between versions.
+fn tested_z3_version() -> String do
+  return "5.3.2"
+end fn tested_z3_version
+
+fn z3_path() -> String uses proc do
   match getenv("VOW_Z3")
   case Some(value: x) then
-    set z3 = x
+    return x
   case None then
+    return "z3"
   end match
-  return run(argv: [z3, "-in", "-smt2"], input: script)
+end fn z3_path
+
+fn run_z3(script: String) -> Output uses proc do
+  return run(argv: [z3_path(), "-in", "-smt2"], input: script)
 end fn run_z3
+
+// The version of the Z3 that run_z3 uses ("5.3.2"), or "" if it cannot be run.
+fn z3_version() -> String uses proc do
+  let o = run(argv: [z3_path(), "--version"], input: "")
+  let parts = split(s: trim(o.out), sep: ' ')
+  if (o.code == 0) and (len(parts) >= 3) and (parts[1] == "version") then
+    return parts[2]
+  end if
+  return ""
+end fn z3_version
 
 fn script_for(pre: List<String>, vcs: List<FnVc>, model: Option<Ob>) -> String do
   var s: List<String> = ["(set-option :produce-models true)", "(set-option :timeout 10000)"]
