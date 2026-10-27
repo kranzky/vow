@@ -1,0 +1,13 @@
+// error: '==' does not work on Bag, because it contains Map<String, Int>
+// language: 0.4
+
+struct Bag
+  name: String,
+  counts: Map<String, Int>,
+end struct Bag
+
+fn main() do
+  let a = Bag(name: "a", counts: {})
+  let b = a
+  assert a == b
+end fn main

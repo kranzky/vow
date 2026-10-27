@@ -292,6 +292,82 @@ fn variants_of(info: Info, t: Ty) -> Option<List<VariantInfo>> do
   end match
 end fn variants_of
 
+// The first map type inside t, which stops values of t being compared with '=='; ""
+// when they can be. seen holds the struct and enum names already being looked at.
+fn eq_blocker(info: Info, t: Ty, seen: inout List<String>) -> String do
+  match t
+  case TMap(key: k, val: x) then
+    return ty_show(t)
+  case THashMap(key: k, val: x) then
+    return ty_show(t)
+  case TList(elem: x) then
+    return eq_blocker(info: info, t: x, seen: inout seen)
+  case TOpt(inner: x) then
+    return eq_blocker(info: info, t: x, seen: inout seen)
+  case TStruct(name: n) then
+    if contains_str(xs: seen, x: n) then
+      return ""
+    end if
+    set seen = push(list: seen, item: n)
+    for f in struct_fields(info: info, name: n) do
+      let b = eq_blocker(info: info, t: f.rty.ty, seen: inout seen)
+      if len(b) > 0 then
+        return b
+      end if
+    end for
+    return ""
+  case TEnum(name: n) then
+    if contains_str(xs: seen, x: n) then
+      return ""
+    end if
+    set seen = push(list: seen, item: n)
+    match lookup(map: info.enums, key: n)
+    case Some(value: vs) then
+      for vi in vs do
+        for f in vi.fields do
+          let b = eq_blocker(info: info, t: f.rty.ty, seen: inout seen)
+          if len(b) > 0 then
+            return b
+          end if
+        end for
+      end for
+    case None then
+    end match
+    return ""
+  else
+    return ""
+  end match
+end fn eq_blocker
+
+// Int, Bool, Unit and String are compared directly; other types structurally.
+fn simple_eq(t: Ty) -> Bool do
+  match t
+  case TInt then
+    return true
+  case TBool then
+    return true
+  case TUnit then
+    return true
+  case TStr then
+    return true
+  case TUnknown then
+    return true
+  else
+    return false
+  end match
+end fn simple_eq
+
+// A variant whose fields are all Unit (such as Ok in Result<Unit, E>) can be written
+// without them: Result.Ok.
+fn all_unit(fields: List<FieldInfo>) -> Bool do
+  for f in fields do
+    if ty_show(f.rty.ty) != "Unit" then
+      return false
+    end if
+  end for
+  return true
+end fn all_unit
+
 fn type_of(info: Info, e: Expr) -> Ty do
   match lookup(map: info.types, key: e.id)
   case Some(value: t) then
@@ -1074,8 +1150,29 @@ fn check_program(items: List<Item>, files: List<String>, next_id: Int) -> Checke
     let next = c.queue[0]
     set c = c with (queue: slice(of: c.queue, from: 1, to: len(c.queue)))
     set_tenv(c: inout c, env: next.env)
+    let before = len(c.errs)
     check_fn(c: inout c, f: next.decl)
     set_tenv(c: inout c, env: {})
+    // An error that only this instance has (such as '==' on a map type) names it; one
+    // the generic declaration already has is dropped.
+    var old = c.errs
+    if before <= len(c.errs) then
+      set old = slice(of: c.errs, from: 0, to: before)
+    end if
+    var errs = old
+    for i in len(old)..len(c.errs) do
+      let d = c.errs[i]
+      var dup = false
+      for o in old do
+        if (o.msg == d.msg) and (o.pos.file == d.pos.file) and (o.pos.line == d.pos.line) and (o.pos.col == d.pos.col) then
+          set dup = true
+        end if
+      end for
+      if not dup then
+        set errs = push(list: errs, item: d with (msg: d.msg ++ ", in " ++ next.decl.name))
+      end if
+    end for
+    set c = c with (errs: errs)
     let info = c.info
     set c = c with (info: info with (instances: push(list: info.instances, item: next.decl)))
   end while
@@ -2308,10 +2405,14 @@ fn check_binary(c: inout Checker, e: Expr, op: String, l: Expr, r: Expr) -> Ty d
     let sa = ty_show(a)
     let sb = ty_show(b)
     if (sa != "?") and (sb != "?") then
+      var seen: List<String> = []
+      let blocker = eq_blocker(info: c.info, t: a, seen: inout seen)
       if sa != sb then
         err(c: inout c, pos: e.pos, msg: "cannot compare " ++ sa ++ " with " ++ sb)
-      elif (sa != "Int") and (sa != "Bool") and (sa != "String") then
-        err(c: inout c, pos: e.pos, msg: "'" ++ op ++ "' works on Int, Bool and String, not " ++ sa ++ "; use match instead")
+      elif blocker == sa then
+        err(c: inout c, pos: e.pos, msg: "'" ++ op ++ "' does not work on maps (" ++ sa ++ "); compare lookups instead")
+      elif len(blocker) > 0 then
+        err(c: inout c, pos: e.pos, msg: "'" ++ op ++ "' does not work on " ++ sa ++ ", because it contains " ++ blocker)
       end if
     end if
     return Ty.TBool
@@ -2381,13 +2482,17 @@ fn variant_ctor(c: inout Checker, e: Expr, tn: String, vn: String, args: List<Ar
     return Ty.TUnknown
   end if
   let fields = variants[vi].fields
-  if (not called) and (len(fields) > 0) then
+  if (not called) and (len(fields) > 0) and not all_unit(fields) then
     err(c: inout c, pos: e.pos, msg: "variant '" ++ vn ++ "' has fields; construct it with " ++ tn ++ "." ++ vn ++ "(...)")
     return Ty.TUnknown
   end if
   if called and (len(fields) == 0) then
     err(c: inout c, pos: e.pos, msg: "variant '" ++ vn ++ "' has no fields; write " ++ tn ++ "." ++ vn ++ " without parentheses")
     return Ty.TUnknown
+  end if
+  if not called then
+    add_call(c: inout c, e: e, ci: CallInfo(kind: "variant", name: tn, variant: vi, order: []))
+    return ty
   end if
   var names: List<String> = []
   for f in fields do
@@ -2759,8 +2864,22 @@ fn generic_variant(c: inout Checker, e: Expr, ge: EnumDecl, vn: String, args: Li
     return Ty.TUnknown
   end if
   let vd = ge.variants[vi]
+  let fields_msg = "variant '" ++ vn ++ "' has fields; construct it with " ++ ge.name ++ "." ++ vn ++ "(...)"
   if (not called) and (len(vd.fields) > 0) then
-    err(c: inout c, pos: e.pos, msg: "variant '" ++ vn ++ "' has fields; construct it with " ++ ge.name ++ "." ++ vn ++ "(...)")
+    // Allowed only when the expected type makes every field Unit.
+    match expected
+    case Some(value: t) then
+      match lookup(map: c.info.enums, key: ty_show(t))
+      case Some(value: vs) then
+        if (generic_base(ty_show(t)) == ge.name) and (vi < len(vs)) and all_unit(vs[vi].fields) then
+          add_call(c: inout c, e: e, ci: CallInfo(kind: "variant", name: ty_show(t), variant: vi, order: []))
+          return t
+        end if
+      case None then
+      end match
+    case None then
+    end match
+    err(c: inout c, pos: e.pos, msg: fields_msg)
     return Ty.TUnknown
   end if
   if called and (len(vd.fields) == 0) then

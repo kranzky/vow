@@ -2,7 +2,7 @@
 #define VOW_VERIFIED 1
 #include "vow_rt.h"
 
-static V vow_s[1738];
+static V vow_s[1776];
 static V f_vow_version(void);
 static V f_usage(void);
 static V f_json_str(V l_s);
@@ -122,6 +122,9 @@ static V f_find_field(V l_fields, V l_name);
 static V f_find_variant(V l_vs, V l_name);
 static V f_get_fn(V l_info, V l_name);
 static V f_variants_of(V l_info, V l_t);
+static V f_eq_blocker(V l_info, V l_t, V * l_seen);
+static V f_simple_eq(V l_t);
+static V f_all_unit(V l_fields);
 static V f_type_of(V l_info, V l_e);
 static V f_call_info(V l_info, V l_e);
 static V f_resolve_type(V * l_info, V l_te, V * l_errs);
@@ -220,6 +223,10 @@ static V f_sort_of(V l_t);
 static V f_and_all(V l_v);
 static V f_int_lit(V l_n);
 static V f_binop_term(V l_op, V l_a, V l_b);
+static V f_eq_term(V * l_v, V l_op, V l_t, V l_a, V l_b);
+static V f_val_eq(V * l_v, V l_t, V l_a, V l_b);
+static V f_eq_fn(V * l_v, V l_t);
+static V f_eq_body(V * l_v, V l_t);
 static V f_add_unique(V * l_out, V l_n);
 static V f_assigned_expr(V l_e, V * l_out);
 static V f_assigned_args(V l_args, V * l_out);
@@ -340,6 +347,9 @@ static V f_flag(V l_b);
 static V f_field_mask(V l_fields, V l_offset);
 static V f_gen_expr(V * l_g, V l_e);
 static V f_gen_binary(V * l_g, V l_op, V l_l, V l_r);
+static V f_eq_c_name(V l_t);
+static V f_c_eq(V * l_g, V l_t, V l_a, V l_b);
+static V f_gen_eq_fn(V * l_g, V l_t);
 static V f_gen_call(V * l_g, V l_e, V l_args);
 static V f_arg_val(V l_p, V l_i);
 static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe);
@@ -647,7 +657,7 @@ static V f_make_temp_dir(void) {
     vdrop(t1);
     V t3 = l_o;
     V t4 = VP(t3)[0];
-    V t5 = (V)!(V)(t4 == (V)INT64_C(0));
+    V t5 = (V)!(t4 == (V)INT64_C(0));
     if (t5) {
         vdup(vow_s[20]);
         vdrop(l_o);
@@ -785,7 +795,7 @@ static V f_compile_c(V l_c, V l_exe) {
     vdrop(t45);
     V t48 = l_r;
     V t49 = VP(t48)[0];
-    V t50 = (V)!(V)(t49 == (V)INT64_C(0));
+    V t50 = (V)!(t49 == (V)INT64_C(0));
     if (t50) {
         V t51 = l_cc;
         V t52 = vstr_cat(vow_s[45], t51);
@@ -990,7 +1000,7 @@ static V f_main(void) {
     if (t4) {
         V t6 = l_argv;
         V t7 = vlist_get(t6, (V)INT64_C(0));
-        V t8 = vstr_eq(t7, vow_s[57]);
+        V t8 = (V)vstr_eq(t7, vow_s[57]);
         t5 = t8;
     }
     if (t5) {
@@ -1050,22 +1060,22 @@ static V f_main(void) {
         vdup(t32);
         V l_a = t32;
         V t33 = l_a;
-        V t34 = vstr_eq(t33, vow_s[61]);
+        V t34 = (V)vstr_eq(t33, vow_s[61]);
         if (t34) {
             l_json = 1;
         } else {
             V t35 = l_a;
-            V t36 = vstr_eq(t35, vow_s[62]);
+            V t36 = (V)vstr_eq(t35, vow_s[62]);
             if (t36) {
                 l_no_verify = 1;
             } else {
                 V t37 = l_a;
-                V t38 = vstr_eq(t37, vow_s[63]);
+                V t38 = (V)vstr_eq(t37, vow_s[63]);
                 if (t38) {
                     l_no_cache = 1;
                 } else {
                     V t39 = l_a;
-                    V t40 = vstr_eq(t39, vow_s[42]);
+                    V t40 = (V)vstr_eq(t39, vow_s[42]);
                     V t41 = t40;
                     if (t40) {
                         V t42 = l_i;
@@ -1088,7 +1098,7 @@ static V f_main(void) {
                         l_i = t52;
                     } else {
                         V t53 = l_a;
-                        V t54 = vstr_eq(t53, vow_s[64]);
+                        V t54 = (V)vstr_eq(t53, vow_s[64]);
                         if (t54) {
                             V t55 = l_argv;
                             V t56 = l_i;
@@ -1143,7 +1153,7 @@ static V f_main(void) {
         (void)0;
     }
     V t81 = l_cmd;
-    V t82 = vstr_eq(t81, vow_s[67]);
+    V t82 = (V)vstr_eq(t81, vow_s[67]);
     if (t82) {
         V t83 = l_src;
         V t84 = VP(t83)[1];
@@ -1192,7 +1202,7 @@ static V f_main(void) {
         (void)0;
     }
     V t108 = l_cmd;
-    V t109 = vstr_eq(t108, vow_s[69]);
+    V t109 = (V)vstr_eq(t108, vow_s[69]);
     if (t109) {
         V t110 = l_src;
         V t111 = VP(t110)[1];
@@ -1334,7 +1344,7 @@ static V f_main(void) {
                     V t187 = VP(t186)[0];
                     V t188 = l_f;
                     V t189 = VP(t188)[0];
-                    V t190 = vstr_eq(t187, t189);
+                    V t190 = (V)vstr_eq(t187, t189);
                     if (t190) {
                         V t191 = l_h;
                         V t192 = VP(t191)[3];
@@ -1433,7 +1443,7 @@ static V f_main(void) {
                     V t242 = VP(t241)[0];
                     V t243 = l_h;
                     V t244 = VP(t243)[0];
-                    V t245 = vstr_eq(t242, t244);
+                    V t245 = (V)vstr_eq(t242, t244);
                     if (t245) {
                         l_failed = 1;
                     }
@@ -1513,24 +1523,24 @@ static V f_main(void) {
     V t286 = f_generate(t280, t282, t284, t285);
     V l_code = t286;
     V t287 = l_cmd;
-    V t288 = vstr_eq(t287, vow_s[77]);
+    V t288 = (V)vstr_eq(t287, vow_s[77]);
     if (t288) {
         V t289 = vprint(vow_s[78]);
         (void)t289;
     } else {
         V t290 = l_cmd;
-        V t291 = vstr_eq(t290, vow_s[79]);
+        V t291 = (V)vstr_eq(t290, vow_s[79]);
         if (t291) {
             V t292 = l_code;
             V t293 = vprint(t292);
             (void)t293;
         } else {
             V t294 = l_cmd;
-            V t295 = vstr_eq(t294, vow_s[80]);
+            V t295 = (V)vstr_eq(t294, vow_s[80]);
             V t296 = t295;
             if (!t296) {
                 V t297 = l_cmd;
-                V t298 = vstr_eq(t297, vow_s[81]);
+                V t298 = (V)vstr_eq(t297, vow_s[81]);
                 t296 = t298;
             }
             if (t296) {
@@ -1544,7 +1554,7 @@ static V f_main(void) {
                 V t302 = (V)(t301 == (V)INT64_C(0));
                 if (t302) {
                     V t303 = l_cmd;
-                    V t304 = vstr_eq(t303, vow_s[80]);
+                    V t304 = (V)vstr_eq(t303, vow_s[80]);
                     if (t304) {
                         V t305 = l_file;
                         V t306 = f_basename_stem(t305);
@@ -1579,7 +1589,7 @@ static V f_main(void) {
                     (void)0;
                 }
                 V t320 = l_cmd;
-                V t321 = vstr_eq(t320, vow_s[81]);
+                V t321 = (V)vstr_eq(t320, vow_s[81]);
                 if (t321) {
                     V t322 = vlist_empty(1);
                     V t323 = l_exe;
@@ -1650,7 +1660,7 @@ static V f_main(void) {
 
 static V f_std_source(V l_name) {
     V t1 = l_name;
-    V t2 = vstr_eq(t1, vow_s[84]);
+    V t2 = (V)vstr_eq(t1, vow_s[84]);
     if (t2) {
         V t3 = f_std_text();
         V t4 = vow_fields(2, UINT64_C(2));
@@ -1680,7 +1690,7 @@ static V f_normalize(V l_path) {
         V t11 = t10;
         if (!t11) {
             V t12 = l_p;
-            V t13 = vstr_eq(t12, vow_s[86]);
+            V t13 = (V)vstr_eq(t12, vow_s[86]);
             t11 = t13;
         }
         if (t11) {
@@ -1690,7 +1700,7 @@ static V f_normalize(V l_path) {
         V t15 = vlist_len(t14);
         V l_n = t15;
         V t16 = l_p;
-        V t17 = vstr_eq(t16, vow_s[87]);
+        V t17 = (V)vstr_eq(t16, vow_s[87]);
         V t18 = t17;
         if (t17) {
             V t19 = l_n;
@@ -1716,7 +1726,7 @@ static V f_normalize(V l_path) {
             continue;
         }
         V t31 = l_p;
-        V t32 = vstr_eq(t31, vow_s[87]);
+        V t32 = (V)vstr_eq(t31, vow_s[87]);
         V t33 = t32;
         if (t32) {
             V t34 = l_absolute;
@@ -2041,7 +2051,7 @@ static V f_load(V l_root) {
         V l_item = VB(VL(t114)->buf)->items[t115];
         V t116 = l_item;
         V t117 = f_item_name(t116);
-        V t118 = vstr_eq(t117, vow_s[94]);
+        V t118 = (V)vstr_eq(t117, vow_s[94]);
         vdrop(t117);
         if (t118) {
             l_declared = 1;
@@ -2334,14 +2344,14 @@ static V f_advance(V * l_p) {
 static V f_describe(V l_t) {
     V t1 = l_t;
     V t2 = VP(t1)[0];
-    V t3 = vstr_eq(t2, vow_s[98]);
+    V t3 = (V)vstr_eq(t2, vow_s[98]);
     if (t3) {
         vdup(vow_s[99]);
         return vow_s[99];
     } else {
         V t4 = l_t;
         V t5 = VP(t4)[0];
-        V t6 = vstr_eq(t5, vow_s[100]);
+        V t6 = (V)vstr_eq(t5, vow_s[100]);
         if (t6) {
             V t7 = l_t;
             V t8 = VP(t7)[1];
@@ -2352,7 +2362,7 @@ static V f_describe(V l_t) {
         } else {
             V t11 = l_t;
             V t12 = VP(t11)[0];
-            V t13 = vstr_eq(t12, vow_s[50]);
+            V t13 = (V)vstr_eq(t12, vow_s[50]);
             if (t13) {
                 V t14 = l_t;
                 V t15 = VP(t14)[1];
@@ -2376,12 +2386,12 @@ static V f_is_tok(V l_p, V l_text) {
     V l_t = t2;
     V t3 = l_t;
     V t4 = VP(t3)[0];
-    V t5 = vstr_eq(t4, vow_s[103]);
+    V t5 = (V)vstr_eq(t4, vow_s[103]);
     V t6 = t5;
     if (!t6) {
         V t7 = l_t;
         V t8 = VP(t7)[0];
-        V t9 = vstr_eq(t8, vow_s[104]);
+        V t9 = (V)vstr_eq(t8, vow_s[104]);
         t6 = t9;
     }
     V t10 = t6;
@@ -2389,7 +2399,7 @@ static V f_is_tok(V l_p, V l_text) {
         V t11 = l_t;
         V t12 = VP(t11)[1];
         V t13 = l_text;
-        V t14 = vstr_eq(t12, t13);
+        V t14 = (V)vstr_eq(t12, t13);
         t10 = t14;
     }
     vdrop(l_t);
@@ -2458,7 +2468,7 @@ static V f_ident(V * l_p, V l_ctx) {
     V l_t = t2;
     V t3 = l_t;
     V t4 = VP(t3)[0];
-    V t5 = vstr_eq(t4, vow_s[108]);
+    V t5 = (V)vstr_eq(t4, vow_s[108]);
     if (t5) {
         V t6 = f_advance(l_p);
         vdrop(l_t);
@@ -2480,7 +2490,7 @@ static V f_ident(V * l_p, V l_ctx) {
     vdrop(t10);
     V t16 = l_t;
     V t17 = VP(t16)[0];
-    V t18 = vstr_eq(t17, vow_s[104]);
+    V t18 = (V)vstr_eq(t17, vow_s[104]);
     if (t18) {
         V t19 = l_d;
         V t20 = l_t;
@@ -2516,12 +2526,12 @@ static V f_label(V * l_p, V l_ctx) {
     V l_t = t2;
     V t3 = l_t;
     V t4 = VP(t3)[0];
-    V t5 = vstr_eq(t4, vow_s[108]);
+    V t5 = (V)vstr_eq(t4, vow_s[108]);
     V t6 = t5;
     if (!t6) {
         V t7 = l_t;
         V t8 = VP(t7)[0];
-        V t9 = vstr_eq(t8, vow_s[104]);
+        V t9 = (V)vstr_eq(t8, vow_s[104]);
         t6 = t9;
     }
     if (t6) {
@@ -2646,13 +2656,13 @@ static V f_close_block(V * l_p, V l_what, V l_name, V l_opened) {
     V l_k = t35;
     V t36 = l_k;
     V t37 = VP(t36)[0];
-    V t38 = vstr_eq(t37, vow_s[104]);
+    V t38 = (V)vstr_eq(t37, vow_s[104]);
     V t39 = t38;
     if (t38) {
         V t40 = l_k;
         V t41 = VP(t40)[1];
         V t42 = l_what;
-        V t43 = vstr_eq(t41, t42);
+        V t43 = (V)vstr_eq(t41, t42);
         t39 = t43;
     }
     V t44 = (V)!t39;
@@ -3411,14 +3421,14 @@ static V f_at_block_end(V l_p) {
     V l_t = t2;
     V t3 = l_t;
     V t4 = VP(t3)[0];
-    V t5 = vstr_eq(t4, vow_s[98]);
+    V t5 = (V)vstr_eq(t4, vow_s[98]);
     if (t5) {
         vdrop(l_t);
         return 1;
     }
     V t6 = l_t;
     V t7 = VP(t6)[0];
-    V t8 = vstr_eq(t7, vow_s[104]);
+    V t8 = (V)vstr_eq(t7, vow_s[104]);
     V t9 = t8;
     if (t8) {
         V t10 = vlist_empty(1);
@@ -3681,7 +3691,7 @@ static V f_desugar_try(V * l_p, V l_s, V l_rest) {
     V l_ok_name = vow_s[169];
     V t64 = (*l_p);
     V t65 = VP(t64)[4];
-    V t66 = vstr_eq(t65, vow_s[94]);
+    V t66 = (V)vstr_eq(t65, vow_s[94]);
     if (t66) {
         V t67 = l_s;
         V t68 = VP(t67)[0];
@@ -3953,7 +3963,7 @@ static V f_parse_invariants(V * l_p) {
 static V f_bare_return_follower(V l_t) {
     V t1 = l_t;
     V t2 = VP(t1)[0];
-    V t3 = vstr_eq(t2, vow_s[98]);
+    V t3 = (V)vstr_eq(t2, vow_s[98]);
     if (t3) {
         return 1;
     }
@@ -3995,7 +4005,7 @@ static V f_bare_return_follower(V l_t) {
     V l_stops = t4;
     V t5 = l_t;
     V t6 = VP(t5)[0];
-    V t7 = vstr_eq(t6, vow_s[104]);
+    V t7 = (V)vstr_eq(t6, vow_s[104]);
     V t8 = t7;
     if (t7) {
         V t9 = l_stops;
@@ -4681,7 +4691,7 @@ static V f_parse_pattern(V * l_p) {
     V l_t = t2;
     V t3 = l_t;
     V t4 = VP(t3)[0];
-    V t5 = vstr_eq(t4, vow_s[201]);
+    V t5 = (V)vstr_eq(t4, vow_s[201]);
     if (t5) {
         V t6 = f_advance(l_p);
         V l_k = t6;
@@ -4697,12 +4707,12 @@ static V f_parse_pattern(V * l_p) {
     }
     V t10 = l_t;
     V t11 = VP(t10)[0];
-    V t12 = vstr_eq(t11, vow_s[103]);
+    V t12 = (V)vstr_eq(t11, vow_s[103]);
     V t13 = t12;
     if (t12) {
         V t14 = l_t;
         V t15 = VP(t14)[1];
-        V t16 = vstr_eq(t15, vow_s[202]);
+        V t16 = (V)vstr_eq(t15, vow_s[202]);
         t13 = t16;
     }
     V t17 = t13;
@@ -4710,7 +4720,7 @@ static V f_parse_pattern(V * l_p) {
         V t18 = (*l_p);
         V t19 = f_peek_at(t18, (V)INT64_C(1));
         V t20 = VP(t19)[0];
-        V t21 = vstr_eq(t20, vow_s[201]);
+        V t21 = (V)vstr_eq(t20, vow_s[201]);
         t17 = t21;
         vdrop(t19);
     }
@@ -4734,7 +4744,7 @@ static V f_parse_pattern(V * l_p) {
     }
     V t28 = l_t;
     V t29 = VP(t28)[0];
-    V t30 = vstr_eq(t29, vow_s[100]);
+    V t30 = (V)vstr_eq(t29, vow_s[100]);
     if (t30) {
         V t31 = f_advance(l_p);
         (void)t31;
@@ -4875,12 +4885,12 @@ static V f_parse_expr(V * l_p) {
         V l_t = t8;
         V t9 = l_t;
         V t10 = VP(t9)[0];
-        V t11 = vstr_eq(t10, vow_s[103]);
+        V t11 = (V)vstr_eq(t10, vow_s[103]);
         V t12 = t11;
         if (!t12) {
             V t13 = l_t;
             V t14 = VP(t13)[0];
-            V t15 = vstr_eq(t14, vow_s[104]);
+            V t15 = (V)vstr_eq(t14, vow_s[104]);
             t12 = t15;
         }
         V t16 = t12;
@@ -5018,24 +5028,24 @@ static V f_parse_unary(V * l_p) {
     V l_t = t2;
     V t3 = l_t;
     V t4 = VP(t3)[0];
-    V t5 = vstr_eq(t4, vow_s[103]);
+    V t5 = (V)vstr_eq(t4, vow_s[103]);
     V t6 = t5;
     if (t5) {
         V t7 = l_t;
         V t8 = VP(t7)[1];
-        V t9 = vstr_eq(t8, vow_s[202]);
+        V t9 = (V)vstr_eq(t8, vow_s[202]);
         t6 = t9;
     }
     V t10 = t6;
     if (!t10) {
         V t11 = l_t;
         V t12 = VP(t11)[0];
-        V t13 = vstr_eq(t12, vow_s[104]);
+        V t13 = (V)vstr_eq(t12, vow_s[104]);
         V t14 = t13;
         if (t13) {
             V t15 = l_t;
             V t16 = VP(t15)[1];
-            V t17 = vstr_eq(t16, vow_s[224]);
+            V t17 = (V)vstr_eq(t16, vow_s[224]);
             t14 = t17;
         }
         t10 = t14;
@@ -5087,26 +5097,26 @@ static V f_parse_args(V * l_p) {
         V l_nx = t8;
         V t9 = l_t;
         V t10 = VP(t9)[0];
-        V t11 = vstr_eq(t10, vow_s[108]);
+        V t11 = (V)vstr_eq(t10, vow_s[108]);
         V t12 = t11;
         if (!t12) {
             V t13 = l_t;
             V t14 = VP(t13)[0];
-            V t15 = vstr_eq(t14, vow_s[104]);
+            V t15 = (V)vstr_eq(t14, vow_s[104]);
             t12 = t15;
         }
         V t16 = t12;
         if (t12) {
             V t17 = l_nx;
             V t18 = VP(t17)[0];
-            V t19 = vstr_eq(t18, vow_s[103]);
+            V t19 = (V)vstr_eq(t18, vow_s[103]);
             t16 = t19;
         }
         V t20 = t16;
         if (t16) {
             V t21 = l_nx;
             V t22 = VP(t21)[1];
-            V t23 = vstr_eq(t22, vow_s[96]);
+            V t23 = (V)vstr_eq(t22, vow_s[96]);
             t20 = t23;
         }
         V l_named = t20;
@@ -5260,13 +5270,13 @@ static V f_parse_postfix(V * l_p) {
                     V t25 = (*l_p);
                     V t26 = f_peek_at(t25, (V)INT64_C(1));
                     V t27 = VP(t26)[0];
-                    V t28 = vstr_eq(t27, vow_s[108]);
+                    V t28 = (V)vstr_eq(t27, vow_s[108]);
                     V t29 = t28;
                     if (!t29) {
                         V t30 = (*l_p);
                         V t31 = f_peek_at(t30, (V)INT64_C(1));
                         V t32 = VP(t31)[0];
-                        V t33 = vstr_eq(t32, vow_s[104]);
+                        V t33 = (V)vstr_eq(t32, vow_s[104]);
                         t29 = t33;
                         vdrop(t31);
                     }
@@ -5361,7 +5371,7 @@ static V f_parse_primary(V * l_p) {
     V l_pos = t3;
     V t4 = l_t;
     V t5 = VP(t4)[0];
-    V t6 = vstr_eq(t5, vow_s[201]);
+    V t6 = (V)vstr_eq(t5, vow_s[201]);
     if (t6) {
         V t7 = l_pos;
         V t8 = l_t;
@@ -5377,7 +5387,7 @@ static V f_parse_primary(V * l_p) {
     } else {
         V t12 = l_t;
         V t13 = VP(t12)[0];
-        V t14 = vstr_eq(t13, vow_s[100]);
+        V t14 = (V)vstr_eq(t13, vow_s[100]);
         if (t14) {
             V t15 = l_pos;
             V t16 = l_t;
@@ -5394,7 +5404,7 @@ static V f_parse_primary(V * l_p) {
         } else {
             V t20 = l_t;
             V t21 = VP(t20)[0];
-            V t22 = vstr_eq(t21, vow_s[50]);
+            V t22 = (V)vstr_eq(t21, vow_s[50]);
             if (t22) {
                 V t23 = l_pos;
                 V t24 = l_t;
@@ -5411,7 +5421,7 @@ static V f_parse_primary(V * l_p) {
             } else {
                 V t28 = l_t;
                 V t29 = VP(t28)[0];
-                V t30 = vstr_eq(t29, vow_s[108]);
+                V t30 = (V)vstr_eq(t29, vow_s[108]);
                 if (t30) {
                     V t31 = l_pos;
                     V t32 = l_t;
@@ -5428,7 +5438,7 @@ static V f_parse_primary(V * l_p) {
                 } else {
                     V t36 = l_t;
                     V t37 = VP(t36)[0];
-                    V t38 = vstr_eq(t37, vow_s[104]);
+                    V t38 = (V)vstr_eq(t37, vow_s[104]);
                     if (t38) {
                         V t39 = l_t;
                         V t40 = VP(t39)[1];
@@ -5498,7 +5508,7 @@ static V f_parse_primary(V * l_p) {
                     } else {
                         V t62 = l_t;
                         V t63 = VP(t62)[0];
-                        V t64 = vstr_eq(t63, vow_s[103]);
+                        V t64 = (V)vstr_eq(t63, vow_s[103]);
                         if (t64) {
                             V t65 = l_t;
                             V t66 = VP(t65)[1];
@@ -5911,7 +5921,7 @@ static V f_lex(V l_src, V l_file) {
                     V t54 = l_src;
                     V t55 = l_i;
                     V t56 = vstr_byte(t54, t55);
-                    V t57 = (V)!(V)(t56 == (V)INT64_C(10));
+                    V t57 = (V)!(t56 == (V)INT64_C(10));
                     t53 = t57;
                 }
                 if (!t53) break;
@@ -6085,7 +6095,7 @@ static V f_lex(V l_src, V l_file) {
                 V t143 = l_src;
                 V t144 = l_i;
                 V t145 = vstr_byte(t143, t144);
-                V t146 = (V)!(V)(t145 == (V)INT64_C(95));
+                V t146 = (V)!(t145 == (V)INT64_C(95));
                 if (t146) {
                     V t147 = l_src;
                     V t148 = l_i;
@@ -6245,7 +6255,7 @@ static V f_lex(V l_src, V l_file) {
                 V t225 = l_src;
                 V t226 = l_last;
                 V t227 = vstr_byte(t225, t226);
-                V t228 = (V)!(V)(t227 == (V)INT64_C(39));
+                V t228 = (V)!(t227 == (V)INT64_C(39));
                 t224 = t228;
             }
             if (t224) {
@@ -6606,7 +6616,7 @@ static V f_contains_str(V l_xs, V l_x) {
         V t4 = l_i;
         V t5 = vlist_get(t3, t4);
         V t6 = l_x;
-        V t7 = vstr_eq(t5, t6);
+        V t7 = (V)vstr_eq(t5, t6);
         if (t7) {
             return 1;
         }
@@ -6623,7 +6633,7 @@ static V f_index_of_str(V l_xs, V l_x) {
         V t4 = l_i;
         V t5 = vlist_get(t3, t4);
         V t6 = l_x;
-        V t7 = vstr_eq(t5, t6);
+        V t7 = (V)vstr_eq(t5, t6);
         if (t7) {
             V t8 = l_i;
             return t8;
@@ -8957,7 +8967,7 @@ static V f_ty_eq(V l_a, V l_b) {
     V t2 = f_ty_show(t1);
     V t3 = l_b;
     V t4 = f_ty_show(t3);
-    V t5 = vstr_eq(t2, t4);
+    V t5 = (V)vstr_eq(t2, t4);
     vdrop(t4);
     vdrop(t2);
     return t5;
@@ -8967,7 +8977,7 @@ static V f_ty_eq(V l_a, V l_b) {
 static V f_is_unknown(V l_t) {
     V t1 = l_t;
     V t2 = f_ty_show(t1);
-    V t3 = vstr_eq(t2, vow_s[21]);
+    V t3 = (V)vstr_eq(t2, vow_s[21]);
     vdrop(t2);
     return t3;
     return 0;
@@ -9310,11 +9320,11 @@ static V f_is_builtin(V l_name) {
 
 static V f_builtin_effect(V l_name) {
     V t1 = l_name;
-    V t2 = vstr_eq(t1, vow_s[487]);
+    V t2 = (V)vstr_eq(t1, vow_s[487]);
     V t3 = t2;
     if (!t3) {
         V t4 = l_name;
-        V t5 = vstr_eq(t4, vow_s[488]);
+        V t5 = (V)vstr_eq(t4, vow_s[488]);
         t3 = t5;
     }
     if (t3) {
@@ -9322,23 +9332,23 @@ static V f_builtin_effect(V l_name) {
         return vow_s[501];
     } else {
         V t6 = l_name;
-        V t7 = vstr_eq(t6, vow_s[489]);
+        V t7 = (V)vstr_eq(t6, vow_s[489]);
         V t8 = t7;
         if (!t8) {
             V t9 = l_name;
-            V t10 = vstr_eq(t9, vow_s[491]);
+            V t10 = (V)vstr_eq(t9, vow_s[491]);
             t8 = t10;
         }
         V t11 = t8;
         if (!t11) {
             V t12 = l_name;
-            V t13 = vstr_eq(t12, vow_s[494]);
+            V t13 = (V)vstr_eq(t12, vow_s[494]);
             t11 = t13;
         }
         V t14 = t11;
         if (!t14) {
             V t15 = l_name;
-            V t16 = vstr_eq(t15, vow_s[495]);
+            V t16 = (V)vstr_eq(t15, vow_s[495]);
             t14 = t16;
         }
         if (t14) {
@@ -9346,23 +9356,23 @@ static V f_builtin_effect(V l_name) {
             return vow_s[502];
         } else {
             V t17 = l_name;
-            V t18 = vstr_eq(t17, vow_s[493]);
+            V t18 = (V)vstr_eq(t17, vow_s[493]);
             V t19 = t18;
             if (!t19) {
                 V t20 = l_name;
-                V t21 = vstr_eq(t20, vow_s[496]);
+                V t21 = (V)vstr_eq(t20, vow_s[496]);
                 t19 = t21;
             }
             V t22 = t19;
             if (!t22) {
                 V t23 = l_name;
-                V t24 = vstr_eq(t23, vow_s[81]);
+                V t24 = (V)vstr_eq(t23, vow_s[81]);
                 t22 = t24;
             }
             V t25 = t22;
             if (!t25) {
                 V t26 = l_name;
-                V t27 = vstr_eq(t26, vow_s[500]);
+                V t27 = (V)vstr_eq(t26, vow_s[500]);
                 t25 = t27;
             }
             if (t25) {
@@ -9395,11 +9405,11 @@ static V f_spec_builtin(V l_name) {
 
 static V f_builtin_noreturn(V l_name) {
     V t1 = l_name;
-    V t2 = vstr_eq(t1, vow_s[485]);
+    V t2 = (V)vstr_eq(t1, vow_s[485]);
     V t3 = t2;
     if (!t3) {
         V t4 = l_name;
-        V t5 = vstr_eq(t4, vow_s[500]);
+        V t5 = (V)vstr_eq(t4, vow_s[500]);
         t3 = t5;
     }
     return t3;
@@ -9444,7 +9454,7 @@ static V f_find_field(V l_fields, V l_name) {
         V t5 = vlist_get(t3, t4);
         V t6 = VP(t5)[0];
         V t7 = l_name;
-        V t8 = vstr_eq(t6, t7);
+        V t8 = (V)vstr_eq(t6, t7);
         if (t8) {
             V t9 = l_i;
             return t9;
@@ -9464,7 +9474,7 @@ static V f_find_variant(V l_vs, V l_name) {
         V t5 = vlist_get(t3, t4);
         V t6 = VP(t5)[0];
         V t7 = l_name;
-        V t8 = vstr_eq(t6, t7);
+        V t8 = (V)vstr_eq(t6, t7);
         if (t8) {
             V t9 = l_i;
             return t9;
@@ -9543,6 +9553,206 @@ static V f_variants_of(V l_info, V l_t) {
     return 0;
 }
 
+static V f_eq_blocker(V l_info, V l_t, V * l_seen) {
+    V t1 = l_t;
+    vdup(t1);
+    V t2 = t1;
+    V t3 = VP(t2)[0];
+    if (t3 == 5) {
+        V l_k = VP(t2)[1];
+        V l_x = VP(t2)[2];
+        V t4 = l_t;
+        V t5 = f_ty_show(t4);
+        vdrop(t2);
+        return t5;
+    } else if (t3 == 6) {
+        V l_k = VP(t2)[1];
+        V l_x = VP(t2)[2];
+        V t6 = l_t;
+        V t7 = f_ty_show(t6);
+        vdrop(t2);
+        return t7;
+    } else if (t3 == 4) {
+        V l_x = VP(t2)[1];
+        V t8 = l_info;
+        V t9 = l_x;
+        V t10 = f_eq_blocker(t8, t9, l_seen);
+        vdrop(t2);
+        return t10;
+    } else if (t3 == 7) {
+        V l_x = VP(t2)[1];
+        V t11 = l_info;
+        V t12 = l_x;
+        V t13 = f_eq_blocker(t11, t12, l_seen);
+        vdrop(t2);
+        return t13;
+    } else if (t3 == 8) {
+        V l_n = VP(t2)[1];
+        V t14 = (*l_seen);
+        V t15 = l_n;
+        V t16 = f_contains_str(t14, t15);
+        if (t16) {
+            vdup(vow_s[20]);
+            vdrop(t2);
+            return vow_s[20];
+        }
+        V t17 = l_n;
+        vdup(t17);
+        V t18 = vlist_push((*l_seen), t17);
+        (*l_seen) = t18;
+        V t19 = l_info;
+        V t20 = l_n;
+        V t21 = f_struct_fields(t19, t20);
+        V t22 = t21;
+        for (int64_t t23 = 0; t23 < VL(t22)->len; t23++) {
+            V l_f = VB(VL(t22)->buf)->items[t23];
+            V t24 = l_info;
+            V t25 = l_f;
+            V t26 = VP(t25)[1];
+            V t27 = VP(t26)[0];
+            V t28 = f_eq_blocker(t24, t27, l_seen);
+            V l_b = t28;
+            V t29 = l_b;
+            V t30 = vstr_len(t29);
+            V t31 = (V)(VI(t30) > VI((V)INT64_C(0)));
+            if (t31) {
+                V t32 = l_b;
+                vdup(t32);
+                vdrop(l_b);
+                vdrop(t22);
+                vdrop(t2);
+                return t32;
+            }
+            vdrop(l_b);
+        }
+        vdrop(t22);
+        vdup(vow_s[20]);
+        vdrop(t2);
+        return vow_s[20];
+    } else if (t3 == 9) {
+        V l_n = VP(t2)[1];
+        V t33 = (*l_seen);
+        V t34 = l_n;
+        V t35 = f_contains_str(t33, t34);
+        if (t35) {
+            vdup(vow_s[20]);
+            vdrop(t2);
+            return vow_s[20];
+        }
+        V t36 = l_n;
+        vdup(t36);
+        V t37 = vlist_push((*l_seen), t36);
+        (*l_seen) = t37;
+        V t38 = l_info;
+        V t39 = VP(t38)[1];
+        V t40 = l_n;
+        V t41 = vmap_lookup(t39, t40, 7);
+        V t42 = t41;
+        V t43 = VP(t42)[0];
+        if (t43 == 1) {
+            V l_vs = VP(t42)[1];
+            V t44 = l_vs;
+            vdup(t44);
+            V t45 = t44;
+            for (int64_t t46 = 0; t46 < VL(t45)->len; t46++) {
+                V l_vi = VB(VL(t45)->buf)->items[t46];
+                V t47 = l_vi;
+                V t48 = VP(t47)[1];
+                vdup(t48);
+                V t49 = t48;
+                for (int64_t t50 = 0; t50 < VL(t49)->len; t50++) {
+                    V l_f = VB(VL(t49)->buf)->items[t50];
+                    V t51 = l_info;
+                    V t52 = l_f;
+                    V t53 = VP(t52)[1];
+                    V t54 = VP(t53)[0];
+                    V t55 = f_eq_blocker(t51, t54, l_seen);
+                    V l_b = t55;
+                    V t56 = l_b;
+                    V t57 = vstr_len(t56);
+                    V t58 = (V)(VI(t57) > VI((V)INT64_C(0)));
+                    if (t58) {
+                        V t59 = l_b;
+                        vdup(t59);
+                        vdrop(l_b);
+                        vdrop(t49);
+                        vdrop(t45);
+                        vdrop(t42);
+                        vdrop(t2);
+                        return t59;
+                    }
+                    vdrop(l_b);
+                }
+                vdrop(t49);
+            }
+            vdrop(t45);
+        } else if (t43 == 0) {
+        } else {
+            vow_panic("unreachable: corrupt enum tag");
+        }
+        vdrop(t42);
+        vdup(vow_s[20]);
+        vdrop(t2);
+        return vow_s[20];
+    } else {
+        vdup(vow_s[20]);
+        vdrop(t2);
+        return vow_s[20];
+    }
+    vdrop(t2);
+    return 0;
+}
+
+static V f_simple_eq(V l_t) {
+    V t1 = l_t;
+    vdup(t1);
+    V t2 = t1;
+    V t3 = VP(t2)[0];
+    if (t3 == 0) {
+        vdrop(t2);
+        return 1;
+    } else if (t3 == 1) {
+        vdrop(t2);
+        return 1;
+    } else if (t3 == 3) {
+        vdrop(t2);
+        return 1;
+    } else if (t3 == 2) {
+        vdrop(t2);
+        return 1;
+    } else if (t3 == 11) {
+        vdrop(t2);
+        return 1;
+    } else {
+        vdrop(t2);
+        return 0;
+    }
+    vdrop(t2);
+    return 0;
+}
+
+static V f_all_unit(V l_fields) {
+    V t1 = l_fields;
+    vdup(t1);
+    V t2 = t1;
+    for (int64_t t3 = 0; t3 < VL(t2)->len; t3++) {
+        V l_f = VB(VL(t2)->buf)->items[t3];
+        V t4 = l_f;
+        V t5 = VP(t4)[1];
+        V t6 = VP(t5)[0];
+        V t7 = f_ty_show(t6);
+        V t8 = (V)!vstr_eq(t7, vow_s[449]);
+        vdrop(t7);
+        if (t8) {
+            vdrop(t2);
+            return 0;
+        }
+    }
+    vdrop(t2);
+    return 1;
+    return 0;
+}
+
 static V f_type_of(V l_info, V l_e) {
     V t1 = l_info;
     V t2 = VP(t1)[4];
@@ -9605,7 +9815,7 @@ static V f_resolve_type(V * l_info, V l_te, V * l_errs) {
         V l_pt = VP(t15)[1];
         l_is_param = 1;
         V t17 = l_n;
-        V t18 = (V)!(V)(t17 == (V)INT64_C(0));
+        V t18 = (V)!(t17 == (V)INT64_C(0));
         if (t18) {
             V t19 = l_te;
             V t20 = VP(t19)[3];
@@ -9632,38 +9842,38 @@ static V f_resolve_type(V * l_info, V l_te, V * l_errs) {
     } else {
         V t29 = l_te;
         V t30 = VP(t29)[0];
-        V t31 = vstr_eq(t30, vow_s[446]);
+        V t31 = (V)vstr_eq(t30, vow_s[446]);
         V t32 = t31;
         if (!t32) {
             V t33 = l_te;
             V t34 = VP(t33)[0];
-            V t35 = vstr_eq(t34, vow_s[447]);
+            V t35 = (V)vstr_eq(t34, vow_s[447]);
             t32 = t35;
         }
         V t36 = t32;
         if (!t36) {
             V t37 = l_te;
             V t38 = VP(t37)[0];
-            V t39 = vstr_eq(t38, vow_s[448]);
+            V t39 = (V)vstr_eq(t38, vow_s[448]);
             t36 = t39;
         }
         V t40 = t36;
         if (!t40) {
             V t41 = l_te;
             V t42 = VP(t41)[0];
-            V t43 = vstr_eq(t42, vow_s[449]);
+            V t43 = (V)vstr_eq(t42, vow_s[449]);
             t40 = t43;
         }
         V t44 = t40;
         if (!t44) {
             V t45 = l_te;
             V t46 = VP(t45)[0];
-            V t47 = vstr_eq(t46, vow_s[507]);
+            V t47 = (V)vstr_eq(t46, vow_s[507]);
             t44 = t47;
         }
         if (t44) {
             V t48 = l_n;
-            V t49 = (V)!(V)(t48 == (V)INT64_C(0));
+            V t49 = (V)!(t48 == (V)INT64_C(0));
             if (t49) {
                 V t50 = l_te;
                 V t51 = VP(t50)[3];
@@ -9721,17 +9931,17 @@ static V f_resolve_type(V * l_info, V l_te, V * l_errs) {
         } else {
             V t72 = l_te;
             V t73 = VP(t72)[0];
-            V t74 = vstr_eq(t73, vow_s[509]);
+            V t74 = (V)vstr_eq(t73, vow_s[509]);
             V t75 = t74;
             if (!t75) {
                 V t76 = l_te;
                 V t77 = VP(t76)[0];
-                V t78 = vstr_eq(t77, vow_s[163]);
+                V t78 = (V)vstr_eq(t77, vow_s[163]);
                 t75 = t78;
             }
             if (t75) {
                 V t79 = l_n;
-                V t80 = (V)!(V)(t79 == (V)INT64_C(1));
+                V t80 = (V)!(t79 == (V)INT64_C(1));
                 if (t80) {
                     V t81 = l_te;
                     V t82 = VP(t81)[3];
@@ -9754,7 +9964,7 @@ static V f_resolve_type(V * l_info, V l_te, V * l_errs) {
                     V l_a = t93;
                     V t94 = l_te;
                     V t95 = VP(t94)[0];
-                    V t96 = vstr_eq(t95, vow_s[509]);
+                    V t96 = (V)vstr_eq(t95, vow_s[509]);
                     if (t96) {
                         V t97 = l_a;
                         vdup(t97);
@@ -9781,17 +9991,17 @@ static V f_resolve_type(V * l_info, V l_te, V * l_errs) {
             } else {
                 V t103 = l_te;
                 V t104 = VP(t103)[0];
-                V t105 = vstr_eq(t104, vow_s[511]);
+                V t105 = (V)vstr_eq(t104, vow_s[511]);
                 V t106 = t105;
                 if (!t106) {
                     V t107 = l_te;
                     V t108 = VP(t107)[0];
-                    V t109 = vstr_eq(t108, vow_s[512]);
+                    V t109 = (V)vstr_eq(t108, vow_s[512]);
                     t106 = t109;
                 }
                 if (t106) {
                     V t110 = l_n;
-                    V t111 = (V)!(V)(t110 == (V)INT64_C(2));
+                    V t111 = (V)!(t110 == (V)INT64_C(2));
                     if (t111) {
                         V t112 = l_te;
                         V t113 = VP(t112)[3];
@@ -9852,7 +10062,7 @@ static V f_resolve_type(V * l_info, V l_te, V * l_errs) {
                         }
                         V t149 = l_te;
                         V t150 = VP(t149)[0];
-                        V t151 = vstr_eq(t150, vow_s[511]);
+                        V t151 = (V)vstr_eq(t150, vow_s[511]);
                         if (t151) {
                             V t152 = l_k;
                             V t153 = l_v;
@@ -9909,7 +10119,7 @@ static V f_resolve_type(V * l_info, V l_te, V * l_errs) {
                         vdrop(t174);
                         V t176 = l_n;
                         V t177 = l_want;
-                        V t178 = (V)!(V)(t176 == t177);
+                        V t178 = (V)!(t176 == t177);
                         if (t178) {
                             V t179 = l_te;
                             V t180 = VP(t179)[3];
@@ -9964,7 +10174,7 @@ static V f_resolve_type(V * l_info, V l_te, V * l_errs) {
                         V t210 = vmap_has(t207, t209, 7);
                         if (t210) {
                             V t211 = l_n;
-                            V t212 = (V)!(V)(t211 == (V)INT64_C(0));
+                            V t212 = (V)!(t211 == (V)INT64_C(0));
                             if (t212) {
                                 V t213 = l_te;
                                 V t214 = VP(t213)[3];
@@ -9998,7 +10208,7 @@ static V f_resolve_type(V * l_info, V l_te, V * l_errs) {
                             V t230 = vmap_has(t227, t229, 7);
                             if (t230) {
                                 V t231 = l_n;
-                                V t232 = (V)!(V)(t231 == (V)INT64_C(0));
+                                V t232 = (V)!(t231 == (V)INT64_C(0));
                                 if (t232) {
                                     V t233 = l_te;
                                     V t234 = VP(t233)[3];
@@ -10035,7 +10245,7 @@ static V f_resolve_type(V * l_info, V l_te, V * l_errs) {
                                 if (t252 == 1) {
                                     V l_a = VP(t251)[1];
                                     V t253 = l_n;
-                                    V t254 = (V)!(V)(t253 == (V)INT64_C(0));
+                                    V t254 = (V)!(t253 == (V)INT64_C(0));
                                     if (t254) {
                                         V t255 = l_te;
                                         V t256 = VP(t255)[3];
@@ -10428,7 +10638,7 @@ static V f_mangle(V l_name) {
                         l_parts = t18;
                     } else {
                         V t19 = l_ch;
-                        V t20 = (V)!(V)(t19 == (V)INT64_C(32));
+                        V t20 = (V)!(t19 == (V)INT64_C(32));
                         if (t20) {
                             V t21 = l_ch;
                             V t22 = vchar(t21);
@@ -10793,7 +11003,7 @@ static V f_unify(V l_info, V l_te, V l_t, V l_tps, V * l_subst) {
         V l_x = VP(t22)[1];
         V t24 = l_te;
         V t25 = VP(t24)[0];
-        V t26 = vstr_eq(t25, vow_s[509]);
+        V t26 = (V)vstr_eq(t25, vow_s[509]);
         V t27 = t26;
         if (t26) {
             V t28 = l_n;
@@ -10814,7 +11024,7 @@ static V f_unify(V l_info, V l_te, V l_t, V l_tps, V * l_subst) {
         V l_x = VP(t22)[1];
         V t37 = l_te;
         V t38 = VP(t37)[0];
-        V t39 = vstr_eq(t38, vow_s[163]);
+        V t39 = (V)vstr_eq(t38, vow_s[163]);
         V t40 = t39;
         if (t39) {
             V t41 = l_n;
@@ -10836,7 +11046,7 @@ static V f_unify(V l_info, V l_te, V l_t, V l_tps, V * l_subst) {
         V l_v = VP(t22)[2];
         V t50 = l_te;
         V t51 = VP(t50)[0];
-        V t52 = vstr_eq(t51, vow_s[511]);
+        V t52 = (V)vstr_eq(t51, vow_s[511]);
         V t53 = t52;
         if (t52) {
             V t54 = l_n;
@@ -10866,7 +11076,7 @@ static V f_unify(V l_info, V l_te, V l_t, V l_tps, V * l_subst) {
         V l_v = VP(t22)[2];
         V t70 = l_te;
         V t71 = VP(t70)[0];
-        V t72 = vstr_eq(t71, vow_s[512]);
+        V t72 = (V)vstr_eq(t71, vow_s[512]);
         V t73 = t72;
         if (t72) {
             V t74 = l_n;
@@ -11265,7 +11475,7 @@ static V f_check_info_preds(V * l_c, V l_fields) {
         for (V l_j = (V)INT64_C(0); VI(l_j) < VI(t5); l_j = (V)(VI(l_j) + 1)) {
             V t6 = l_j;
             V t7 = l_i;
-            V t8 = (V)!(V)(t6 == t7);
+            V t8 = (V)!(t6 == t7);
             if (t8) {
                 V t9 = l_fields;
                 V t10 = l_j;
@@ -11333,7 +11543,7 @@ static V f_find_local(V l_c, V l_name) {
         V t10 = vlist_get(t8, t9);
         V t11 = VP(t10)[0];
         V t12 = l_name;
-        V t13 = vstr_eq(t11, t12);
+        V t13 = (V)vstr_eq(t11, t12);
         if (t13) {
             V t14 = l_c;
             V t15 = VP(t14)[2];
@@ -12163,7 +12373,7 @@ static V f_check_program(V l_items, V l_files, V l_next_id) {
         V t207 = l_pending;
         V t208 = vlist_len(t207);
         V t209 = l_before;
-        V t210 = (V)!(V)(t208 == t209);
+        V t210 = (V)!(t208 == t209);
         l_progress = t210;
         vdrop(l_still);
     }
@@ -12641,136 +12851,250 @@ static V f_check_program(V l_items, V l_files, V l_next_id) {
         V t460 = VP(t459)[1];
         V t461 = f_set_tenv(&l_c, t460);
         (void)t461;
-        V t462 = l_next;
-        V t463 = VP(t462)[0];
-        V t464 = f_check_fn(&l_c, t463);
-        (void)t464;
-        V t465 = f_set_tenv(&l_c, vmap_empty());
-        (void)t465;
-        V t466 = l_c;
-        V t467 = VP(t466)[0];
-        vdup(t467);
-        V l_info = t467;
-        V t468 = l_info;
-        V t469 = l_info;
-        V t470 = VP(t469)[14];
-        V t471 = l_next;
-        V t472 = VP(t471)[0];
+        V t462 = l_c;
+        V t463 = VP(t462)[1];
+        V t464 = vlist_len(t463);
+        V l_before = t464;
+        V t465 = l_next;
+        V t466 = VP(t465)[0];
+        V t467 = f_check_fn(&l_c, t466);
+        (void)t467;
+        V t468 = f_set_tenv(&l_c, vmap_empty());
+        (void)t468;
+        V t469 = l_c;
+        V t470 = VP(t469)[1];
         vdup(t470);
-        vdup(t472);
-        V t473 = vlist_push(t470, t472);
-        vdup(t468);
-        V t474 = vow_with(t468);
-        vdrop(VP(t474)[14]);
-        VP(t474)[14] = t473;
-        V t475 = vow_with(l_c);
-        vdrop(VP(t475)[0]);
-        VP(t475)[0] = t474;
-        l_c = t475;
+        V l_old = t470;
+        V t471 = l_before;
+        V t472 = l_c;
+        V t473 = VP(t472)[1];
+        V t474 = vlist_len(t473);
+        V t475 = (V)(VI(t471) <= VI(t474));
+        if (t475) {
+            V t476 = l_c;
+            V t477 = VP(t476)[1];
+            V t478 = l_before;
+            V t479 = vlist_slice(t477, (V)INT64_C(0), t478);
+            vdrop(l_old);
+            l_old = t479;
+        }
+        V t480 = l_old;
+        vdup(t480);
+        V l_errs = t480;
+        V t481 = l_old;
+        V t482 = vlist_len(t481);
+        V t483 = l_c;
+        V t484 = VP(t483)[1];
+        V t485 = vlist_len(t484);
+        for (V l_i = t482; VI(l_i) < VI(t485); l_i = (V)(VI(l_i) + 1)) {
+            V t486 = l_c;
+            V t487 = VP(t486)[1];
+            V t488 = l_i;
+            V t489 = vlist_get(t487, t488);
+            vdup(t489);
+            V l_d = t489;
+            V l_dup = 0;
+            V t490 = l_old;
+            vdup(t490);
+            V t491 = t490;
+            for (int64_t t492 = 0; t492 < VL(t491)->len; t492++) {
+                V l_o = VB(VL(t491)->buf)->items[t492];
+                V t493 = l_o;
+                V t494 = VP(t493)[2];
+                V t495 = l_d;
+                V t496 = VP(t495)[2];
+                V t497 = (V)vstr_eq(t494, t496);
+                V t498 = t497;
+                if (t497) {
+                    V t499 = l_o;
+                    V t500 = VP(t499)[0];
+                    V t501 = VP(t500)[0];
+                    V t502 = l_d;
+                    V t503 = VP(t502)[0];
+                    V t504 = VP(t503)[0];
+                    V t505 = (V)(t501 == t504);
+                    t498 = t505;
+                }
+                V t506 = t498;
+                if (t498) {
+                    V t507 = l_o;
+                    V t508 = VP(t507)[0];
+                    V t509 = VP(t508)[1];
+                    V t510 = l_d;
+                    V t511 = VP(t510)[0];
+                    V t512 = VP(t511)[1];
+                    V t513 = (V)(t509 == t512);
+                    t506 = t513;
+                }
+                V t514 = t506;
+                if (t506) {
+                    V t515 = l_o;
+                    V t516 = VP(t515)[0];
+                    V t517 = VP(t516)[2];
+                    V t518 = l_d;
+                    V t519 = VP(t518)[0];
+                    V t520 = VP(t519)[2];
+                    V t521 = (V)(t517 == t520);
+                    t514 = t521;
+                }
+                if (t514) {
+                    l_dup = 1;
+                }
+            }
+            vdrop(t491);
+            V t522 = l_dup;
+            V t523 = (V)!t522;
+            if (t523) {
+                V t524 = l_d;
+                V t525 = l_d;
+                V t526 = VP(t525)[2];
+                V t527 = vstr_cat(t526, vow_s[538]);
+                V t528 = l_next;
+                V t529 = VP(t528)[0];
+                V t530 = VP(t529)[0];
+                V t531 = vstr_cat(t527, t530);
+                vdup(t524);
+                V t532 = vow_with(t524);
+                vdrop(VP(t532)[2]);
+                VP(t532)[2] = t531;
+                V t533 = vlist_push(l_errs, t532);
+                l_errs = t533;
+                vdrop(t527);
+            }
+            vdrop(l_d);
+        }
+        V t534 = l_errs;
+        vdup(t534);
+        V t535 = vow_with(l_c);
+        vdrop(VP(t535)[1]);
+        VP(t535)[1] = t534;
+        l_c = t535;
+        V t536 = l_c;
+        V t537 = VP(t536)[0];
+        vdup(t537);
+        V l_info = t537;
+        V t538 = l_info;
+        V t539 = l_info;
+        V t540 = VP(t539)[14];
+        V t541 = l_next;
+        V t542 = VP(t541)[0];
+        vdup(t540);
+        vdup(t542);
+        V t543 = vlist_push(t540, t542);
+        vdup(t538);
+        V t544 = vow_with(t538);
+        vdrop(VP(t544)[14]);
+        VP(t544)[14] = t543;
+        V t545 = vow_with(l_c);
+        vdrop(VP(t545)[0]);
+        VP(t545)[0] = t544;
+        l_c = t545;
         vdrop(l_info);
+        vdrop(l_errs);
+        vdrop(l_old);
         vdrop(l_next);
     }
-    V t476 = f_check_pending(&l_c);
-    (void)t476;
-    V t477 = l_c;
-    V t478 = VP(t477)[0];
-    V t479 = f_get_fn(t478, vow_s[538]);
-    V t480 = t479;
-    V t481 = VP(t480)[0];
-    if (t481 == 0) {
-        V t482 = f_no_pos();
-        V t483 = f_err(&l_c, t482, vow_s[539]);
-        (void)t483;
-        vdrop(t482);
-    } else if (t481 == 1) {
-        V l_m = VP(t480)[1];
-        V t484 = l_m;
-        V t485 = VP(t484)[1];
-        V t486 = vlist_len(t485);
-        V t487 = (V)(VI(t486) > VI((V)INT64_C(0)));
-        V t488 = t487;
-        if (!t488) {
-            V t489 = l_m;
-            V t490 = VP(t489)[3];
-            V t491 = VP(t490)[0];
-            V t492 = f_ty_show(t491);
-            V t493 = (V)!vstr_eq(t492, vow_s[449]);
-            t488 = t493;
-            vdrop(t492);
+    V t546 = f_check_pending(&l_c);
+    (void)t546;
+    V t547 = l_c;
+    V t548 = VP(t547)[0];
+    V t549 = f_get_fn(t548, vow_s[539]);
+    V t550 = t549;
+    V t551 = VP(t550)[0];
+    if (t551 == 0) {
+        V t552 = f_no_pos();
+        V t553 = f_err(&l_c, t552, vow_s[540]);
+        (void)t553;
+        vdrop(t552);
+    } else if (t551 == 1) {
+        V l_m = VP(t550)[1];
+        V t554 = l_m;
+        V t555 = VP(t554)[1];
+        V t556 = vlist_len(t555);
+        V t557 = (V)(VI(t556) > VI((V)INT64_C(0)));
+        V t558 = t557;
+        if (!t558) {
+            V t559 = l_m;
+            V t560 = VP(t559)[3];
+            V t561 = VP(t560)[0];
+            V t562 = f_ty_show(t561);
+            V t563 = (V)!vstr_eq(t562, vow_s[449]);
+            t558 = t563;
+            vdrop(t562);
         }
-        if (t488) {
-            V t494 = l_m;
-            V t495 = VP(t494)[9];
-            V t496 = f_err(&l_c, t495, vow_s[540]);
-            (void)t496;
+        if (t558) {
+            V t564 = l_m;
+            V t565 = VP(t564)[9];
+            V t566 = f_err(&l_c, t565, vow_s[541]);
+            (void)t566;
         }
     } else {
         vow_panic("unreachable: corrupt enum tag");
     }
-    vdrop(t480);
-    V t497 = vlist_empty(1);
-    V l_unique = t497;
+    vdrop(t550);
+    V t567 = vlist_empty(1);
+    V l_unique = t567;
     vdup(vmap_empty());
     V l_seen = vmap_empty();
-    V t498 = l_c;
-    V t499 = VP(t498)[1];
-    vdup(t499);
-    V t500 = t499;
-    for (int64_t t501 = 0; t501 < VL(t500)->len; t501++) {
-        V l_d = VB(VL(t500)->buf)->items[t501];
-        V t502 = l_d;
-        V t503 = VP(t502)[0];
-        V t504 = VP(t503)[0];
-        V t505 = vint_to_str(t504);
-        V t506 = vstr_cat(t505, vow_s[96]);
-        V t507 = l_d;
-        V t508 = VP(t507)[0];
-        V t509 = VP(t508)[1];
-        V t510 = vint_to_str(t509);
-        V t511 = vstr_cat(t506, t510);
-        V t512 = vstr_cat(t511, vow_s[96]);
-        V t513 = l_d;
-        V t514 = VP(t513)[0];
-        V t515 = VP(t514)[2];
-        V t516 = vint_to_str(t515);
-        V t517 = vstr_cat(t512, t516);
-        V t518 = vstr_cat(t517, vow_s[96]);
-        V t519 = l_d;
-        V t520 = VP(t519)[2];
-        V t521 = vstr_cat(t518, t520);
-        V l_k = t521;
-        vdrop(t518);
-        vdrop(t517);
-        vdrop(t516);
-        vdrop(t512);
-        vdrop(t511);
-        vdrop(t510);
-        vdrop(t506);
-        vdrop(t505);
-        V t522 = l_seen;
-        V t523 = l_k;
-        V t524 = vmap_has(t522, t523, 5);
-        V t525 = (V)!t524;
-        if (t525) {
-            V t526 = l_k;
-            vdup(t526);
-            V t527 = vmap_insert(l_seen, t526, 1, 5);
-            l_seen = t527;
-            V t528 = l_d;
-            vdup(t528);
-            V t529 = vlist_push(l_unique, t528);
-            l_unique = t529;
+    V t568 = l_c;
+    V t569 = VP(t568)[1];
+    vdup(t569);
+    V t570 = t569;
+    for (int64_t t571 = 0; t571 < VL(t570)->len; t571++) {
+        V l_d = VB(VL(t570)->buf)->items[t571];
+        V t572 = l_d;
+        V t573 = VP(t572)[0];
+        V t574 = VP(t573)[0];
+        V t575 = vint_to_str(t574);
+        V t576 = vstr_cat(t575, vow_s[96]);
+        V t577 = l_d;
+        V t578 = VP(t577)[0];
+        V t579 = VP(t578)[1];
+        V t580 = vint_to_str(t579);
+        V t581 = vstr_cat(t576, t580);
+        V t582 = vstr_cat(t581, vow_s[96]);
+        V t583 = l_d;
+        V t584 = VP(t583)[0];
+        V t585 = VP(t584)[2];
+        V t586 = vint_to_str(t585);
+        V t587 = vstr_cat(t582, t586);
+        V t588 = vstr_cat(t587, vow_s[96]);
+        V t589 = l_d;
+        V t590 = VP(t589)[2];
+        V t591 = vstr_cat(t588, t590);
+        V l_k = t591;
+        vdrop(t588);
+        vdrop(t587);
+        vdrop(t586);
+        vdrop(t582);
+        vdrop(t581);
+        vdrop(t580);
+        vdrop(t576);
+        vdrop(t575);
+        V t592 = l_seen;
+        V t593 = l_k;
+        V t594 = vmap_has(t592, t593, 5);
+        V t595 = (V)!t594;
+        if (t595) {
+            V t596 = l_k;
+            vdup(t596);
+            V t597 = vmap_insert(l_seen, t596, 1, 5);
+            l_seen = t597;
+            V t598 = l_d;
+            vdup(t598);
+            V t599 = vlist_push(l_unique, t598);
+            l_unique = t599;
         }
         vdrop(l_k);
     }
-    vdrop(t500);
-    V t530 = l_c;
-    V t531 = l_unique;
-    vdup(t530);
-    vdup(t531);
-    V t532 = vow_with(t530);
-    vdrop(VP(t532)[1]);
-    VP(t532)[1] = t531;
+    vdrop(t570);
+    V t600 = l_c;
+    V t601 = l_unique;
+    vdup(t600);
+    vdup(t601);
+    V t602 = vow_with(t600);
+    vdrop(VP(t602)[1]);
+    VP(t602)[1] = t601;
     vdrop(l_seen);
     vdrop(l_unique);
     vdrop(l_pending);
@@ -12780,7 +13104,7 @@ static V f_check_program(V l_items, V l_files, V l_next_id) {
     vdrop(l_seen_types);
     vdrop(l_c);
     vdrop(l_none);
-    return t532;
+    return t602;
     vdrop(l_seen);
     vdrop(l_unique);
     vdrop(l_pending);
@@ -12877,7 +13201,7 @@ static V f_fn_signature(V * l_c, V l_f) {
             V t13 = VP(t12)[3];
             V t14 = l_p;
             V t15 = VP(t14)[0];
-            V t16 = vstr_cat(vow_s[541], t15);
+            V t16 = vstr_cat(vow_s[542], t15);
             V t17 = vstr_cat(t16, vow_s[92]);
             V t18 = f_err(l_c, t13, t17);
             (void)t18;
@@ -12950,8 +13274,8 @@ static V f_fn_signature(V * l_c, V l_f) {
             V t49 = VP(t48)[1];
             V t50 = l_u;
             V t51 = VP(t50)[0];
-            V t52 = vstr_cat(vow_s[542], t51);
-            V t53 = vstr_cat(t52, vow_s[543]);
+            V t52 = vstr_cat(vow_s[543], t51);
+            V t53 = vstr_cat(t52, vow_s[544]);
             V t54 = f_err(l_c, t49, t53);
             (void)t54;
             vdrop(t53);
@@ -13447,7 +13771,7 @@ static V f_collect_fields(V * l_c, V l_ps) {
         if (t6) {
             V t7 = l_f;
             V t8 = VP(t7)[3];
-            V t9 = f_err(l_c, t8, vow_s[544]);
+            V t9 = f_err(l_c, t8, vow_s[545]);
             (void)t9;
         }
         V t10 = l_fields;
@@ -13460,7 +13784,7 @@ static V f_collect_fields(V * l_c, V l_ps) {
             V t16 = VP(t15)[3];
             V t17 = l_f;
             V t18 = VP(t17)[0];
-            V t19 = vstr_cat(vow_s[545], t18);
+            V t19 = vstr_cat(vow_s[546], t18);
             V t20 = vstr_cat(t19, vow_s[92]);
             V t21 = f_err(l_c, t16, t20);
             (void)t21;
@@ -13513,7 +13837,7 @@ static V f_check_field_preds(V * l_c, V l_ps, V l_fields) {
             for (V l_j = (V)INT64_C(0); VI(l_j) < VI(t12); l_j = (V)(VI(l_j) + 1)) {
                 V t13 = l_j;
                 V t14 = l_i;
-                V t15 = (V)!(V)(t13 == t14);
+                V t15 = (V)!(t13 == t14);
                 if (t15) {
                     V t16 = l_fields;
                     V t17 = l_j;
@@ -13632,7 +13956,7 @@ static V f_check_pred(V * l_c, V l_e, V l_scope, V l_subject, V l_res) {
     V t25 = VP(t24)[1];
     V t26 = l_t;
     V t27 = vow_variant0(1);
-    V t28 = f_expect_ty(l_c, t25, t26, t27, vow_s[546]);
+    V t28 = f_expect_ty(l_c, t25, t26, t27, vow_s[547]);
     (void)t28;
     vdrop(t27);
     V t29 = vow_variant0(0);
@@ -13716,7 +14040,7 @@ static V f_check_measure(V * l_c, V l_e, V l_scope) {
     V t23 = VP(t22)[1];
     V t24 = l_t;
     V t25 = vow_variant0(0);
-    V t26 = f_expect_ty(l_c, t23, t24, t25, vow_s[547]);
+    V t26 = f_expect_ty(l_c, t23, t24, t25, vow_s[548]);
     (void)t26;
     vdrop(t25);
     V t27 = l_saved_locals;
@@ -14093,7 +14417,7 @@ static V f_spec_safe(V l_c, V l_e, V l_cand) {
             V t39 = t38;
             if (!t39) {
                 V t40 = l_n;
-                V t41 = vstr_eq(t40, vow_s[163]);
+                V t41 = (V)vstr_eq(t40, vow_s[163]);
                 t39 = t41;
             }
             V t42 = (V)!t39;
@@ -14314,7 +14638,7 @@ static V f_reaches(V l_from, V l_target, V l_cand, V * l_seen) {
             V l_x = VB(VL(t10)->buf)->items[t11];
             V t12 = l_x;
             V t13 = l_target;
-            V t14 = vstr_eq(t12, t13);
+            V t14 = (V)vstr_eq(t12, t13);
             if (t14) {
                 vdrop(t10);
                 vdrop(l_cs);
@@ -14370,7 +14694,7 @@ static V f_spec_expr(V * l_c, V l_e) {
     V t7 = VP(t6)[1];
     V t8 = l_t;
     V t9 = vow_variant0(1);
-    V t10 = f_expect_ty(l_c, t7, t8, t9, vow_s[546]);
+    V t10 = f_expect_ty(l_c, t7, t8, t9, vow_s[547]);
     (void)t10;
     vdrop(t9);
     V t11 = vow_with((*l_c));
@@ -14478,7 +14802,7 @@ static V f_check_fn(V * l_c, V l_f) {
             V t58 = l_f;
             V t59 = VP(t58)[0];
             V t60 = vstr_cat(vow_s[532], t59);
-            V t61 = vstr_cat(t60, vow_s[548]);
+            V t61 = vstr_cat(t60, vow_s[549]);
             V t62 = l_fi;
             V t63 = VP(t62)[3];
             V t64 = VP(t63)[0];
@@ -14537,7 +14861,7 @@ static V f_check_block(V * l_c, V l_stmts) {
             V t20 = vadd(t19, (V)INT64_C(1));
             V t21 = vlist_get(t18, t20);
             V t22 = VP(t21)[0];
-            V t23 = f_err(l_c, t22, vow_s[549]);
+            V t23 = f_err(l_c, t22, vow_s[550]);
             (void)t23;
         }
     }
@@ -14612,7 +14936,7 @@ static V f_check_stmt(V * l_c, V l_s) {
             V t31 = l_r;
             V t32 = VP(t31)[0];
             V t33 = l_name;
-            V t34 = vstr_cat(vow_s[550], t33);
+            V t34 = vstr_cat(vow_s[551], t33);
             V t35 = vstr_cat(t34, vow_s[92]);
             V t36 = f_expect_ty(l_c, t29, t30, t32, t35);
             (void)t36;
@@ -14637,24 +14961,24 @@ static V f_check_stmt(V * l_c, V l_s) {
         }
         vdrop(t7);
         V t42 = l_name;
-        V t43 = vstr_eq(t42, vow_s[551]);
+        V t43 = (V)vstr_eq(t42, vow_s[552]);
         if (t43) {
             V t44 = l_m;
             if (t44) {
                 V t45 = l_s;
                 V t46 = VP(t45)[0];
-                V t47 = f_err(l_c, t46, vow_s[552]);
+                V t47 = f_err(l_c, t46, vow_s[553]);
                 (void)t47;
             }
         } else {
             V t48 = l_t;
             V t49 = f_ty_show(t48);
-            V t50 = vstr_eq(t49, vow_s[449]);
+            V t50 = (V)vstr_eq(t49, vow_s[449]);
             vdrop(t49);
             if (t50) {
                 V t51 = l_s;
                 V t52 = VP(t51)[0];
-                V t53 = f_err(l_c, t52, vow_s[553]);
+                V t53 = f_err(l_c, t52, vow_s[554]);
                 (void)t53;
             }
             V t54 = l_s;
@@ -14678,7 +15002,7 @@ static V f_check_stmt(V * l_c, V l_s) {
             V t65 = l_s;
             V t66 = VP(t65)[0];
             V t67 = l_name;
-            V t68 = vstr_cat(vow_s[554], t67);
+            V t68 = vstr_cat(vow_s[555], t67);
             V t69 = vstr_cat(t68, vow_s[92]);
             V t70 = f_err(l_c, t66, t69);
             (void)t70;
@@ -14694,7 +15018,7 @@ static V f_check_stmt(V * l_c, V l_s) {
                 V t75 = VP(t74)[0];
                 V t76 = l_name;
                 V t77 = vstr_cat(vow_s[92], t76);
-                V t78 = vstr_cat(t77, vow_s[555]);
+                V t78 = vstr_cat(t77, vow_s[556]);
                 V t79 = f_err(l_c, t75, t78);
                 (void)t79;
                 vdrop(t78);
@@ -14716,7 +15040,7 @@ static V f_check_stmt(V * l_c, V l_s) {
             V t88 = l_l;
             V t89 = VP(t88)[1];
             V t90 = l_name;
-            V t91 = vstr_cat(vow_s[556], t90);
+            V t91 = vstr_cat(vow_s[557], t90);
             V t92 = vstr_cat(t91, vow_s[92]);
             V t93 = f_expect_ty(l_c, t86, t87, t89, t92);
             (void)t93;
@@ -14747,7 +15071,7 @@ static V f_check_stmt(V * l_c, V l_s) {
                 V t103 = VP(t102)[0];
                 V t104 = l_ret;
                 V t105 = f_ty_show(t104);
-                V t106 = vstr_cat(vow_s[557], t105);
+                V t106 = vstr_cat(vow_s[558], t105);
                 V t107 = f_err(l_c, t103, t106);
                 (void)t107;
                 vdrop(t106);
@@ -14757,12 +15081,12 @@ static V f_check_stmt(V * l_c, V l_s) {
             V l_e = VP(t97)[1];
             V t108 = l_ret;
             V t109 = f_ty_show(t108);
-            V t110 = vstr_eq(t109, vow_s[449]);
+            V t110 = (V)vstr_eq(t109, vow_s[449]);
             vdrop(t109);
             if (t110) {
                 V t111 = l_s;
                 V t112 = VP(t111)[0];
-                V t113 = f_err(l_c, t112, vow_s[558]);
+                V t113 = f_err(l_c, t112, vow_s[559]);
                 (void)t113;
             }
             V t114 = l_e;
@@ -14778,7 +15102,7 @@ static V f_check_stmt(V * l_c, V l_s) {
             V t119 = VP(t118)[1];
             V t120 = l_got;
             V t121 = l_ret;
-            V t122 = f_expect_ty(l_c, t119, t120, t121, vow_s[559]);
+            V t122 = f_expect_ty(l_c, t119, t120, t121, vow_s[560]);
             (void)t122;
             vdrop(l_got);
         } else {
@@ -14808,7 +15132,7 @@ static V f_check_stmt(V * l_c, V l_s) {
             V t133 = VP(t132)[1];
             V t134 = l_t;
             V t135 = vow_variant0(1);
-            V t136 = f_expect_ty(l_c, t133, t134, t135, vow_s[560]);
+            V t136 = f_expect_ty(l_c, t133, t134, t135, vow_s[561]);
             (void)t136;
             vdrop(t135);
             V t137 = l_a;
@@ -14849,7 +15173,7 @@ static V f_check_stmt(V * l_c, V l_s) {
         V t150 = VP(t149)[1];
         V t151 = l_t;
         V t152 = vow_variant0(1);
-        V t153 = f_expect_ty(l_c, t150, t151, t152, vow_s[561]);
+        V t153 = f_expect_ty(l_c, t150, t151, t152, vow_s[562]);
         (void)t153;
         vdrop(t152);
         V t154 = l_invs;
@@ -14883,7 +15207,7 @@ static V f_check_stmt(V * l_c, V l_s) {
             V t168 = VP(t167)[1];
             V t169 = l_dt;
             V t170 = vow_variant0(0);
-            V t171 = f_expect_ty(l_c, t168, t169, t170, vow_s[547]);
+            V t171 = f_expect_ty(l_c, t168, t169, t170, vow_s[548]);
             (void)t171;
             vdrop(t170);
             V t172 = vow_with((*l_c));
@@ -14929,7 +15253,7 @@ static V f_check_stmt(V * l_c, V l_s) {
         V t188 = VP(t187)[1];
         V t189 = l_a;
         V t190 = vow_variant0(0);
-        V t191 = f_expect_ty(l_c, t188, t189, t190, vow_s[562]);
+        V t191 = f_expect_ty(l_c, t188, t189, t190, vow_s[563]);
         (void)t191;
         vdrop(t190);
         V t192 = l_hi;
@@ -14944,7 +15268,7 @@ static V f_check_stmt(V * l_c, V l_s) {
         V t197 = VP(t196)[1];
         V t198 = l_b;
         V t199 = vow_variant0(0);
-        V t200 = f_expect_ty(l_c, t197, t198, t199, vow_s[562]);
+        V t200 = f_expect_ty(l_c, t197, t198, t199, vow_s[563]);
         (void)t200;
         vdrop(t199);
         V t201 = f_enter(l_c);
@@ -15013,7 +15337,7 @@ static V f_check_stmt(V * l_c, V l_s) {
             V t232 = VP(t231)[1];
             V t233 = l_lt;
             V t234 = f_ty_show(t233);
-            V t235 = vstr_cat(vow_s[563], t234);
+            V t235 = vstr_cat(vow_s[564], t234);
             V t236 = f_err(l_c, t232, t235);
             (void)t236;
             vdrop(t235);
@@ -15085,7 +15409,7 @@ static V f_check_stmt(V * l_c, V l_s) {
         if (t271) {
             V t272 = l_s;
             V t273 = VP(t272)[0];
-            V t274 = f_err(l_c, t273, vow_s[564]);
+            V t274 = f_err(l_c, t273, vow_s[565]);
             (void)t274;
         }
     } else if (t4 == 11) {
@@ -15095,7 +15419,7 @@ static V f_check_stmt(V * l_c, V l_s) {
         if (t277) {
             V t278 = l_s;
             V t279 = VP(t278)[0];
-            V t280 = f_err(l_c, t279, vow_s[564]);
+            V t280 = f_err(l_c, t279, vow_s[565]);
             (void)t280;
         }
     } else if (t4 == 12) {
@@ -15120,8 +15444,8 @@ static V f_check_stmt(V * l_c, V l_s) {
             V t291 = l_e;
             V t292 = VP(t291)[1];
             V t293 = l_ts;
-            V t294 = vstr_cat(vow_s[565], t293);
-            V t295 = vstr_cat(t294, vow_s[566]);
+            V t294 = vstr_cat(vow_s[566], t293);
+            V t295 = vstr_cat(t294, vow_s[567]);
             V t296 = f_err(l_c, t292, t295);
             (void)t296;
             vdrop(t295);
@@ -15146,18 +15470,18 @@ static V f_check_match(V * l_c, V l_pos, V l_scrut, V l_cases, V l_els) {
     V t5 = f_ty_show(t4);
     V l_sts = t5;
     V t6 = l_sts;
-    V t7 = vstr_eq(t6, vow_s[21]);
+    V t7 = (V)vstr_eq(t6, vow_s[21]);
     if (t7) {
         vdrop(l_sts);
         vdrop(l_st);
         return 0;
     }
     V t8 = l_sts;
-    V t9 = vstr_eq(t8, vow_s[446]);
+    V t9 = (V)vstr_eq(t8, vow_s[446]);
     V t10 = t9;
     if (!t10) {
         V t11 = l_sts;
-        V t12 = vstr_eq(t11, vow_s[448]);
+        V t12 = (V)vstr_eq(t11, vow_s[448]);
         t10 = t12;
     }
     if (t10) {
@@ -15179,7 +15503,7 @@ static V f_check_match(V * l_c, V l_pos, V l_scrut, V l_cases, V l_els) {
             if (t20 == 0) {
                 V l_n = VP(t19)[1];
                 V t21 = l_sts;
-                V t22 = vstr_eq(t21, vow_s[446]);
+                V t22 = (V)vstr_eq(t21, vow_s[446]);
                 if (t22) {
                     V t23 = l_n;
                     V t24 = vint_to_str(t23);
@@ -15191,7 +15515,7 @@ static V f_check_match(V * l_c, V l_pos, V l_scrut, V l_cases, V l_els) {
             } else if (t20 == 1) {
                 V l_s = VP(t19)[1];
                 V t25 = l_sts;
-                V t26 = vstr_eq(t25, vow_s[448]);
+                V t26 = (V)vstr_eq(t25, vow_s[448]);
                 if (t26) {
                     V t27 = l_s;
                     V t28 = f_quote_key(t27);
@@ -15210,7 +15534,7 @@ static V f_check_match(V * l_c, V l_pos, V l_scrut, V l_cases, V l_els) {
                 V t31 = l_cs;
                 V t32 = VP(t31)[2];
                 V t33 = l_sts;
-                V t34 = vstr_cat(vow_s[567], t33);
+                V t34 = vstr_cat(vow_s[568], t33);
                 V t35 = f_err(l_c, t32, t34);
                 (void)t35;
                 vdrop(t34);
@@ -15223,7 +15547,7 @@ static V f_check_match(V * l_c, V l_pos, V l_scrut, V l_cases, V l_els) {
             if (t38) {
                 V t39 = l_cs;
                 V t40 = VP(t39)[2];
-                V t41 = f_err(l_c, t40, vow_s[568]);
+                V t41 = f_err(l_c, t40, vow_s[569]);
                 (void)t41;
             }
             V t42 = l_key;
@@ -15249,8 +15573,8 @@ static V f_check_match(V * l_c, V l_pos, V l_scrut, V l_cases, V l_els) {
         } else if (t49 == 0) {
             V t52 = l_pos;
             V t53 = l_sts;
-            V t54 = vstr_cat(vow_s[569], t53);
-            V t55 = vstr_cat(t54, vow_s[570]);
+            V t54 = vstr_cat(vow_s[570], t53);
+            V t55 = vstr_cat(t54, vow_s[571]);
             V t56 = f_err(l_c, t52, t55);
             (void)t56;
             vdrop(t55);
@@ -15300,7 +15624,7 @@ static V f_check_match(V * l_c, V l_pos, V l_scrut, V l_cases, V l_els) {
             V t77 = l_scrut;
             V t78 = VP(t77)[1];
             V t79 = l_sts;
-            V t80 = vstr_cat(vow_s[571], t79);
+            V t80 = vstr_cat(vow_s[572], t79);
             V t81 = f_err(l_c, t78, t80);
             (void)t81;
             vdrop(t80);
@@ -15368,7 +15692,7 @@ static V f_check_match(V * l_c, V l_pos, V l_scrut, V l_cases, V l_els) {
                 V t110 = l_cs;
                 V t111 = VP(t110)[2];
                 V t112 = l_sts;
-                V t113 = vstr_cat(t112, vow_s[572]);
+                V t113 = vstr_cat(t112, vow_s[573]);
                 V t114 = l_name;
                 V t115 = vstr_cat(t113, t114);
                 V t116 = vstr_cat(t115, vow_s[92]);
@@ -15387,7 +15711,7 @@ static V f_check_match(V * l_c, V l_pos, V l_scrut, V l_cases, V l_els) {
                 V t121 = l_cs;
                 V t122 = VP(t121)[2];
                 V t123 = l_name;
-                V t124 = vstr_cat(vow_s[573], t123);
+                V t124 = vstr_cat(vow_s[574], t123);
                 V t125 = vstr_cat(t124, vow_s[92]);
                 V t126 = f_err(l_c, t122, t125);
                 (void)t126;
@@ -15415,8 +15739,8 @@ static V f_check_match(V * l_c, V l_pos, V l_scrut, V l_cases, V l_els) {
                     V t139 = VP(t138)[2];
                     V t140 = l_b;
                     V t141 = VP(t140)[0];
-                    V t142 = vstr_cat(vow_s[574], t141);
-                    V t143 = vstr_cat(t142, vow_s[575]);
+                    V t142 = vstr_cat(vow_s[575], t141);
+                    V t143 = vstr_cat(t142, vow_s[576]);
                     V t144 = f_err(l_c, t139, t143);
                     (void)t144;
                     vdrop(t143);
@@ -15456,8 +15780,8 @@ static V f_check_match(V * l_c, V l_pos, V l_scrut, V l_cases, V l_els) {
                     V t168 = l_cs;
                     V t169 = VP(t168)[2];
                     V t170 = l_name;
-                    V t171 = vstr_cat(vow_s[576], t170);
-                    V t172 = vstr_cat(t171, vow_s[577]);
+                    V t171 = vstr_cat(vow_s[577], t170);
+                    V t172 = vstr_cat(t171, vow_s[578]);
                     V t173 = l_b;
                     V t174 = VP(t173)[0];
                     V t175 = vstr_cat(t172, t174);
@@ -15483,7 +15807,7 @@ static V f_check_match(V * l_c, V l_pos, V l_scrut, V l_cases, V l_els) {
             V t182 = l_cs;
             V t183 = VP(t182)[2];
             V t184 = l_sts;
-            V t185 = vstr_cat(vow_s[578], t184);
+            V t185 = vstr_cat(vow_s[579], t184);
             V t186 = f_err(l_c, t183, t185);
             (void)t186;
             vdrop(t185);
@@ -15521,7 +15845,7 @@ static V f_check_match(V * l_c, V l_pos, V l_scrut, V l_cases, V l_els) {
         V t202 = l_all;
         if (t202) {
             V t203 = l_pos;
-            V t204 = f_err(l_c, t203, vow_s[579]);
+            V t204 = f_err(l_c, t203, vow_s[580]);
             (void)t204;
         }
         V t205 = l_b;
@@ -15534,7 +15858,7 @@ static V f_check_match(V * l_c, V l_pos, V l_scrut, V l_cases, V l_els) {
             V t209 = l_pos;
             V t210 = l_missing;
             V t211 = vjoin(t210, vow_s[54]);
-            V t212 = vstr_cat(vow_s[580], t211);
+            V t212 = vstr_cat(vow_s[581], t211);
             V t213 = f_err(l_c, t209, t212);
             (void)t213;
             vdrop(t212);
@@ -15594,7 +15918,7 @@ static V f_try_kind(V l_scrut, V l_cases) {
             V l_v = VP(t20)[1];
             V l_b = VP(t20)[2];
             V t22 = l_v;
-            V t23 = vstr_eq(t22, vow_s[170]);
+            V t23 = (V)vstr_eq(t22, vow_s[170]);
             if (t23) {
                 vdup(vow_s[94]);
                 vdrop(t20);
@@ -15623,7 +15947,7 @@ static V f_try_kind(V l_scrut, V l_cases) {
 
 static V f_tried_variant(V l_kind) {
     V t1 = l_kind;
-    V t2 = vstr_eq(t1, vow_s[94]);
+    V t2 = (V)vstr_eq(t1, vow_s[94]);
     if (t2) {
         vdup(vow_s[170]);
         return vow_s[170];
@@ -15635,8 +15959,8 @@ static V f_tried_variant(V l_kind) {
 
 static V f_try_msg(V l_kind, V l_got) {
     V t1 = l_kind;
-    V t2 = vstr_cat(vow_s[581], t1);
-    V t3 = vstr_cat(t2, vow_s[582]);
+    V t2 = vstr_cat(vow_s[582], t1);
+    V t3 = vstr_cat(t2, vow_s[583]);
     V t4 = l_kind;
     V t5 = vstr_cat(t3, t4);
     V t6 = vstr_cat(t5, vow_s[526]);
@@ -15953,7 +16277,7 @@ static V f_spec_forbid(V * l_c, V l_e, V l_what) {
         V t3 = l_e;
         V t4 = VP(t3)[1];
         V t5 = l_what;
-        V t6 = vstr_cat(t5, vow_s[583]);
+        V t6 = vstr_cat(t5, vow_s[584]);
         V t7 = f_err(l_c, t4, t6);
         (void)t7;
         vdrop(t6);
@@ -15972,10 +16296,10 @@ static V f_need_effect(V * l_c, V l_pos, V l_eff, V l_what) {
     if (t5) {
         V t6 = l_pos;
         V t7 = l_what;
-        V t8 = vstr_cat(t7, vow_s[584]);
+        V t8 = vstr_cat(t7, vow_s[585]);
         V t9 = l_eff;
         V t10 = vstr_cat(t8, t9);
-        V t11 = vstr_cat(t10, vow_s[585]);
+        V t11 = vstr_cat(t10, vow_s[586]);
         V t12 = f_diag(t6, t11);
         V l_d = t12;
         vdrop(t11);
@@ -15983,8 +16307,8 @@ static V f_need_effect(V * l_c, V l_pos, V l_eff, V l_what) {
         vdrop(t8);
         V t13 = l_d;
         V t14 = l_eff;
-        V t15 = vstr_cat(vow_s[586], t14);
-        V t16 = vstr_cat(t15, vow_s[587]);
+        V t15 = vstr_cat(vow_s[587], t14);
+        V t16 = vstr_cat(t15, vow_s[588]);
         V t17 = f_with_note(t13, t16);
         V t18 = f_err_d(l_c, t17);
         (void)t18;
@@ -16046,8 +16370,8 @@ static V f_check_inout(V * l_c, V l_fname, V l_args, V l_order, V l_io) {
             V t29 = l_a;
             V t30 = VP(t29)[3];
             V t31 = l_fname;
-            V t32 = vstr_cat(vow_s[588], t31);
-            V t33 = vstr_cat(t32, vow_s[589]);
+            V t32 = vstr_cat(vow_s[589], t31);
+            V t33 = vstr_cat(t32, vow_s[590]);
             V t34 = f_err(l_c, t30, t33);
             (void)t34;
             vdrop(t33);
@@ -16067,8 +16391,8 @@ static V f_check_inout(V * l_c, V l_fname, V l_args, V l_order, V l_io) {
                 V t42 = l_a;
                 V t43 = VP(t42)[3];
                 V t44 = l_fname;
-                V t45 = vstr_cat(vow_s[588], t44);
-                V t46 = vstr_cat(t45, vow_s[590]);
+                V t45 = vstr_cat(vow_s[589], t44);
+                V t46 = vstr_cat(t45, vow_s[591]);
                 V t47 = f_err(l_c, t43, t46);
                 (void)t47;
                 vdrop(t46);
@@ -16108,7 +16432,7 @@ static V f_check_inout(V * l_c, V l_fname, V l_args, V l_order, V l_io) {
                             V t65 = VP(t64)[3];
                             V t66 = l_v;
                             V t67 = vstr_cat(vow_s[92], t66);
-                            V t68 = vstr_cat(t67, vow_s[591]);
+                            V t68 = vstr_cat(t67, vow_s[592]);
                             V t69 = f_err(l_c, t65, t68);
                             (void)t69;
                             vdrop(t68);
@@ -16122,7 +16446,7 @@ static V f_check_inout(V * l_c, V l_fname, V l_args, V l_order, V l_io) {
                             V t74 = VP(t73)[3];
                             V t75 = l_v;
                             V t76 = vstr_cat(vow_s[92], t75);
-                            V t77 = vstr_cat(t76, vow_s[592]);
+                            V t77 = vstr_cat(t76, vow_s[593]);
                             V t78 = f_err(l_c, t74, t77);
                             (void)t78;
                             vdrop(t77);
@@ -16168,10 +16492,10 @@ static V f_check_inout(V * l_c, V l_fname, V l_args, V l_order, V l_io) {
                     V t98 = VP(t97)[3];
                     V t99 = l_v;
                     V t100 = vstr_cat(vow_s[92], t99);
-                    V t101 = vstr_cat(t100, vow_s[593]);
+                    V t101 = vstr_cat(t100, vow_s[594]);
                     V t102 = l_fname;
                     V t103 = vstr_cat(t101, t102);
-                    V t104 = vstr_cat(t103, vow_s[594]);
+                    V t104 = vstr_cat(t103, vow_s[595]);
                     V t105 = f_err(l_c, t98, t104);
                     (void)t105;
                     vdrop(t104);
@@ -16331,7 +16655,7 @@ static V f_match_args(V * l_c, V l_pos, V l_what, V l_params, V l_args) {
             V t10 = l_a;
             V t11 = VP(t10)[3];
             V t12 = l_what;
-            V t13 = vstr_cat(t12, vow_s[595]);
+            V t13 = vstr_cat(t12, vow_s[596]);
             V t14 = f_err(l_c, t11, t13);
             (void)t14;
             vdrop(t13);
@@ -16394,8 +16718,8 @@ static V f_match_args(V * l_c, V l_pos, V l_what, V l_params, V l_args) {
             V t45 = l_a;
             V t46 = VP(t45)[3];
             V t47 = l_what;
-            V t48 = vstr_cat(vow_s[596], t47);
-            V t49 = vstr_cat(t48, vow_s[597]);
+            V t48 = vstr_cat(vow_s[597], t47);
+            V t49 = vstr_cat(t48, vow_s[598]);
             V t50 = f_err(l_c, t46, t49);
             (void)t50;
             vdrop(t49);
@@ -16413,7 +16737,7 @@ static V f_match_args(V * l_c, V l_pos, V l_what, V l_params, V l_args) {
                 V t57 = l_a;
                 V t58 = VP(t57)[3];
                 V t59 = l_what;
-                V t60 = vstr_cat(t59, vow_s[598]);
+                V t60 = vstr_cat(t59, vow_s[599]);
                 V t61 = l_a;
                 V t62 = VP(t61)[0];
                 V t63 = vstr_cat(t60, t62);
@@ -16434,14 +16758,14 @@ static V f_match_args(V * l_c, V l_pos, V l_what, V l_params, V l_args) {
                     V t71 = l_pi;
                     V t72 = vlist_get(t70, t71);
                     V t73 = vneg((V)INT64_C(1));
-                    V t74 = (V)!(V)(t72 == t73);
+                    V t74 = (V)!(t72 == t73);
                     if (t74) {
                         V t75 = l_a;
                         V t76 = VP(t75)[3];
                         V t77 = l_a;
                         V t78 = VP(t77)[0];
-                        V t79 = vstr_cat(vow_s[599], t78);
-                        V t80 = vstr_cat(t79, vow_s[600]);
+                        V t79 = vstr_cat(vow_s[600], t78);
+                        V t80 = vstr_cat(t79, vow_s[601]);
                         V t81 = f_err(l_c, t76, t80);
                         (void)t81;
                         vdrop(t80);
@@ -16497,8 +16821,8 @@ static V f_match_args(V * l_c, V l_pos, V l_what, V l_params, V l_args) {
             V t110 = l_params;
             V t111 = l_pi;
             V t112 = vlist_get(t110, t111);
-            V t113 = vstr_cat(vow_s[601], t112);
-            V t114 = vstr_cat(t113, vow_s[602]);
+            V t113 = vstr_cat(vow_s[602], t112);
+            V t114 = vstr_cat(t113, vow_s[603]);
             V t115 = l_what;
             V t116 = vstr_cat(t114, t115);
             V t117 = f_err(l_c, t109, t116);
@@ -16578,7 +16902,7 @@ static V f_is_enum_name(V l_c, V l_n) {
         V t17 = t11;
         if (!t17) {
             V t18 = l_n;
-            V t19 = vstr_eq(t18, vow_s[163]);
+            V t19 = (V)vstr_eq(t18, vow_s[163]);
             t17 = t19;
         }
         t5 = t17;
@@ -16643,7 +16967,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
                 V t27 = VP(t26)[1];
                 V t28 = l_n;
                 V t29 = vstr_cat(vow_s[92], t28);
-                V t30 = vstr_cat(t29, vow_s[603]);
+                V t30 = vstr_cat(t29, vow_s[604]);
                 V t31 = f_err(l_c, t27, t30);
                 (void)t31;
                 vdrop(t30);
@@ -16652,7 +16976,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
                 V t32 = l_e;
                 V t33 = VP(t32)[1];
                 V t34 = l_n;
-                V t35 = vstr_cat(vow_s[554], t34);
+                V t35 = vstr_cat(vow_s[555], t34);
                 V t36 = vstr_cat(t35, vow_s[92]);
                 V t37 = f_err(l_c, t33, t36);
                 (void)t37;
@@ -16683,7 +17007,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
         } else if (t42 == 0) {
             V t44 = l_e;
             V t45 = VP(t44)[1];
-            V t46 = f_err(l_c, t45, vow_s[604]);
+            V t46 = f_err(l_c, t45, vow_s[605]);
             (void)t46;
             V t47 = vow_variant0(11);
             vdrop(t41);
@@ -16709,7 +17033,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
         } else if (t51 == 0) {
             V t53 = l_e;
             V t54 = VP(t53)[1];
-            V t55 = f_err(l_c, t54, vow_s[605]);
+            V t55 = f_err(l_c, t54, vow_s[606]);
             (void)t55;
             V t56 = vow_variant0(11);
             vdrop(t50);
@@ -16722,7 +17046,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
     } else if (t4 == 6) {
         V l_name = VP(t3)[1];
         V t57 = l_e;
-        V t58 = f_spec_forbid(l_c, t57, vow_s[606]);
+        V t58 = f_spec_forbid(l_c, t57, vow_s[607]);
         if (t58) {
             V t59 = vow_variant0(11);
             vdrop(t3);
@@ -16871,7 +17195,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
             V t123 = l_e;
             V t124 = VP(t123)[1];
             V t125 = l_sn;
-            V t126 = vstr_cat(t125, vow_s[607]);
+            V t126 = vstr_cat(t125, vow_s[608]);
             V t127 = l_name;
             V t128 = vstr_cat(t126, t127);
             V t129 = vstr_cat(t128, vow_s[92]);
@@ -16898,7 +17222,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
             V t134 = VP(t133)[1];
             V t135 = l_ot;
             V t136 = f_ty_show(t135);
-            V t137 = vstr_cat(t136, vow_s[608]);
+            V t137 = vstr_cat(t136, vow_s[609]);
             V t138 = f_err(l_c, t134, t137);
             (void)t138;
             vdrop(t137);
@@ -16931,7 +17255,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
         V t148 = VP(t147)[1];
         V t149 = l_ix;
         V t150 = vow_variant0(0);
-        V t151 = f_expect_ty(l_c, t148, t149, t150, vow_s[609]);
+        V t151 = f_expect_ty(l_c, t148, t149, t150, vow_s[610]);
         (void)t151;
         vdrop(t150);
         V t152 = l_ot;
@@ -16966,7 +17290,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
             V t159 = VP(t158)[1];
             V t160 = l_ot;
             V t161 = f_ty_show(t160);
-            V t162 = vstr_cat(vow_s[610], t161);
+            V t162 = vstr_cat(vow_s[611], t161);
             V t163 = f_err(l_c, t159, t162);
             (void)t163;
             vdrop(t162);
@@ -16984,7 +17308,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
     } else if (t4 == 8) {
         V l_items = VP(t3)[1];
         V t165 = l_e;
-        V t166 = f_spec_forbid(l_c, t165, vow_s[611]);
+        V t166 = f_spec_forbid(l_c, t165, vow_s[612]);
         if (t166) {
             V t167 = vow_variant0(11);
             vdrop(t3);
@@ -17041,7 +17365,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
             } else if (t182 == 0) {
                 V t185 = l_e;
                 V t186 = VP(t185)[1];
-                V t187 = f_err(l_c, t186, vow_s[612]);
+                V t187 = f_err(l_c, t186, vow_s[613]);
                 (void)t187;
                 V t188 = vow_variant0(11);
                 vdrop(t181);
@@ -17081,7 +17405,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
         V t200 = VP(t199)[1];
         V t201 = l_first;
         V t202 = l_et;
-        V t203 = f_expect_ty(l_c, t200, t201, t202, vow_s[613]);
+        V t203 = f_expect_ty(l_c, t200, t201, t202, vow_s[614]);
         (void)t203;
         V t204 = l_items;
         V t205 = vlist_len(t204);
@@ -17103,7 +17427,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
             V t215 = VP(t214)[1];
             V t216 = l_t;
             V t217 = l_et;
-            V t218 = f_expect_ty(l_c, t215, t216, t217, vow_s[613]);
+            V t218 = f_expect_ty(l_c, t215, t216, t217, vow_s[614]);
             (void)t218;
             vdrop(l_t);
         }
@@ -17122,7 +17446,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
         vdrop(l_elem);
     } else if (t4 == 9) {
         V t221 = l_e;
-        V t222 = f_spec_forbid(l_c, t221, vow_s[614]);
+        V t222 = f_spec_forbid(l_c, t221, vow_s[615]);
         if (t222) {
             V t223 = vow_variant0(11);
             vdrop(t3);
@@ -17166,7 +17490,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
         vdrop(t225);
         V t232 = l_e;
         V t233 = VP(t232)[1];
-        V t234 = f_err(l_c, t233, vow_s[615]);
+        V t234 = f_err(l_c, t233, vow_s[616]);
         (void)t234;
         V t235 = vow_variant0(11);
         vdrop(t3);
@@ -17175,7 +17499,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
         V l_obj = VP(t3)[1];
         V l_args = VP(t3)[2];
         V t236 = l_e;
-        V t237 = f_spec_forbid(l_c, t236, vow_s[616]);
+        V t237 = f_spec_forbid(l_c, t236, vow_s[617]);
         if (t237) {
             V t238 = vow_variant0(11);
             vdrop(t3);
@@ -17209,7 +17533,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
             V t248 = VP(t247)[1];
             V t249 = l_ot;
             V t250 = f_ty_show(t249);
-            V t251 = vstr_cat(vow_s[617], t250);
+            V t251 = vstr_cat(vow_s[618], t250);
             V t252 = f_err(l_c, t248, t251);
             (void)t252;
             vdrop(t251);
@@ -17239,7 +17563,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
             if (t263) {
                 V t264 = l_a;
                 V t265 = VP(t264)[3];
-                V t266 = f_err(l_c, t265, vow_s[618]);
+                V t266 = f_err(l_c, t265, vow_s[619]);
                 (void)t266;
             }
             V t267 = l_seen;
@@ -17251,8 +17575,8 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
                 V t272 = VP(t271)[3];
                 V t273 = l_a;
                 V t274 = VP(t273)[0];
-                V t275 = vstr_cat(vow_s[574], t274);
-                V t276 = vstr_cat(t275, vow_s[619]);
+                V t275 = vstr_cat(vow_s[575], t274);
+                V t276 = vstr_cat(t275, vow_s[620]);
                 V t277 = f_err(l_c, t272, t276);
                 (void)t277;
                 vdrop(t276);
@@ -17295,7 +17619,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
                 V t301 = l_ft;
                 V t302 = l_a;
                 V t303 = VP(t302)[0];
-                V t304 = vstr_cat(vow_s[574], t303);
+                V t304 = vstr_cat(vow_s[575], t303);
                 V t305 = vstr_cat(t304, vow_s[92]);
                 V t306 = f_expect_ty(l_c, t299, t300, t301, t305);
                 (void)t306;
@@ -17307,7 +17631,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
                 V t307 = l_a;
                 V t308 = VP(t307)[3];
                 V t309 = l_sn;
-                V t310 = vstr_cat(t309, vow_s[607]);
+                V t310 = vstr_cat(t309, vow_s[608]);
                 V t311 = l_a;
                 V t312 = VP(t311)[0];
                 V t313 = vstr_cat(t310, t312);
@@ -17345,7 +17669,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
         V t321 = vow_variant0(1);
         V l_want = t321;
         V t322 = l_op;
-        V t323 = vstr_eq(t322, vow_s[202]);
+        V t323 = (V)vstr_eq(t322, vow_s[202]);
         if (t323) {
             V t324 = vow_variant0(0);
             vdrop(l_want);
@@ -17365,7 +17689,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
         V t331 = l_t;
         V t332 = l_want;
         V t333 = l_op;
-        V t334 = vstr_cat(vow_s[620], t333);
+        V t334 = vstr_cat(vow_s[621], t333);
         V t335 = vstr_cat(t334, vow_s[92]);
         V t336 = f_expect_ty(l_c, t330, t331, t332, t335);
         (void)t336;
@@ -17408,7 +17732,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
         V t348 = VP(t347)[1];
         V t349 = l_a;
         V t350 = vow_variant0(0);
-        V t351 = f_expect_ty(l_c, t348, t349, t350, vow_s[621]);
+        V t351 = f_expect_ty(l_c, t348, t349, t350, vow_s[622]);
         (void)t351;
         vdrop(t350);
         V t352 = l_hi;
@@ -17423,7 +17747,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
         V t357 = VP(t356)[1];
         V t358 = l_b;
         V t359 = vow_variant0(0);
-        V t360 = f_expect_ty(l_c, t357, t358, t359, vow_s[621]);
+        V t360 = f_expect_ty(l_c, t357, t358, t359, vow_s[622]);
         (void)t360;
         vdrop(t359);
         V t361 = f_enter(l_c);
@@ -17448,7 +17772,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
         V t373 = l_t;
         V t374 = vow_variant0(1);
         V t375 = l_q;
-        V t376 = vstr_cat(vow_s[622], t375);
+        V t376 = vstr_cat(vow_s[623], t375);
         V t377 = vstr_cat(t376, vow_s[92]);
         V t378 = f_expect_ty(l_c, t372, t373, t374, t377);
         (void)t378;
@@ -17475,7 +17799,7 @@ static V f_check_expr_inner(V * l_c, V l_e, V l_expected) {
 
 static V f_check_binary(V * l_c, V l_e, V l_op, V l_l, V l_r) {
     V t1 = l_op;
-    V t2 = vstr_cat(vow_s[623], t1);
+    V t2 = vstr_cat(vow_s[624], t1);
     V t3 = vstr_cat(t2, vow_s[92]);
     V l_what = t3;
     vdrop(t2);
@@ -17564,17 +17888,17 @@ static V f_check_binary(V * l_c, V l_e, V l_op, V l_l, V l_r) {
         vdrop(l_a);
     }
     V t32 = l_op;
-    V t33 = vstr_eq(t32, vow_s[216]);
+    V t33 = (V)vstr_eq(t32, vow_s[216]);
     V t34 = t33;
     if (!t34) {
         V t35 = l_op;
-        V t36 = vstr_eq(t35, vow_s[217]);
+        V t36 = (V)vstr_eq(t35, vow_s[217]);
         t34 = t36;
     }
     V t37 = t34;
     if (!t37) {
         V t38 = l_op;
-        V t39 = vstr_eq(t38, vow_s[218]);
+        V t39 = (V)vstr_eq(t38, vow_s[218]);
         t37 = t39;
     }
     if (t37) {
@@ -17619,11 +17943,11 @@ static V f_check_binary(V * l_c, V l_e, V l_op, V l_l, V l_r) {
         vdrop(l_a);
     }
     V t61 = l_op;
-    V t62 = vstr_eq(t61, vow_s[212]);
+    V t62 = (V)vstr_eq(t61, vow_s[212]);
     V t63 = t62;
     if (!t63) {
         V t64 = l_op;
-        V t65 = vstr_eq(t64, vow_s[213]);
+        V t65 = (V)vstr_eq(t64, vow_s[213]);
         t63 = t65;
     }
     if (t63) {
@@ -17656,147 +17980,168 @@ static V f_check_binary(V * l_c, V l_e, V l_op, V l_l, V l_r) {
             t79 = t81;
         }
         if (t79) {
-            V t82 = l_sa;
-            V t83 = l_sb;
-            V t84 = (V)!vstr_eq(t82, t83);
-            if (t84) {
-                V t85 = l_e;
-                V t86 = VP(t85)[1];
-                V t87 = l_sa;
-                V t88 = vstr_cat(vow_s[624], t87);
-                V t89 = vstr_cat(t88, vow_s[625]);
-                V t90 = l_sb;
-                V t91 = vstr_cat(t89, t90);
-                V t92 = f_err(l_c, t86, t91);
-                (void)t92;
-                vdrop(t91);
-                vdrop(t89);
-                vdrop(t88);
+            V t82 = vlist_empty(1);
+            V l_seen = t82;
+            V t83 = (*l_c);
+            V t84 = VP(t83)[0];
+            V t85 = l_a;
+            V t86 = f_eq_blocker(t84, t85, &l_seen);
+            V l_blocker = t86;
+            V t87 = l_sa;
+            V t88 = l_sb;
+            V t89 = (V)!vstr_eq(t87, t88);
+            if (t89) {
+                V t90 = l_e;
+                V t91 = VP(t90)[1];
+                V t92 = l_sa;
+                V t93 = vstr_cat(vow_s[625], t92);
+                V t94 = vstr_cat(t93, vow_s[626]);
+                V t95 = l_sb;
+                V t96 = vstr_cat(t94, t95);
+                V t97 = f_err(l_c, t91, t96);
+                (void)t97;
+                vdrop(t96);
+                vdrop(t94);
+                vdrop(t93);
             } else {
-                V t93 = l_sa;
-                V t94 = (V)!vstr_eq(t93, vow_s[446]);
-                V t95 = t94;
-                if (t94) {
-                    V t96 = l_sa;
-                    V t97 = (V)!vstr_eq(t96, vow_s[447]);
-                    t95 = t97;
-                }
-                V t98 = t95;
-                if (t95) {
-                    V t99 = l_sa;
-                    V t100 = (V)!vstr_eq(t99, vow_s[448]);
-                    t98 = t100;
-                }
-                if (t98) {
+                V t98 = l_blocker;
+                V t99 = l_sa;
+                V t100 = (V)vstr_eq(t98, t99);
+                if (t100) {
                     V t101 = l_e;
                     V t102 = VP(t101)[1];
                     V t103 = l_op;
                     V t104 = vstr_cat(vow_s[92], t103);
-                    V t105 = vstr_cat(t104, vow_s[626]);
+                    V t105 = vstr_cat(t104, vow_s[627]);
                     V t106 = l_sa;
                     V t107 = vstr_cat(t105, t106);
-                    V t108 = vstr_cat(t107, vow_s[627]);
+                    V t108 = vstr_cat(t107, vow_s[628]);
                     V t109 = f_err(l_c, t102, t108);
                     (void)t109;
                     vdrop(t108);
                     vdrop(t107);
                     vdrop(t105);
                     vdrop(t104);
+                } else {
+                    V t110 = l_blocker;
+                    V t111 = vstr_len(t110);
+                    V t112 = (V)(VI(t111) > VI((V)INT64_C(0)));
+                    if (t112) {
+                        V t113 = l_e;
+                        V t114 = VP(t113)[1];
+                        V t115 = l_op;
+                        V t116 = vstr_cat(vow_s[92], t115);
+                        V t117 = vstr_cat(t116, vow_s[629]);
+                        V t118 = l_sa;
+                        V t119 = vstr_cat(t117, t118);
+                        V t120 = vstr_cat(t119, vow_s[630]);
+                        V t121 = l_blocker;
+                        V t122 = vstr_cat(t120, t121);
+                        V t123 = f_err(l_c, t114, t122);
+                        (void)t123;
+                        vdrop(t122);
+                        vdrop(t120);
+                        vdrop(t119);
+                        vdrop(t117);
+                        vdrop(t116);
+                    }
                 }
             }
+            vdrop(l_blocker);
+            vdrop(l_seen);
         }
-        V t110 = vow_variant0(1);
+        V t124 = vow_variant0(1);
         vdrop(l_sb);
         vdrop(l_sa);
         vdrop(l_b);
         vdrop(l_a);
         vdrop(l_what);
-        return t110;
+        return t124;
         vdrop(l_sb);
         vdrop(l_sa);
         vdrop(l_b);
         vdrop(l_a);
     }
-    V t111 = l_e;
-    V t112 = f_spec_forbid(l_c, t111, vow_s[628]);
-    if (t112) {
-        V t113 = vow_variant0(11);
+    V t125 = l_e;
+    V t126 = f_spec_forbid(l_c, t125, vow_s[631]);
+    if (t126) {
+        V t127 = vow_variant0(11);
         vdrop(l_what);
-        return t113;
+        return t127;
     }
-    V t114 = l_l;
-    V t115 = vow_variant0(0);
-    V t116 = f_check_expr(l_c, t114, t115);
-    V l_a = t116;
-    vdrop(t115);
-    V t117 = l_r;
-    V t118 = l_a;
-    vdup(t118);
-    V t119 = vow_fields(2, UINT64_C(2));
-    VP(t119)[0] = 1;
-    VP(t119)[1] = t118;
-    V t120 = f_check_expr(l_c, t117, t119);
-    V l_b = t120;
-    vdrop(t119);
-    V t121 = l_a;
-    vdup(t121);
-    V t122 = t121;
-    V t123 = VP(t122)[0];
-    if (t123 == 2) {
-        V t124 = l_r;
-        V t125 = VP(t124)[1];
-        V t126 = l_b;
-        V t127 = l_a;
-        V t128 = f_expect_ty(l_c, t125, t126, t127, vow_s[629]);
-        (void)t128;
-        V t129 = l_a;
-        vdup(t129);
-        vdrop(t122);
-        vdrop(l_b);
-        vdrop(l_a);
-        vdrop(l_what);
-        return t129;
-    } else if (t123 == 4) {
-        V l_x = VP(t122)[1];
-        V t130 = l_r;
-        V t131 = VP(t130)[1];
-        V t132 = l_b;
-        V t133 = l_a;
-        V t134 = f_expect_ty(l_c, t131, t132, t133, vow_s[629]);
-        (void)t134;
-        V t135 = l_a;
-        vdup(t135);
-        vdrop(t122);
-        vdrop(l_b);
-        vdrop(l_a);
-        vdrop(l_what);
-        return t135;
-    } else if (t123 == 11) {
-        V t136 = l_b;
-        vdup(t136);
-        vdrop(t122);
-        vdrop(l_b);
-        vdrop(l_a);
-        vdrop(l_what);
-        return t136;
-    } else {
-        V t137 = l_l;
-        V t138 = VP(t137)[1];
-        V t139 = l_a;
-        V t140 = f_ty_show(t139);
-        V t141 = vstr_cat(vow_s[630], t140);
-        V t142 = f_err(l_c, t138, t141);
+    V t128 = l_l;
+    V t129 = vow_variant0(0);
+    V t130 = f_check_expr(l_c, t128, t129);
+    V l_a = t130;
+    vdrop(t129);
+    V t131 = l_r;
+    V t132 = l_a;
+    vdup(t132);
+    V t133 = vow_fields(2, UINT64_C(2));
+    VP(t133)[0] = 1;
+    VP(t133)[1] = t132;
+    V t134 = f_check_expr(l_c, t131, t133);
+    V l_b = t134;
+    vdrop(t133);
+    V t135 = l_a;
+    vdup(t135);
+    V t136 = t135;
+    V t137 = VP(t136)[0];
+    if (t137 == 2) {
+        V t138 = l_r;
+        V t139 = VP(t138)[1];
+        V t140 = l_b;
+        V t141 = l_a;
+        V t142 = f_expect_ty(l_c, t139, t140, t141, vow_s[632]);
         (void)t142;
-        vdrop(t141);
-        vdrop(t140);
-        V t143 = vow_variant0(11);
-        vdrop(t122);
+        V t143 = l_a;
+        vdup(t143);
+        vdrop(t136);
         vdrop(l_b);
         vdrop(l_a);
         vdrop(l_what);
         return t143;
+    } else if (t137 == 4) {
+        V l_x = VP(t136)[1];
+        V t144 = l_r;
+        V t145 = VP(t144)[1];
+        V t146 = l_b;
+        V t147 = l_a;
+        V t148 = f_expect_ty(l_c, t145, t146, t147, vow_s[632]);
+        (void)t148;
+        V t149 = l_a;
+        vdup(t149);
+        vdrop(t136);
+        vdrop(l_b);
+        vdrop(l_a);
+        vdrop(l_what);
+        return t149;
+    } else if (t137 == 11) {
+        V t150 = l_b;
+        vdup(t150);
+        vdrop(t136);
+        vdrop(l_b);
+        vdrop(l_a);
+        vdrop(l_what);
+        return t150;
+    } else {
+        V t151 = l_l;
+        V t152 = VP(t151)[1];
+        V t153 = l_a;
+        V t154 = f_ty_show(t153);
+        V t155 = vstr_cat(vow_s[633], t154);
+        V t156 = f_err(l_c, t152, t155);
+        (void)t156;
+        vdrop(t155);
+        vdrop(t154);
+        V t157 = vow_variant0(11);
+        vdrop(t136);
+        vdrop(l_b);
+        vdrop(l_a);
+        vdrop(l_what);
+        return t157;
     }
-    vdrop(t122);
+    vdrop(t136);
     vdrop(l_b);
     vdrop(l_a);
     vdrop(l_what);
@@ -17835,7 +18180,7 @@ static V f_variant_ctor(V * l_c, V l_e, V l_tn, V l_vn, V l_args, V l_expected, 
     V l_ty = t16;
     V l_inferred = 0;
     V t17 = l_tn;
-    V t18 = vstr_eq(t17, vow_s[163]);
+    V t18 = (V)vstr_eq(t17, vow_s[163]);
     if (t18) {
         V l_ok = 0;
         V t19 = l_expected;
@@ -17867,7 +18212,7 @@ static V f_variant_ctor(V * l_c, V l_e, V l_tn, V l_vn, V l_args, V l_expected, 
         V t27 = (V)!t26;
         if (t27) {
             V t28 = l_vn;
-            V t29 = vstr_eq(t28, vow_s[169]);
+            V t29 = (V)vstr_eq(t28, vow_s[169]);
             V t30 = t29;
             if (t29) {
                 V t31 = l_args;
@@ -17895,7 +18240,7 @@ static V f_variant_ctor(V * l_c, V l_e, V l_tn, V l_vn, V l_args, V l_expected, 
             } else {
                 V t41 = l_e;
                 V t42 = VP(t41)[1];
-                V t43 = f_err(l_c, t42, vow_s[631]);
+                V t43 = f_err(l_c, t42, vow_s[634]);
                 (void)t43;
                 V t44 = vow_variant0(11);
                 vdrop(l_ty);
@@ -17932,7 +18277,7 @@ static V f_variant_ctor(V * l_c, V l_e, V l_tn, V l_vn, V l_args, V l_expected, 
         V t58 = l_e;
         V t59 = VP(t58)[1];
         V t60 = l_tn;
-        V t61 = vstr_cat(t60, vow_s[572]);
+        V t61 = vstr_cat(t60, vow_s[573]);
         V t62 = l_vn;
         V t63 = vstr_cat(t61, t62);
         V t64 = vstr_cat(t63, vow_s[92]);
@@ -17961,193 +18306,224 @@ static V f_variant_ctor(V * l_c, V l_e, V l_tn, V l_vn, V l_args, V l_expected, 
         V t76 = (V)(VI(t75) > VI((V)INT64_C(0)));
         t73 = t76;
     }
+    V t77 = t73;
     if (t73) {
-        V t77 = l_e;
-        V t78 = VP(t77)[1];
-        V t79 = l_vn;
-        V t80 = vstr_cat(vow_s[576], t79);
-        V t81 = vstr_cat(t80, vow_s[632]);
-        V t82 = l_tn;
-        V t83 = vstr_cat(t81, t82);
-        V t84 = vstr_cat(t83, vow_s[86]);
-        V t85 = l_vn;
-        V t86 = vstr_cat(t84, t85);
-        V t87 = vstr_cat(t86, vow_s[633]);
-        V t88 = f_err(l_c, t78, t87);
-        (void)t88;
+        V t78 = l_fields;
+        V t79 = f_all_unit(t78);
+        V t80 = (V)!t79;
+        t77 = t80;
+    }
+    if (t77) {
+        V t81 = l_e;
+        V t82 = VP(t81)[1];
+        V t83 = l_vn;
+        V t84 = vstr_cat(vow_s[577], t83);
+        V t85 = vstr_cat(t84, vow_s[635]);
+        V t86 = l_tn;
+        V t87 = vstr_cat(t85, t86);
+        V t88 = vstr_cat(t87, vow_s[86]);
+        V t89 = l_vn;
+        V t90 = vstr_cat(t88, t89);
+        V t91 = vstr_cat(t90, vow_s[636]);
+        V t92 = f_err(l_c, t82, t91);
+        (void)t92;
+        vdrop(t91);
+        vdrop(t90);
+        vdrop(t88);
         vdrop(t87);
-        vdrop(t86);
+        vdrop(t85);
         vdrop(t84);
-        vdrop(t83);
-        vdrop(t81);
-        vdrop(t80);
-        V t89 = vow_variant0(11);
+        V t93 = vow_variant0(11);
         vdrop(l_fields);
         vdrop(l_variants);
         vdrop(l_ty);
-        return t89;
+        return t93;
     }
-    V t90 = l_called;
-    V t91 = t90;
-    if (t90) {
-        V t92 = l_fields;
-        V t93 = vlist_len(t92);
-        V t94 = (V)(t93 == (V)INT64_C(0));
-        t91 = t94;
+    V t94 = l_called;
+    V t95 = t94;
+    if (t94) {
+        V t96 = l_fields;
+        V t97 = vlist_len(t96);
+        V t98 = (V)(t97 == (V)INT64_C(0));
+        t95 = t98;
     }
-    if (t91) {
-        V t95 = l_e;
-        V t96 = VP(t95)[1];
-        V t97 = l_vn;
-        V t98 = vstr_cat(vow_s[576], t97);
-        V t99 = vstr_cat(t98, vow_s[634]);
-        V t100 = l_tn;
-        V t101 = vstr_cat(t99, t100);
-        V t102 = vstr_cat(t101, vow_s[86]);
-        V t103 = l_vn;
-        V t104 = vstr_cat(t102, t103);
-        V t105 = vstr_cat(t104, vow_s[635]);
-        V t106 = f_err(l_c, t96, t105);
-        (void)t106;
+    if (t95) {
+        V t99 = l_e;
+        V t100 = VP(t99)[1];
+        V t101 = l_vn;
+        V t102 = vstr_cat(vow_s[577], t101);
+        V t103 = vstr_cat(t102, vow_s[637]);
+        V t104 = l_tn;
+        V t105 = vstr_cat(t103, t104);
+        V t106 = vstr_cat(t105, vow_s[86]);
+        V t107 = l_vn;
+        V t108 = vstr_cat(t106, t107);
+        V t109 = vstr_cat(t108, vow_s[638]);
+        V t110 = f_err(l_c, t100, t109);
+        (void)t110;
+        vdrop(t109);
+        vdrop(t108);
+        vdrop(t106);
         vdrop(t105);
-        vdrop(t104);
+        vdrop(t103);
         vdrop(t102);
-        vdrop(t101);
-        vdrop(t99);
-        vdrop(t98);
-        V t107 = vow_variant0(11);
+        V t111 = vow_variant0(11);
         vdrop(l_fields);
         vdrop(l_variants);
         vdrop(l_ty);
-        return t107;
+        return t111;
     }
-    V t108 = vlist_empty(1);
-    V l_names = t108;
-    V t109 = l_fields;
-    vdup(t109);
-    V t110 = t109;
-    for (int64_t t111 = 0; t111 < VL(t110)->len; t111++) {
-        V l_f = VB(VL(t110)->buf)->items[t111];
-        V t112 = l_f;
-        V t113 = VP(t112)[0];
-        vdup(t113);
-        V t114 = vlist_push(l_names, t113);
-        l_names = t114;
+    V t112 = l_called;
+    V t113 = (V)!t112;
+    if (t113) {
+        V t114 = l_e;
+        V t115 = l_tn;
+        V t116 = l_vi;
+        V t117 = vlist_empty(0);
+        vdup(vow_s[639]);
+        vdup(t115);
+        V t118 = vow_fields(4, UINT64_C(11));
+        VP(t118)[0] = vow_s[639];
+        VP(t118)[1] = t115;
+        VP(t118)[2] = t116;
+        VP(t118)[3] = t117;
+        V t119 = f_add_call(l_c, t114, t118);
+        (void)t119;
+        vdrop(t118);
+        V t120 = l_ty;
+        vdup(t120);
+        vdrop(l_fields);
+        vdrop(l_variants);
+        vdrop(l_ty);
+        return t120;
     }
-    vdrop(t110);
-    V t115 = l_e;
-    V t116 = VP(t115)[1];
-    V t117 = l_vn;
-    V t118 = vstr_cat(vow_s[576], t117);
-    V t119 = vstr_cat(t118, vow_s[92]);
-    V t120 = l_names;
-    V t121 = l_args;
-    V t122 = f_match_args(l_c, t116, t119, t120, t121);
+    V t121 = vlist_empty(1);
+    V l_names = t121;
+    V t122 = l_fields;
+    vdup(t122);
     V t123 = t122;
-    vdrop(t119);
-    vdrop(t118);
-    V t124 = VP(t123)[0];
-    if (t124 == 1) {
-        V l_order = VP(t123)[1];
-        V t125 = l_fields;
-        V t126 = vlist_len(t125);
-        for (V l_pi = (V)INT64_C(0); VI(l_pi) < VI(t126); l_pi = (V)(VI(l_pi) + 1)) {
-            V t127 = l_pi;
-            V t128 = l_order;
-            V t129 = vlist_len(t128);
-            V t130 = (V)(VI(t127) < VI(t129));
-            if (t130) {
-                V t131 = l_order;
-                V t132 = l_pi;
-                V t133 = vlist_get(t131, t132);
-                V l_ai = t133;
-                V t134 = l_ai;
-                V t135 = (V)(VI(t134) >= VI((V)INT64_C(0)));
-                V t136 = t135;
-                if (t135) {
-                    V t137 = l_ai;
-                    V t138 = l_args;
-                    V t139 = vlist_len(t138);
-                    V t140 = (V)(VI(t137) < VI(t139));
-                    t136 = t140;
+    for (int64_t t124 = 0; t124 < VL(t123)->len; t124++) {
+        V l_f = VB(VL(t123)->buf)->items[t124];
+        V t125 = l_f;
+        V t126 = VP(t125)[0];
+        vdup(t126);
+        V t127 = vlist_push(l_names, t126);
+        l_names = t127;
+    }
+    vdrop(t123);
+    V t128 = l_e;
+    V t129 = VP(t128)[1];
+    V t130 = l_vn;
+    V t131 = vstr_cat(vow_s[577], t130);
+    V t132 = vstr_cat(t131, vow_s[92]);
+    V t133 = l_names;
+    V t134 = l_args;
+    V t135 = f_match_args(l_c, t129, t132, t133, t134);
+    V t136 = t135;
+    vdrop(t132);
+    vdrop(t131);
+    V t137 = VP(t136)[0];
+    if (t137 == 1) {
+        V l_order = VP(t136)[1];
+        V t138 = l_fields;
+        V t139 = vlist_len(t138);
+        for (V l_pi = (V)INT64_C(0); VI(l_pi) < VI(t139); l_pi = (V)(VI(l_pi) + 1)) {
+            V t140 = l_pi;
+            V t141 = l_order;
+            V t142 = vlist_len(t141);
+            V t143 = (V)(VI(t140) < VI(t142));
+            if (t143) {
+                V t144 = l_order;
+                V t145 = l_pi;
+                V t146 = vlist_get(t144, t145);
+                V l_ai = t146;
+                V t147 = l_ai;
+                V t148 = (V)(VI(t147) >= VI((V)INT64_C(0)));
+                V t149 = t148;
+                if (t148) {
+                    V t150 = l_ai;
+                    V t151 = l_args;
+                    V t152 = vlist_len(t151);
+                    V t153 = (V)(VI(t150) < VI(t152));
+                    t149 = t153;
                 }
-                V t141 = t136;
-                if (t136) {
-                    V t142 = l_inferred;
-                    V t143 = (V)!t142;
-                    t141 = t143;
+                V t154 = t149;
+                if (t149) {
+                    V t155 = l_inferred;
+                    V t156 = (V)!t155;
+                    t154 = t156;
                 }
-                if (t141) {
-                    V t144 = l_args;
-                    V t145 = l_ai;
-                    V t146 = vlist_get(t144, t145);
-                    vdup(t146);
-                    V l_a = t146;
-                    V t147 = l_fields;
-                    V t148 = l_pi;
-                    V t149 = vlist_get(t147, t148);
-                    V t150 = VP(t149)[1];
-                    V t151 = VP(t150)[0];
-                    vdup(t151);
-                    V l_ft = t151;
-                    V t152 = l_a;
-                    V t153 = VP(t152)[2];
-                    V t154 = l_ft;
-                    vdup(t154);
-                    V t155 = vow_fields(2, UINT64_C(2));
-                    VP(t155)[0] = 1;
-                    VP(t155)[1] = t154;
-                    V t156 = f_check_expr(l_c, t153, t155);
-                    V l_got = t156;
-                    vdrop(t155);
-                    V t157 = l_a;
-                    V t158 = VP(t157)[2];
-                    V t159 = VP(t158)[1];
-                    V t160 = l_got;
-                    V t161 = l_ft;
-                    V t162 = l_fields;
-                    V t163 = l_pi;
-                    V t164 = vlist_get(t162, t163);
-                    V t165 = VP(t164)[0];
-                    V t166 = vstr_cat(vow_s[574], t165);
-                    V t167 = vstr_cat(t166, vow_s[92]);
-                    V t168 = f_expect_ty(l_c, t159, t160, t161, t167);
-                    (void)t168;
-                    vdrop(t167);
-                    vdrop(t166);
+                if (t154) {
+                    V t157 = l_args;
+                    V t158 = l_ai;
+                    V t159 = vlist_get(t157, t158);
+                    vdup(t159);
+                    V l_a = t159;
+                    V t160 = l_fields;
+                    V t161 = l_pi;
+                    V t162 = vlist_get(t160, t161);
+                    V t163 = VP(t162)[1];
+                    V t164 = VP(t163)[0];
+                    vdup(t164);
+                    V l_ft = t164;
+                    V t165 = l_a;
+                    V t166 = VP(t165)[2];
+                    V t167 = l_ft;
+                    vdup(t167);
+                    V t168 = vow_fields(2, UINT64_C(2));
+                    VP(t168)[0] = 1;
+                    VP(t168)[1] = t167;
+                    V t169 = f_check_expr(l_c, t166, t168);
+                    V l_got = t169;
+                    vdrop(t168);
+                    V t170 = l_a;
+                    V t171 = VP(t170)[2];
+                    V t172 = VP(t171)[1];
+                    V t173 = l_got;
+                    V t174 = l_ft;
+                    V t175 = l_fields;
+                    V t176 = l_pi;
+                    V t177 = vlist_get(t175, t176);
+                    V t178 = VP(t177)[0];
+                    V t179 = vstr_cat(vow_s[575], t178);
+                    V t180 = vstr_cat(t179, vow_s[92]);
+                    V t181 = f_expect_ty(l_c, t172, t173, t174, t180);
+                    (void)t181;
+                    vdrop(t180);
+                    vdrop(t179);
                     vdrop(l_got);
                     vdrop(l_ft);
                     vdrop(l_a);
                 }
             }
         }
-        V t169 = l_e;
-        V t170 = l_tn;
-        V t171 = l_vi;
-        V t172 = l_order;
-        vdup(vow_s[636]);
-        vdup(t170);
-        vdup(t172);
-        V t173 = vow_fields(4, UINT64_C(11));
-        VP(t173)[0] = vow_s[636];
-        VP(t173)[1] = t170;
-        VP(t173)[2] = t171;
-        VP(t173)[3] = t172;
-        V t174 = f_add_call(l_c, t169, t173);
-        (void)t174;
-        vdrop(t173);
-    } else if (t124 == 0) {
+        V t182 = l_e;
+        V t183 = l_tn;
+        V t184 = l_vi;
+        V t185 = l_order;
+        vdup(vow_s[639]);
+        vdup(t183);
+        vdup(t185);
+        V t186 = vow_fields(4, UINT64_C(11));
+        VP(t186)[0] = vow_s[639];
+        VP(t186)[1] = t183;
+        VP(t186)[2] = t184;
+        VP(t186)[3] = t185;
+        V t187 = f_add_call(l_c, t182, t186);
+        (void)t187;
+        vdrop(t186);
+    } else if (t137 == 0) {
     } else {
         vow_panic("unreachable: corrupt enum tag");
     }
-    vdrop(t123);
-    V t175 = l_ty;
-    vdup(t175);
+    vdrop(t136);
+    V t188 = l_ty;
+    vdup(t188);
     vdrop(l_names);
     vdrop(l_fields);
     vdrop(l_variants);
     vdrop(l_ty);
-    return t175;
+    return t188;
     vdrop(l_names);
     vdrop(l_fields);
     vdrop(l_variants);
@@ -18216,7 +18592,7 @@ static V f_typed_args(V * l_c, V l_args, V l_order, V l_params) {
             V t38 = VP(t37)[0];
             V t39 = l_p;
             V t40 = VP(t39)[0];
-            V t41 = vstr_cat(vow_s[599], t40);
+            V t41 = vstr_cat(vow_s[600], t40);
             V t42 = vstr_cat(t41, vow_s[92]);
             V t43 = f_expect_ty(l_c, t34, t35, t38, t42);
             (void)t43;
@@ -18259,7 +18635,7 @@ static V f_check_call(V * l_c, V l_e, V l_callee, V l_args, V l_expected) {
             V t12 = f_is_enum_name(t10, t11);
             if (t12) {
                 V t13 = l_e;
-                V t14 = f_spec_forbid(l_c, t13, vow_s[637]);
+                V t14 = f_spec_forbid(l_c, t13, vow_s[640]);
                 if (t14) {
                     V t15 = vow_variant0(11);
                     vdrop(t8);
@@ -18283,7 +18659,7 @@ static V f_check_call(V * l_c, V l_e, V l_callee, V l_args, V l_expected) {
         vdrop(t8);
         V t22 = l_e;
         V t23 = VP(t22)[1];
-        V t24 = f_err(l_c, t23, vow_s[638]);
+        V t24 = f_err(l_c, t23, vow_s[641]);
         (void)t24;
         V t25 = vow_variant0(11);
         vdrop(t3);
@@ -18292,7 +18668,7 @@ static V f_check_call(V * l_c, V l_e, V l_callee, V l_args, V l_expected) {
     } else {
         V t26 = l_e;
         V t27 = VP(t26)[1];
-        V t28 = f_err(l_c, t27, vow_s[638]);
+        V t28 = f_err(l_c, t27, vow_s[641]);
         (void)t28;
         V t29 = vow_variant0(11);
         vdrop(t3);
@@ -18320,7 +18696,7 @@ static V f_check_call(V * l_c, V l_e, V l_callee, V l_args, V l_expected) {
             V t41 = VP(t40)[1];
             V t42 = l_name;
             V t43 = vstr_cat(vow_s[92], t42);
-            V t44 = vstr_cat(t43, vow_s[639]);
+            V t44 = vstr_cat(t43, vow_s[642]);
             V t45 = f_err(l_c, t41, t44);
             (void)t45;
             vdrop(t44);
@@ -18372,11 +18748,11 @@ static V f_check_call(V * l_c, V l_e, V l_callee, V l_args, V l_expected) {
             V t70 = l_e;
             V t71 = l_name;
             V t72 = l_order;
-            vdup(vow_s[640]);
+            vdup(vow_s[643]);
             vdup(t71);
             vdup(t72);
             V t73 = vow_fields(4, UINT64_C(11));
-            VP(t73)[0] = vow_s[640];
+            VP(t73)[0] = vow_s[643];
             VP(t73)[1] = t71;
             VP(t73)[2] = (V)INT64_C(0);
             VP(t73)[3] = t72;
@@ -18415,7 +18791,7 @@ static V f_check_call(V * l_c, V l_e, V l_callee, V l_args, V l_expected) {
             V t92 = vlist_len(t91);
             V t93 = l_params;
             V t94 = vlist_len(t93);
-            V t95 = (V)!(V)(t92 == t94);
+            V t95 = (V)!(t92 == t94);
             if (t95) {
                 V t96 = vow_variant0(11);
                 vdrop(l_a);
@@ -18494,7 +18870,7 @@ static V f_check_call(V * l_c, V l_e, V l_callee, V l_args, V l_expected) {
     if (t125 == 1) {
         V l_s = VP(t124)[1];
         V t126 = l_e;
-        V t127 = f_spec_forbid(l_c, t126, vow_s[637]);
+        V t127 = f_spec_forbid(l_c, t126, vow_s[640]);
         if (t127) {
             V t128 = vow_variant0(11);
             vdrop(t124);
@@ -18537,7 +18913,7 @@ static V f_check_call(V * l_c, V l_e, V l_callee, V l_args, V l_expected) {
             V t148 = VP(t147)[1];
             V t149 = l_name;
             V t150 = vstr_cat(vow_s[92], t149);
-            V t151 = vstr_cat(t150, vow_s[641]);
+            V t151 = vstr_cat(t150, vow_s[644]);
             V t152 = f_err(l_c, t148, t151);
             (void)t152;
             vdrop(t151);
@@ -18613,11 +18989,11 @@ static V f_check_call(V * l_c, V l_e, V l_callee, V l_args, V l_expected) {
             V t195 = l_e;
             V t196 = l_name;
             V t197 = l_order;
-            vdup(vow_s[642]);
+            vdup(vow_s[645]);
             vdup(t196);
             vdup(t197);
             V t198 = vow_fields(4, UINT64_C(11));
-            VP(t198)[0] = vow_s[642];
+            VP(t198)[0] = vow_s[645];
             VP(t198)[1] = t196;
             VP(t198)[2] = (V)INT64_C(0);
             VP(t198)[3] = t197;
@@ -18650,7 +19026,7 @@ static V f_check_call(V * l_c, V l_e, V l_callee, V l_args, V l_expected) {
     V t207 = vmap_has(t205, t206, 7);
     if (t207) {
         V t208 = l_e;
-        V t209 = f_spec_forbid(l_c, t208, vow_s[637]);
+        V t209 = f_spec_forbid(l_c, t208, vow_s[640]);
         if (t209) {
             V t210 = vow_variant0(11);
             vdrop(l_name);
@@ -18678,7 +19054,7 @@ static V f_check_call(V * l_c, V l_e, V l_callee, V l_args, V l_expected) {
         V t222 = l_e;
         V t223 = VP(t222)[1];
         V t224 = l_name;
-        V t225 = vstr_cat(vow_s[643], t224);
+        V t225 = vstr_cat(vow_s[646], t224);
         V t226 = vstr_cat(t225, vow_s[92]);
         V t227 = l_names;
         V t228 = l_args;
@@ -18735,10 +19111,10 @@ static V f_check_call(V * l_c, V l_e, V l_callee, V l_args, V l_expected) {
         V t249 = VP(t248)[1];
         V t250 = l_name;
         V t251 = vstr_cat(vow_s[92], t250);
-        V t252 = vstr_cat(t251, vow_s[644]);
+        V t252 = vstr_cat(t251, vow_s[647]);
         V t253 = l_name;
         V t254 = vstr_cat(t252, t253);
-        V t255 = vstr_cat(t254, vow_s[645]);
+        V t255 = vstr_cat(t254, vow_s[648]);
         V t256 = f_err(l_c, t249, t255);
         (void)t256;
         vdrop(t255);
@@ -18749,7 +19125,7 @@ static V f_check_call(V * l_c, V l_e, V l_callee, V l_args, V l_expected) {
         V t257 = l_e;
         V t258 = VP(t257)[1];
         V t259 = l_name;
-        V t260 = vstr_cat(vow_s[646], t259);
+        V t260 = vstr_cat(vow_s[649], t259);
         V t261 = vstr_cat(t260, vow_s[92]);
         V t262 = f_err(l_c, t258, t261);
         (void)t262;
@@ -19051,8 +19427,8 @@ static V f_type_args(V * l_c, V l_pos, V l_tps, V l_subst, V l_what) {
         } else if (t9 == 0) {
             V t12 = l_pos;
             V t13 = l_t;
-            V t14 = vstr_cat(vow_s[647], t13);
-            V t15 = vstr_cat(t14, vow_s[648]);
+            V t14 = vstr_cat(vow_s[650], t13);
+            V t15 = vstr_cat(t14, vow_s[651]);
             V t16 = l_what;
             V t17 = vstr_cat(t15, t16);
             V t18 = f_diag(t12, t17);
@@ -19061,7 +19437,7 @@ static V f_type_args(V * l_c, V l_pos, V l_tps, V l_subst, V l_what) {
             vdrop(t15);
             vdrop(t14);
             V t19 = l_d;
-            V t20 = f_with_note(t19, vow_s[649]);
+            V t20 = f_with_note(t19, vow_s[652]);
             V t21 = f_err_d(l_c, t20);
             (void)t21;
             vdrop(t20);
@@ -19130,7 +19506,7 @@ static V f_expect_args(V * l_c, V l_args, V l_order, V l_got, V l_params, V l_wh
             vdup(t25);
             V l_a = t25;
             V t26 = l_what;
-            V t27 = vstr_cat(t26, vow_s[650]);
+            V t27 = vstr_cat(t26, vow_s[653]);
             V t28 = l_params;
             V t29 = l_pi;
             V t30 = vlist_get(t28, t29);
@@ -19159,9 +19535,9 @@ static V f_expect_args(V * l_c, V l_args, V l_order, V l_got, V l_params, V l_wh
                     t42 = t45;
                 }
                 if (t42) {
-                    vdup(vow_s[651]);
+                    vdup(vow_s[654]);
                     vdrop(l_msg);
-                    l_msg = vow_s[651];
+                    l_msg = vow_s[654];
                 }
             } else {
             }
@@ -19196,7 +19572,7 @@ static V f_generic_call(V * l_c, V l_e, V l_g, V l_args, V l_expected) {
         V t5 = l_g;
         V t6 = VP(t5)[0];
         V t7 = vstr_cat(vow_s[92], t6);
-        V t8 = vstr_cat(t7, vow_s[652]);
+        V t8 = vstr_cat(t7, vow_s[655]);
         V t9 = f_err(l_c, t4, t8);
         (void)t9;
         vdrop(t8);
@@ -19346,7 +19722,7 @@ static V f_generic_call(V * l_c, V l_e, V l_g, V l_args, V l_expected) {
                 V t92 = l_got;
                 V t93 = l_fi;
                 V t94 = VP(t93)[1];
-                V t95 = f_expect_args(l_c, t90, t91, t92, t94, vow_s[653]);
+                V t95 = f_expect_args(l_c, t90, t91, t92, t94, vow_s[656]);
                 (void)t95;
                 V t96 = l_g;
                 V t97 = VP(t96)[0];
@@ -19359,11 +19735,11 @@ static V f_generic_call(V * l_c, V l_e, V l_g, V l_args, V l_expected) {
                 V t103 = l_e;
                 V t104 = l_inst;
                 V t105 = l_order;
-                vdup(vow_s[642]);
+                vdup(vow_s[645]);
                 vdup(t104);
                 vdup(t105);
                 V t106 = vow_fields(4, UINT64_C(11));
-                VP(t106)[0] = vow_s[642];
+                VP(t106)[0] = vow_s[645];
                 VP(t106)[1] = t104;
                 VP(t106)[2] = (V)INT64_C(0);
                 VP(t106)[3] = t105;
@@ -19431,7 +19807,7 @@ static V f_generic_struct(V * l_c, V l_e, V l_s, V l_args, V l_expected) {
     V t10 = VP(t9)[1];
     V t11 = l_s;
     V t12 = VP(t11)[0];
-    V t13 = vstr_cat(vow_s[643], t12);
+    V t13 = vstr_cat(vow_s[646], t12);
     V t14 = vstr_cat(t13, vow_s[92]);
     V t15 = l_names;
     V t16 = l_args;
@@ -19490,7 +19866,7 @@ static V f_generic_struct(V * l_c, V l_e, V l_s, V l_args, V l_expected) {
         V t48 = l_subst;
         V t49 = l_s;
         V t50 = VP(t49)[0];
-        V t51 = vstr_cat(vow_s[643], t50);
+        V t51 = vstr_cat(vow_s[646], t50);
         V t52 = vstr_cat(t51, vow_s[92]);
         V t53 = f_type_args(l_c, t45, t47, t48, t52);
         V t54 = t53;
@@ -19524,7 +19900,7 @@ static V f_generic_struct(V * l_c, V l_e, V l_s, V l_args, V l_expected) {
             V t69 = VP(t68)[0];
             V t70 = l_inst;
             V t71 = f_struct_fields(t69, t70);
-            V t72 = f_expect_args(l_c, t65, t66, t67, t71, vow_s[654]);
+            V t72 = f_expect_args(l_c, t65, t66, t67, t71, vow_s[657]);
             (void)t72;
             vdrop(t71);
             vdrop(t68);
@@ -19619,7 +19995,7 @@ static V f_generic_variant(V * l_c, V l_e, V l_ge, V l_vn, V l_args, V l_expecte
         V t8 = vlist_get(t6, t7);
         V t9 = VP(t8)[0];
         V t10 = l_vn;
-        V t11 = vstr_eq(t9, t10);
+        V t11 = (V)vstr_eq(t9, t10);
         if (t11) {
             V t12 = l_i;
             l_vi = t12;
@@ -19641,7 +20017,7 @@ static V f_generic_variant(V * l_c, V l_e, V l_ge, V l_vn, V l_args, V l_expecte
         V t22 = VP(t21)[1];
         V t23 = l_ge;
         V t24 = VP(t23)[0];
-        V t25 = vstr_cat(t24, vow_s[572]);
+        V t25 = vstr_cat(t24, vow_s[573]);
         V t26 = l_vn;
         V t27 = vstr_cat(t25, t26);
         V t28 = vstr_cat(t27, vow_s[92]);
@@ -19659,245 +20035,327 @@ static V f_generic_variant(V * l_c, V l_e, V l_ge, V l_vn, V l_args, V l_expecte
     V t34 = vlist_get(t32, t33);
     vdup(t34);
     V l_vd = t34;
-    V t35 = l_called;
-    V t36 = (V)!t35;
-    V t37 = t36;
-    if (t36) {
-        V t38 = l_vd;
-        V t39 = VP(t38)[1];
-        V t40 = vlist_len(t39);
-        V t41 = (V)(VI(t40) > VI((V)INT64_C(0)));
-        t37 = t41;
+    V t35 = l_vn;
+    V t36 = vstr_cat(vow_s[577], t35);
+    V t37 = vstr_cat(t36, vow_s[635]);
+    V t38 = l_ge;
+    V t39 = VP(t38)[0];
+    V t40 = vstr_cat(t37, t39);
+    V t41 = vstr_cat(t40, vow_s[86]);
+    V t42 = l_vn;
+    V t43 = vstr_cat(t41, t42);
+    V t44 = vstr_cat(t43, vow_s[636]);
+    V l_fields_msg = t44;
+    vdrop(t43);
+    vdrop(t41);
+    vdrop(t40);
+    vdrop(t37);
+    vdrop(t36);
+    V t45 = l_called;
+    V t46 = (V)!t45;
+    V t47 = t46;
+    if (t46) {
+        V t48 = l_vd;
+        V t49 = VP(t48)[1];
+        V t50 = vlist_len(t49);
+        V t51 = (V)(VI(t50) > VI((V)INT64_C(0)));
+        t47 = t51;
     }
-    if (t37) {
-        V t42 = l_e;
-        V t43 = VP(t42)[1];
-        V t44 = l_vn;
-        V t45 = vstr_cat(vow_s[576], t44);
-        V t46 = vstr_cat(t45, vow_s[632]);
-        V t47 = l_ge;
-        V t48 = VP(t47)[0];
-        V t49 = vstr_cat(t46, t48);
-        V t50 = vstr_cat(t49, vow_s[86]);
-        V t51 = l_vn;
-        V t52 = vstr_cat(t50, t51);
-        V t53 = vstr_cat(t52, vow_s[633]);
-        V t54 = f_err(l_c, t43, t53);
-        (void)t54;
-        vdrop(t53);
-        vdrop(t52);
-        vdrop(t50);
-        vdrop(t49);
-        vdrop(t46);
-        vdrop(t45);
-        V t55 = vow_variant0(11);
-        vdrop(l_vd);
-        return t55;
-    }
-    V t56 = l_called;
-    V t57 = t56;
-    if (t56) {
-        V t58 = l_vd;
-        V t59 = VP(t58)[1];
-        V t60 = vlist_len(t59);
-        V t61 = (V)(t60 == (V)INT64_C(0));
-        t57 = t61;
-    }
-    if (t57) {
-        V t62 = l_e;
-        V t63 = VP(t62)[1];
-        V t64 = l_vn;
-        V t65 = vstr_cat(vow_s[576], t64);
-        V t66 = vstr_cat(t65, vow_s[634]);
-        V t67 = l_ge;
-        V t68 = VP(t67)[0];
-        V t69 = vstr_cat(t66, t68);
-        V t70 = vstr_cat(t69, vow_s[86]);
-        V t71 = l_vn;
-        V t72 = vstr_cat(t70, t71);
-        V t73 = vstr_cat(t72, vow_s[635]);
-        V t74 = f_err(l_c, t63, t73);
-        (void)t74;
-        vdrop(t73);
-        vdrop(t72);
-        vdrop(t70);
-        vdrop(t69);
-        vdrop(t66);
-        vdrop(t65);
-        V t75 = vow_variant0(11);
-        vdrop(l_vd);
-        return t75;
-    }
-    V t76 = vlist_empty(1);
-    V l_names = t76;
-    V t77 = l_vd;
-    V t78 = VP(t77)[1];
-    vdup(t78);
-    V t79 = t78;
-    for (int64_t t80 = 0; t80 < VL(t79)->len; t80++) {
-        V l_f = VB(VL(t79)->buf)->items[t80];
-        V t81 = l_f;
-        V t82 = VP(t81)[0];
-        vdup(t82);
-        V t83 = vlist_push(l_names, t82);
-        l_names = t83;
-    }
-    vdrop(t79);
-    V t84 = l_e;
-    V t85 = VP(t84)[1];
-    V t86 = l_vn;
-    V t87 = vstr_cat(vow_s[576], t86);
-    V t88 = vstr_cat(t87, vow_s[92]);
-    V t89 = l_names;
-    V t90 = l_args;
-    V t91 = f_match_args(l_c, t85, t88, t89, t90);
-    V t92 = t91;
-    vdrop(t88);
-    vdrop(t87);
-    V t93 = VP(t92)[0];
-    if (t93 == 0) {
-        V t94 = vow_variant0(11);
-        vdrop(t92);
-        vdrop(l_names);
-        vdrop(l_vd);
-        return t94;
-    } else if (t93 == 1) {
-        V l_order = VP(t92)[1];
-        vdup(vmap_empty());
-        V l_subst = vmap_empty();
-        V t95 = l_expected;
-        vdup(t95);
-        V t96 = t95;
-        V t97 = VP(t96)[0];
-        if (t97 == 1) {
-            V l_t = VP(t96)[1];
-            V t98 = (*l_c);
-            V t99 = VP(t98)[0];
-            V t100 = l_ge;
-            V t101 = VP(t100)[0];
-            V t102 = l_ge;
-            V t103 = VP(t102)[1];
-            V t104 = l_e;
-            V t105 = VP(t104)[1];
-            V t106 = f_self_type(t101, t103, t105);
-            V t107 = l_t;
-            V t108 = l_ge;
-            V t109 = VP(t108)[1];
-            V t110 = f_unify(t99, t106, t107, t109, &l_subst);
-            (void)t110;
-            vdrop(t106);
-        } else if (t97 == 0) {
-        } else {
-            vow_panic("unreachable: corrupt enum tag");
-        }
-        vdrop(t96);
-        V t111 = l_args;
-        V t112 = l_order;
-        V t113 = l_vd;
-        V t114 = VP(t113)[1];
-        V t115 = l_ge;
-        V t116 = VP(t115)[1];
-        V t117 = f_infer_args(l_c, t111, t112, t114, t116, &l_subst);
-        V l_got = t117;
-        V t118 = l_e;
-        V t119 = VP(t118)[1];
-        V t120 = l_ge;
-        V t121 = VP(t120)[1];
-        V t122 = l_subst;
-        V t123 = l_ge;
-        V t124 = VP(t123)[0];
-        V t125 = f_type_args(l_c, t119, t121, t122, t124);
-        V t126 = t125;
-        V t127 = VP(t126)[0];
-        if (t127 == 0) {
-            V t128 = vow_variant0(11);
-            vdrop(t126);
-            vdrop(l_got);
-            vdrop(l_subst);
-            vdrop(t92);
-            vdrop(l_names);
-            vdrop(l_vd);
-            return t128;
-        } else if (t127 == 1) {
-            V l_targs = VP(t126)[1];
-            V t129 = l_ge;
-            V t130 = VP(t129)[0];
-            V t131 = l_targs;
-            V t132 = l_e;
-            V t133 = VP(t132)[1];
-            V t134 = f_instantiate(l_c, t130, t131, t133);
-            V l_t = t134;
-            V t135 = l_t;
-            V t136 = f_ty_show(t135);
-            V l_inst = t136;
-            V t137 = (*l_c);
-            V t138 = VP(t137)[0];
-            V t139 = VP(t138)[1];
-            V t140 = l_inst;
-            V t141 = vmap_lookup(t139, t140, 7);
-            V t142 = t141;
-            V t143 = VP(t142)[0];
-            if (t143 == 1) {
-                V l_vs = VP(t142)[1];
-                V t144 = l_vi;
-                V t145 = l_vs;
-                V t146 = vlist_len(t145);
-                V t147 = (V)(VI(t144) < VI(t146));
-                if (t147) {
-                    V t148 = l_args;
-                    V t149 = l_order;
-                    V t150 = l_got;
-                    V t151 = l_vs;
-                    V t152 = l_vi;
-                    V t153 = vlist_get(t151, t152);
-                    V t154 = VP(t153)[1];
-                    V t155 = f_expect_args(l_c, t148, t149, t150, t154, vow_s[654]);
-                    (void)t155;
+    if (t47) {
+        V t52 = l_expected;
+        vdup(t52);
+        V t53 = t52;
+        V t54 = VP(t53)[0];
+        if (t54 == 1) {
+            V l_t = VP(t53)[1];
+            V t55 = (*l_c);
+            V t56 = VP(t55)[0];
+            V t57 = VP(t56)[1];
+            V t58 = l_t;
+            V t59 = f_ty_show(t58);
+            V t60 = vmap_lookup(t57, t59, 7);
+            V t61 = t60;
+            vdrop(t59);
+            V t62 = VP(t61)[0];
+            if (t62 == 1) {
+                V l_vs = VP(t61)[1];
+                V t63 = l_t;
+                V t64 = f_ty_show(t63);
+                V t65 = f_generic_base(t64);
+                V t66 = l_ge;
+                V t67 = VP(t66)[0];
+                V t68 = (V)vstr_eq(t65, t67);
+                V t69 = t68;
+                if (t68) {
+                    V t70 = l_vi;
+                    V t71 = l_vs;
+                    V t72 = vlist_len(t71);
+                    V t73 = (V)(VI(t70) < VI(t72));
+                    t69 = t73;
                 }
-            } else if (t143 == 0) {
+                V t74 = t69;
+                if (t69) {
+                    V t75 = l_vs;
+                    V t76 = l_vi;
+                    V t77 = vlist_get(t75, t76);
+                    V t78 = VP(t77)[1];
+                    V t79 = f_all_unit(t78);
+                    t74 = t79;
+                }
+                vdrop(t65);
+                vdrop(t64);
+                if (t74) {
+                    V t80 = l_e;
+                    V t81 = l_t;
+                    V t82 = f_ty_show(t81);
+                    V t83 = l_vi;
+                    V t84 = vlist_empty(0);
+                    vdup(vow_s[639]);
+                    V t85 = vow_fields(4, UINT64_C(11));
+                    VP(t85)[0] = vow_s[639];
+                    VP(t85)[1] = t82;
+                    VP(t85)[2] = t83;
+                    VP(t85)[3] = t84;
+                    V t86 = f_add_call(l_c, t80, t85);
+                    (void)t86;
+                    vdrop(t85);
+                    V t87 = l_t;
+                    vdup(t87);
+                    vdrop(t61);
+                    vdrop(t53);
+                    vdrop(l_fields_msg);
+                    vdrop(l_vd);
+                    return t87;
+                }
+            } else if (t62 == 0) {
             } else {
                 vow_panic("unreachable: corrupt enum tag");
             }
-            vdrop(t142);
-            V t156 = l_e;
-            V t157 = l_inst;
-            V t158 = l_vi;
-            V t159 = l_order;
-            vdup(vow_s[636]);
-            vdup(t157);
-            vdup(t159);
-            V t160 = vow_fields(4, UINT64_C(11));
-            VP(t160)[0] = vow_s[636];
-            VP(t160)[1] = t157;
-            VP(t160)[2] = t158;
-            VP(t160)[3] = t159;
-            V t161 = f_add_call(l_c, t156, t160);
-            (void)t161;
-            vdrop(t160);
-            V t162 = l_t;
-            vdup(t162);
-            vdrop(l_inst);
-            vdrop(l_t);
-            vdrop(t126);
+            vdrop(t61);
+        } else if (t54 == 0) {
+        } else {
+            vow_panic("unreachable: corrupt enum tag");
+        }
+        vdrop(t53);
+        V t88 = l_e;
+        V t89 = VP(t88)[1];
+        V t90 = l_fields_msg;
+        V t91 = f_err(l_c, t89, t90);
+        (void)t91;
+        V t92 = vow_variant0(11);
+        vdrop(l_fields_msg);
+        vdrop(l_vd);
+        return t92;
+    }
+    V t93 = l_called;
+    V t94 = t93;
+    if (t93) {
+        V t95 = l_vd;
+        V t96 = VP(t95)[1];
+        V t97 = vlist_len(t96);
+        V t98 = (V)(t97 == (V)INT64_C(0));
+        t94 = t98;
+    }
+    if (t94) {
+        V t99 = l_e;
+        V t100 = VP(t99)[1];
+        V t101 = l_vn;
+        V t102 = vstr_cat(vow_s[577], t101);
+        V t103 = vstr_cat(t102, vow_s[637]);
+        V t104 = l_ge;
+        V t105 = VP(t104)[0];
+        V t106 = vstr_cat(t103, t105);
+        V t107 = vstr_cat(t106, vow_s[86]);
+        V t108 = l_vn;
+        V t109 = vstr_cat(t107, t108);
+        V t110 = vstr_cat(t109, vow_s[638]);
+        V t111 = f_err(l_c, t100, t110);
+        (void)t111;
+        vdrop(t110);
+        vdrop(t109);
+        vdrop(t107);
+        vdrop(t106);
+        vdrop(t103);
+        vdrop(t102);
+        V t112 = vow_variant0(11);
+        vdrop(l_fields_msg);
+        vdrop(l_vd);
+        return t112;
+    }
+    V t113 = vlist_empty(1);
+    V l_names = t113;
+    V t114 = l_vd;
+    V t115 = VP(t114)[1];
+    vdup(t115);
+    V t116 = t115;
+    for (int64_t t117 = 0; t117 < VL(t116)->len; t117++) {
+        V l_f = VB(VL(t116)->buf)->items[t117];
+        V t118 = l_f;
+        V t119 = VP(t118)[0];
+        vdup(t119);
+        V t120 = vlist_push(l_names, t119);
+        l_names = t120;
+    }
+    vdrop(t116);
+    V t121 = l_e;
+    V t122 = VP(t121)[1];
+    V t123 = l_vn;
+    V t124 = vstr_cat(vow_s[577], t123);
+    V t125 = vstr_cat(t124, vow_s[92]);
+    V t126 = l_names;
+    V t127 = l_args;
+    V t128 = f_match_args(l_c, t122, t125, t126, t127);
+    V t129 = t128;
+    vdrop(t125);
+    vdrop(t124);
+    V t130 = VP(t129)[0];
+    if (t130 == 0) {
+        V t131 = vow_variant0(11);
+        vdrop(t129);
+        vdrop(l_names);
+        vdrop(l_fields_msg);
+        vdrop(l_vd);
+        return t131;
+    } else if (t130 == 1) {
+        V l_order = VP(t129)[1];
+        vdup(vmap_empty());
+        V l_subst = vmap_empty();
+        V t132 = l_expected;
+        vdup(t132);
+        V t133 = t132;
+        V t134 = VP(t133)[0];
+        if (t134 == 1) {
+            V l_t = VP(t133)[1];
+            V t135 = (*l_c);
+            V t136 = VP(t135)[0];
+            V t137 = l_ge;
+            V t138 = VP(t137)[0];
+            V t139 = l_ge;
+            V t140 = VP(t139)[1];
+            V t141 = l_e;
+            V t142 = VP(t141)[1];
+            V t143 = f_self_type(t138, t140, t142);
+            V t144 = l_t;
+            V t145 = l_ge;
+            V t146 = VP(t145)[1];
+            V t147 = f_unify(t136, t143, t144, t146, &l_subst);
+            (void)t147;
+            vdrop(t143);
+        } else if (t134 == 0) {
+        } else {
+            vow_panic("unreachable: corrupt enum tag");
+        }
+        vdrop(t133);
+        V t148 = l_args;
+        V t149 = l_order;
+        V t150 = l_vd;
+        V t151 = VP(t150)[1];
+        V t152 = l_ge;
+        V t153 = VP(t152)[1];
+        V t154 = f_infer_args(l_c, t148, t149, t151, t153, &l_subst);
+        V l_got = t154;
+        V t155 = l_e;
+        V t156 = VP(t155)[1];
+        V t157 = l_ge;
+        V t158 = VP(t157)[1];
+        V t159 = l_subst;
+        V t160 = l_ge;
+        V t161 = VP(t160)[0];
+        V t162 = f_type_args(l_c, t156, t158, t159, t161);
+        V t163 = t162;
+        V t164 = VP(t163)[0];
+        if (t164 == 0) {
+            V t165 = vow_variant0(11);
+            vdrop(t163);
             vdrop(l_got);
             vdrop(l_subst);
-            vdrop(t92);
+            vdrop(t129);
             vdrop(l_names);
+            vdrop(l_fields_msg);
             vdrop(l_vd);
-            return t162;
+            return t165;
+        } else if (t164 == 1) {
+            V l_targs = VP(t163)[1];
+            V t166 = l_ge;
+            V t167 = VP(t166)[0];
+            V t168 = l_targs;
+            V t169 = l_e;
+            V t170 = VP(t169)[1];
+            V t171 = f_instantiate(l_c, t167, t168, t170);
+            V l_t = t171;
+            V t172 = l_t;
+            V t173 = f_ty_show(t172);
+            V l_inst = t173;
+            V t174 = (*l_c);
+            V t175 = VP(t174)[0];
+            V t176 = VP(t175)[1];
+            V t177 = l_inst;
+            V t178 = vmap_lookup(t176, t177, 7);
+            V t179 = t178;
+            V t180 = VP(t179)[0];
+            if (t180 == 1) {
+                V l_vs = VP(t179)[1];
+                V t181 = l_vi;
+                V t182 = l_vs;
+                V t183 = vlist_len(t182);
+                V t184 = (V)(VI(t181) < VI(t183));
+                if (t184) {
+                    V t185 = l_args;
+                    V t186 = l_order;
+                    V t187 = l_got;
+                    V t188 = l_vs;
+                    V t189 = l_vi;
+                    V t190 = vlist_get(t188, t189);
+                    V t191 = VP(t190)[1];
+                    V t192 = f_expect_args(l_c, t185, t186, t187, t191, vow_s[657]);
+                    (void)t192;
+                }
+            } else if (t180 == 0) {
+            } else {
+                vow_panic("unreachable: corrupt enum tag");
+            }
+            vdrop(t179);
+            V t193 = l_e;
+            V t194 = l_inst;
+            V t195 = l_vi;
+            V t196 = l_order;
+            vdup(vow_s[639]);
+            vdup(t194);
+            vdup(t196);
+            V t197 = vow_fields(4, UINT64_C(11));
+            VP(t197)[0] = vow_s[639];
+            VP(t197)[1] = t194;
+            VP(t197)[2] = t195;
+            VP(t197)[3] = t196;
+            V t198 = f_add_call(l_c, t193, t197);
+            (void)t198;
+            vdrop(t197);
+            V t199 = l_t;
+            vdup(t199);
+            vdrop(l_inst);
+            vdrop(l_t);
+            vdrop(t163);
+            vdrop(l_got);
+            vdrop(l_subst);
+            vdrop(t129);
+            vdrop(l_names);
+            vdrop(l_fields_msg);
+            vdrop(l_vd);
+            return t199;
             vdrop(l_inst);
             vdrop(l_t);
         } else {
             vow_panic("unreachable: corrupt enum tag");
         }
-        vdrop(t126);
+        vdrop(t163);
         vdrop(l_got);
         vdrop(l_subst);
     } else {
         vow_panic("unreachable: corrupt enum tag");
     }
-    vdrop(t92);
+    vdrop(t129);
     vdrop(l_names);
+    vdrop(l_fields_msg);
     vdrop(l_vd);
     return 0;
 }
@@ -19959,7 +20417,7 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
             V t14 = VP(t13)[1];
             V t15 = l_t;
             V t16 = f_ty_show(t15);
-            V t17 = vstr_cat(vow_s[655], t16);
+            V t17 = vstr_cat(vow_s[658], t16);
             V t18 = f_err(l_c, t14, t17);
             (void)t18;
             vdrop(t17);
@@ -19997,7 +20455,7 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
             V t31 = l_a;
             V t32 = vlist_get(t31, (V)INT64_C(1));
             V t33 = l_t;
-            V t34 = f_want(l_c, t32, t33, vow_s[656]);
+            V t34 = f_want(l_c, t32, t33, vow_s[659]);
             (void)t34;
             V t35 = l_lt;
             vdup(t35);
@@ -20027,7 +20485,7 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
             V t43 = VP(t42)[1];
             V t44 = l_lt;
             V t45 = f_ty_show(t44);
-            V t46 = vstr_cat(vow_s[657], t45);
+            V t46 = vstr_cat(vow_s[660], t45);
             V t47 = f_err(l_c, t43, t46);
             (void)t47;
             vdrop(t46);
@@ -20060,7 +20518,7 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
         V t57 = l_a;
         V t58 = vlist_get(t57, (V)INT64_C(1));
         V t59 = vow_variant0(0);
-        V t60 = f_want(l_c, t58, t59, vow_s[658]);
+        V t60 = f_want(l_c, t58, t59, vow_s[661]);
         (void)t60;
         vdrop(t59);
         V t61 = l_lt;
@@ -20072,7 +20530,7 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
             V t64 = l_a;
             V t65 = vlist_get(t64, (V)INT64_C(2));
             V t66 = l_t;
-            V t67 = f_want(l_c, t65, t66, vow_s[659]);
+            V t67 = f_want(l_c, t65, t66, vow_s[662]);
             (void)t67;
             V t68 = l_lt;
             vdup(t68);
@@ -20101,7 +20559,7 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
             V t76 = VP(t75)[1];
             V t77 = l_lt;
             V t78 = f_ty_show(t77);
-            V t79 = vstr_cat(vow_s[660], t78);
+            V t79 = vstr_cat(vow_s[663], t78);
             V t80 = f_err(l_c, t76, t79);
             (void)t80;
             vdrop(t79);
@@ -20134,13 +20592,13 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
         V t90 = l_a;
         V t91 = vlist_get(t90, (V)INT64_C(1));
         V t92 = vow_variant0(0);
-        V t93 = f_want(l_c, t91, t92, vow_s[661]);
+        V t93 = f_want(l_c, t91, t92, vow_s[664]);
         (void)t93;
         vdrop(t92);
         V t94 = l_a;
         V t95 = vlist_get(t94, (V)INT64_C(2));
         V t96 = vow_variant0(0);
-        V t97 = f_want(l_c, t95, t96, vow_s[662]);
+        V t97 = f_want(l_c, t95, t96, vow_s[665]);
         (void)t97;
         vdrop(t96);
         V t98 = l_t;
@@ -20178,7 +20636,7 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
             V t106 = VP(t105)[1];
             V t107 = l_t;
             V t108 = f_ty_show(t107);
-            V t109 = vstr_cat(vow_s[663], t108);
+            V t109 = vstr_cat(vow_s[666], t108);
             V t110 = f_err(l_c, t106, t109);
             (void)t110;
             vdrop(t109);
@@ -20205,12 +20663,12 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
         V t116 = l_a;
         V t117 = vlist_get(t116, (V)INT64_C(0));
         V t118 = l_strs;
-        V t119 = f_want(l_c, t117, t118, vow_s[664]);
+        V t119 = f_want(l_c, t117, t118, vow_s[667]);
         (void)t119;
         V t120 = l_a;
         V t121 = vlist_get(t120, (V)INT64_C(1));
         V t122 = vow_variant0(2);
-        V t123 = f_want(l_c, t121, t122, vow_s[665]);
+        V t123 = f_want(l_c, t121, t122, vow_s[668]);
         (void)t123;
         vdrop(t122);
         V t124 = vow_variant0(2);
@@ -20221,7 +20679,7 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
         V t125 = l_a;
         V t126 = vlist_get(t125, (V)INT64_C(0));
         V t127 = vow_variant0(0);
-        V t128 = f_want(l_c, t126, t127, vow_s[666]);
+        V t128 = f_want(l_c, t126, t127, vow_s[669]);
         (void)t128;
         vdrop(t127);
         V t129 = vow_variant0(2);
@@ -20232,7 +20690,7 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
         V t130 = l_a;
         V t131 = vlist_get(t130, (V)INT64_C(0));
         V t132 = vow_variant0(2);
-        V t133 = f_want(l_c, t131, t132, vow_s[666]);
+        V t133 = f_want(l_c, t131, t132, vow_s[669]);
         (void)t133;
         vdrop(t132);
         V t134 = vow_variant0(0);
@@ -20246,7 +20704,7 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
         V t136 = l_a;
         V t137 = vlist_get(t136, (V)INT64_C(0));
         V t138 = vow_variant0(0);
-        V t139 = f_want(l_c, t137, t138, vow_s[667]);
+        V t139 = f_want(l_c, t137, t138, vow_s[670]);
         (void)t139;
         vdrop(t138);
         V t140 = vow_variant0(2);
@@ -20257,7 +20715,7 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
         V t141 = l_a;
         V t142 = vlist_get(t141, (V)INT64_C(0));
         V t143 = vow_variant0(2);
-        V t144 = f_want(l_c, t142, t143, vow_s[666]);
+        V t144 = f_want(l_c, t142, t143, vow_s[669]);
         (void)t144;
         vdrop(t143);
         V t145 = vow_variant0(2);
@@ -20268,7 +20726,7 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
         V t146 = l_a;
         V t147 = vlist_get(t146, (V)INT64_C(0));
         V t148 = vow_variant0(2);
-        V t149 = f_want(l_c, t147, t148, vow_s[668]);
+        V t149 = f_want(l_c, t147, t148, vow_s[671]);
         (void)t149;
         vdrop(t148);
         V t150 = vow_variant0(3);
@@ -20279,7 +20737,7 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
         V t151 = l_a;
         V t152 = vlist_get(t151, (V)INT64_C(0));
         V t153 = vow_variant0(2);
-        V t154 = f_want(l_c, t152, t153, vow_s[668]);
+        V t154 = f_want(l_c, t152, t153, vow_s[671]);
         (void)t154;
         vdrop(t153);
         V t155 = vow_variant0(3);
@@ -20290,7 +20748,7 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
         V t156 = l_a;
         V t157 = vlist_get(t156, (V)INT64_C(0));
         V t158 = vow_variant0(2);
-        V t159 = f_want(l_c, t157, t158, vow_s[668]);
+        V t159 = f_want(l_c, t157, t158, vow_s[671]);
         (void)t159;
         vdrop(t158);
         V t160 = vow_variant0(3);
@@ -20301,7 +20759,7 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
         V t161 = l_a;
         V t162 = vlist_get(t161, (V)INT64_C(0));
         V t163 = vow_variant0(2);
-        V t164 = f_want(l_c, t162, t163, vow_s[669]);
+        V t164 = f_want(l_c, t162, t163, vow_s[672]);
         (void)t164;
         vdrop(t163);
         V t165 = vow_variant0(2);
@@ -20324,13 +20782,13 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
         V t171 = l_a;
         V t172 = vlist_get(t171, (V)INT64_C(0));
         V t173 = vow_variant0(2);
-        V t174 = f_want(l_c, t172, t173, vow_s[669]);
+        V t174 = f_want(l_c, t172, t173, vow_s[672]);
         (void)t174;
         vdrop(t173);
         V t175 = l_a;
         V t176 = vlist_get(t175, (V)INT64_C(1));
         V t177 = vow_variant0(2);
-        V t178 = f_want(l_c, t176, t177, vow_s[670]);
+        V t178 = f_want(l_c, t176, t177, vow_s[673]);
         (void)t178;
         vdrop(t177);
         V t179 = vow_variant0(1);
@@ -20341,7 +20799,7 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
         V t180 = l_a;
         V t181 = vlist_get(t180, (V)INT64_C(0));
         V t182 = vow_variant0(2);
-        V t183 = f_want(l_c, t181, t182, vow_s[671]);
+        V t183 = f_want(l_c, t181, t182, vow_s[674]);
         (void)t183;
         vdrop(t182);
         V t184 = vow_variant0(2);
@@ -20355,7 +20813,7 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
         V t186 = l_a;
         V t187 = vlist_get(t186, (V)INT64_C(0));
         V t188 = vow_variant0(2);
-        V t189 = f_want(l_c, t187, t188, vow_s[669]);
+        V t189 = f_want(l_c, t187, t188, vow_s[672]);
         (void)t189;
         vdrop(t188);
         V t190 = vow_variant0(1);
@@ -20366,7 +20824,7 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
         V t191 = l_a;
         V t192 = vlist_get(t191, (V)INT64_C(0));
         V t193 = vow_variant0(2);
-        V t194 = f_want(l_c, t192, t193, vow_s[669]);
+        V t194 = f_want(l_c, t192, t193, vow_s[672]);
         (void)t194;
         vdrop(t193);
         V t195 = vow_variant0(2);
@@ -20392,12 +20850,12 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
         V t202 = l_a;
         V t203 = vlist_get(t202, (V)INT64_C(0));
         V t204 = l_strs;
-        V t205 = f_want(l_c, t203, t204, vow_s[672]);
+        V t205 = f_want(l_c, t203, t204, vow_s[675]);
         (void)t205;
         V t206 = l_a;
         V t207 = vlist_get(t206, (V)INT64_C(1));
         V t208 = vow_variant0(2);
-        V t209 = f_want(l_c, t207, t208, vow_s[673]);
+        V t209 = f_want(l_c, t207, t208, vow_s[676]);
         (void)t209;
         vdrop(t208);
         vdup(vow_s[507]);
@@ -20411,7 +20869,7 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
         V t211 = l_a;
         V t212 = vlist_get(t211, (V)INT64_C(0));
         V t213 = vow_variant0(0);
-        V t214 = f_want(l_c, t212, t213, vow_s[674]);
+        V t214 = f_want(l_c, t212, t213, vow_s[677]);
         (void)t214;
         vdrop(t213);
         V t215 = vow_variant0(3);
@@ -20460,7 +20918,7 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
             V t235 = l_a;
             V t236 = vlist_get(t235, (V)INT64_C(1));
             V t237 = l_inner;
-            V t238 = f_want(l_c, t236, t237, vow_s[675]);
+            V t238 = f_want(l_c, t236, t237, vow_s[678]);
             (void)t238;
             V t239 = l_inner;
             vdup(t239);
@@ -20489,7 +20947,7 @@ static V f_builtin_call(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
             V t247 = VP(t246)[1];
             V t248 = l_t;
             V t249 = f_ty_show(t248);
-            V t250 = vstr_cat(vow_s[676], t249);
+            V t250 = vstr_cat(vow_s[679], t249);
             V t251 = f_err(l_c, t247, t250);
             (void)t251;
             vdrop(t250);
@@ -20536,7 +20994,7 @@ static V f_option_test(V * l_c, V l_name, V l_x) {
         V t8 = VP(t7)[1];
         V t9 = l_name;
         V t10 = vstr_cat(vow_s[92], t9);
-        V t11 = vstr_cat(t10, vow_s[677]);
+        V t11 = vstr_cat(t10, vow_s[680]);
         V t12 = l_t;
         V t13 = f_ty_show(t12);
         V t14 = vstr_cat(t11, t13);
@@ -20559,7 +21017,7 @@ static V f_map_builtin(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
     V t1 = vow_variant0(11);
     V l_mt = t1;
     V t2 = l_name;
-    V t3 = vstr_eq(t2, vow_s[479]);
+    V t3 = (V)vstr_eq(t2, vow_s[479]);
     if (t3) {
         V t4 = l_a;
         V t5 = vlist_get(t4, (V)INT64_C(0));
@@ -20631,7 +21089,7 @@ static V f_map_builtin(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
         V t31 = VP(t30)[1];
         V t32 = l_name;
         V t33 = vstr_cat(vow_s[92], t32);
-        V t34 = vstr_cat(t33, vow_s[678]);
+        V t34 = vstr_cat(t33, vow_s[681]);
         V t35 = l_mt;
         V t36 = f_ty_show(t35);
         V t37 = vstr_cat(t34, t36);
@@ -20662,7 +21120,7 @@ static V f_map_builtin(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
         V t46 = l_a;
         V t47 = vlist_get(t46, (V)INT64_C(1));
         V t48 = l_k;
-        V t49 = f_want(l_c, t47, t48, vow_s[679]);
+        V t49 = f_want(l_c, t47, t48, vow_s[682]);
         (void)t49;
     }
     V t50 = l_name;
@@ -20676,7 +21134,7 @@ static V f_map_builtin(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
             V t55 = l_a;
             V t56 = vlist_get(t55, (V)INT64_C(2));
             V t57 = l_v;
-            V t58 = f_want(l_c, t56, t57, vow_s[680]);
+            V t58 = f_want(l_c, t56, t57, vow_s[683]);
             (void)t58;
         }
         V t59 = l_mt;
@@ -20725,12 +21183,6 @@ static V f_map_builtin(V * l_c, V l_e, V l_name, V l_a, V l_expected) {
 
 static V f_prelude(void) {
     V t1 = vlist_empty(1);
-    vdup(vow_s[681]);
-    t1 = vlist_push(t1, vow_s[681]);
-    vdup(vow_s[682]);
-    t1 = vlist_push(t1, vow_s[682]);
-    vdup(vow_s[683]);
-    t1 = vlist_push(t1, vow_s[683]);
     vdup(vow_s[684]);
     t1 = vlist_push(t1, vow_s[684]);
     vdup(vow_s[685]);
@@ -20743,6 +21195,12 @@ static V f_prelude(void) {
     t1 = vlist_push(t1, vow_s[688]);
     vdup(vow_s[689]);
     t1 = vlist_push(t1, vow_s[689]);
+    vdup(vow_s[690]);
+    t1 = vlist_push(t1, vow_s[690]);
+    vdup(vow_s[691]);
+    t1 = vlist_push(t1, vow_s[691]);
+    vdup(vow_s[692]);
+    t1 = vlist_push(t1, vow_s[692]);
     return t1;
     return 0;
 }
@@ -20823,9 +21281,9 @@ static V f_sort_of(V l_t) {
         vdrop(t2);
         return vow_s[447];
     } else {
-        vdup(vow_s[690]);
+        vdup(vow_s[693]);
         vdrop(t2);
-        return vow_s[690];
+        return vow_s[693];
     }
     vdrop(t2);
     return 0;
@@ -20850,7 +21308,7 @@ static V f_and_all(V l_v) {
     }
     V t9 = l_v;
     V t10 = vjoin(t9, vow_s[76]);
-    V t11 = vstr_cat(vow_s[691], t10);
+    V t11 = vstr_cat(vow_s[694], t10);
     V t12 = vstr_cat(t11, vow_s[144]);
     vdrop(t11);
     vdrop(t10);
@@ -20867,13 +21325,13 @@ static V f_int_lit(V l_n) {
         V t5 = vsub(t4, (V)INT64_C(1));
         V t6 = (V)(t3 == t5);
         if (t6) {
-            vdup(vow_s[692]);
-            return vow_s[692];
+            vdup(vow_s[695]);
+            return vow_s[695];
         }
         V t7 = l_n;
         V t8 = vneg(t7);
         V t9 = vint_to_str(t8);
-        V t10 = vstr_cat(vow_s[693], t9);
+        V t10 = vstr_cat(vow_s[696], t9);
         V t11 = vstr_cat(t10, vow_s[144]);
         vdrop(t10);
         vdrop(t9);
@@ -20893,28 +21351,28 @@ static V f_binop_term(V l_op, V l_a, V l_b) {
     vdup(t2);
     V t3 = t2;
     if (vstr_eq(t3, vow_s[85])) {
-        vdup(vow_s[694]);
+        vdup(vow_s[697]);
         vdrop(l_o);
-        l_o = vow_s[694];
+        l_o = vow_s[697];
     } else if (vstr_eq(t3, vow_s[210])) {
-        vdup(vow_s[695]);
+        vdup(vow_s[698]);
         vdrop(l_o);
-        l_o = vow_s[695];
+        l_o = vow_s[698];
     } else if (vstr_eq(t3, vow_s[212])) {
         vdup(vow_s[124]);
         vdrop(l_o);
         l_o = vow_s[124];
     } else if (vstr_eq(t3, vow_s[218])) {
-        vdup(vow_s[696]);
+        vdup(vow_s[699]);
         vdrop(l_o);
-        l_o = vow_s[696];
+        l_o = vow_s[699];
     } else if (vstr_eq(t3, vow_s[213])) {
         V t4 = l_a;
-        V t5 = vstr_cat(vow_s[697], t4);
+        V t5 = vstr_cat(vow_s[700], t4);
         V t6 = vstr_cat(t5, vow_s[76]);
         V t7 = l_b;
         V t8 = vstr_cat(t6, t7);
-        V t9 = vstr_cat(t8, vow_s[698]);
+        V t9 = vstr_cat(t8, vow_s[701]);
         vdrop(t8);
         vdrop(t6);
         vdrop(t5);
@@ -20941,6 +21399,402 @@ static V f_binop_term(V l_op, V l_a, V l_b) {
     vdrop(l_o);
     return t18;
     vdrop(l_o);
+    return 0;
+}
+
+static V f_eq_term(V * l_v, V l_op, V l_t, V l_a, V l_b) {
+    V t1 = l_t;
+    V t2 = f_ty_show(t1);
+    V t3 = (V)vstr_eq(t2, vow_s[449]);
+    vdrop(t2);
+    if (t3) {
+        V t4 = l_op;
+        V t5 = f_binop_term(t4, vow_s[702], vow_s[702]);
+        return t5;
+    }
+    V t6 = l_t;
+    V t7 = f_simple_eq(t6);
+    if (t7) {
+        V t8 = l_op;
+        V t9 = l_a;
+        V t10 = l_b;
+        V t11 = f_binop_term(t8, t9, t10);
+        return t11;
+    }
+    V t12 = l_t;
+    V t13 = l_a;
+    V t14 = l_b;
+    V t15 = f_val_eq(l_v, t12, t13, t14);
+    V l_term = t15;
+    V t16 = l_op;
+    V t17 = (V)vstr_eq(t16, vow_s[213]);
+    if (t17) {
+        V t18 = l_term;
+        V t19 = vstr_cat(vow_s[703], t18);
+        V t20 = vstr_cat(t19, vow_s[144]);
+        vdrop(t19);
+        vdrop(l_term);
+        return t20;
+    }
+    V t21 = l_term;
+    vdup(t21);
+    vdrop(l_term);
+    return t21;
+    vdrop(l_term);
+    return 0;
+}
+
+static V f_val_eq(V * l_v, V l_t, V l_a, V l_b) {
+    V t1 = l_t;
+    V t2 = f_ty_show(t1);
+    V t3 = (V)vstr_eq(t2, vow_s[449]);
+    vdrop(t2);
+    if (t3) {
+        vdup(vow_s[234]);
+        return vow_s[234];
+    }
+    V t4 = l_t;
+    V t5 = f_simple_eq(t4);
+    if (t5) {
+        V t6 = l_a;
+        V t7 = vstr_cat(vow_s[704], t6);
+        V t8 = vstr_cat(t7, vow_s[76]);
+        V t9 = l_b;
+        V t10 = vstr_cat(t8, t9);
+        V t11 = vstr_cat(t10, vow_s[144]);
+        vdrop(t10);
+        vdrop(t8);
+        vdrop(t7);
+        return t11;
+    }
+    V t12 = l_t;
+    V t13 = f_eq_fn(l_v, t12);
+    V l_f = t13;
+    V t14 = l_a;
+    V t15 = vstr_cat(vow_s[705], t14);
+    V t16 = vstr_cat(t15, vow_s[76]);
+    V t17 = l_b;
+    V t18 = vstr_cat(t16, t17);
+    V t19 = vstr_cat(t18, vow_s[706]);
+    V t20 = l_f;
+    V t21 = vstr_cat(t19, t20);
+    V t22 = vstr_cat(t21, vow_s[76]);
+    V t23 = l_a;
+    V t24 = vstr_cat(t22, t23);
+    V t25 = vstr_cat(t24, vow_s[76]);
+    V t26 = l_b;
+    V t27 = vstr_cat(t25, t26);
+    V t28 = vstr_cat(t27, vow_s[701]);
+    vdrop(t27);
+    vdrop(t25);
+    vdrop(t24);
+    vdrop(t22);
+    vdrop(t21);
+    vdrop(t19);
+    vdrop(t18);
+    vdrop(t16);
+    vdrop(t15);
+    vdrop(l_f);
+    return t28;
+    vdrop(l_f);
+    return 0;
+}
+
+static V f_eq_fn(V * l_v, V l_t) {
+    V t1 = l_t;
+    vdup(t1);
+    V t2 = t1;
+    V t3 = VP(t2)[0];
+    if (t3 == 10) {
+        V l_n = VP(t2)[1];
+        V t4 = l_n;
+        V t5 = vstr_cat(vow_s[707], t4);
+        V t6 = f_global_fn(l_v, t5, vow_s[708], vow_s[447]);
+        vdrop(t5);
+        vdrop(t2);
+        return t6;
+    } else {
+    }
+    vdrop(t2);
+    V t7 = l_t;
+    V t8 = f_ty_show(t7);
+    V t9 = f_mangle(t8);
+    V t10 = vstr_cat(vow_s[709], t9);
+    V l_name = t10;
+    vdrop(t9);
+    vdrop(t8);
+    V t11 = (*l_v);
+    V t12 = VP(t11)[6];
+    V t13 = l_name;
+    V t14 = vstr_cat(vow_s[710], t13);
+    V t15 = vstr_cat(t14, vow_s[711]);
+    V t16 = vmap_has(t12, t15, 5);
+    vdrop(t15);
+    vdrop(t14);
+    if (t16) {
+        V t17 = l_name;
+        vdup(t17);
+        vdrop(l_name);
+        return t17;
+    }
+    V t18 = l_name;
+    V t19 = f_global_fn(l_v, t18, vow_s[708], vow_s[447]);
+    (void)t19;
+    vdrop(t19);
+    V t20 = l_t;
+    V t21 = f_eq_body(l_v, t20);
+    V l_body = t21;
+    V t22 = l_name;
+    V t23 = vstr_cat(vow_s[142], t22);
+    V t24 = vstr_cat(t23, vow_s[712]);
+    V l_app = t24;
+    vdrop(t23);
+    V t25 = l_app;
+    V t26 = vstr_cat(vow_s[713], t25);
+    V t27 = vstr_cat(t26, vow_s[76]);
+    V t28 = l_body;
+    V t29 = vstr_cat(t27, t28);
+    V t30 = vstr_cat(t29, vow_s[714]);
+    V t31 = l_app;
+    V t32 = vstr_cat(t30, t31);
+    V t33 = vstr_cat(t32, vow_s[715]);
+    V l_ax = t33;
+    vdrop(t32);
+    vdrop(t30);
+    vdrop(t29);
+    vdrop(t27);
+    vdrop(t26);
+    V t34 = vow_steal((*l_v), 6);
+    V t35 = l_ax;
+    vdup(t35);
+    V t36 = vmap_insert(t34, t35, 1, 5);
+    V t37 = vow_with((*l_v));
+    vdrop(VP(t37)[6]);
+    VP(t37)[6] = t36;
+    (*l_v) = t37;
+    V t38 = l_name;
+    vdup(t38);
+    vdrop(l_ax);
+    vdrop(l_app);
+    vdrop(l_body);
+    vdrop(l_name);
+    return t38;
+    vdrop(l_ax);
+    vdrop(l_app);
+    vdrop(l_body);
+    vdrop(l_name);
+    return 0;
+}
+
+static V f_eq_body(V * l_v, V l_t) {
+    V t1 = l_t;
+    vdup(t1);
+    V t2 = t1;
+    V t3 = VP(t2)[0];
+    if (t3 == 8) {
+        V l_n = VP(t2)[1];
+        V t4 = vlist_empty(1);
+        V l_parts = t4;
+        V t5 = (*l_v);
+        V t6 = VP(t5)[0];
+        V t7 = l_n;
+        V t8 = f_struct_fields(t6, t7);
+        V t9 = t8;
+        for (int64_t t10 = 0; t10 < VL(t9)->len; t10++) {
+            V l_fl = VB(VL(t9)->buf)->items[t10];
+            V t11 = l_n;
+            V t12 = l_fl;
+            V t13 = VP(t12)[0];
+            V t14 = l_fl;
+            V t15 = VP(t14)[1];
+            V t16 = VP(t15)[0];
+            V t17 = f_field_fn(l_v, t11, t13, t16);
+            V l_f = t17;
+            V t18 = l_fl;
+            V t19 = VP(t18)[1];
+            V t20 = VP(t19)[0];
+            V t21 = l_f;
+            V t22 = vstr_cat(vow_s[142], t21);
+            V t23 = vstr_cat(t22, vow_s[716]);
+            V t24 = l_f;
+            V t25 = vstr_cat(vow_s[142], t24);
+            V t26 = vstr_cat(t25, vow_s[717]);
+            V t27 = f_val_eq(l_v, t20, t23, t26);
+            V t28 = vlist_push(l_parts, t27);
+            l_parts = t28;
+            vdrop(t26);
+            vdrop(t25);
+            vdrop(t23);
+            vdrop(t22);
+            vdrop(l_f);
+        }
+        vdrop(t9);
+        V t29 = l_parts;
+        V t30 = f_and_all(t29);
+        vdrop(l_parts);
+        vdrop(t2);
+        return t30;
+        vdrop(l_parts);
+    } else if (t3 == 4) {
+        V l_et = VP(t2)[1];
+        V t31 = l_et;
+        V t32 = f_sort_of(t31);
+        V t33 = vstr_cat(vow_s[718], t32);
+        V t34 = vstr_cat(t33, vow_s[719]);
+        V l_at = t34;
+        vdrop(t33);
+        vdrop(t32);
+        V t35 = l_et;
+        V t36 = f_sort_of(t35);
+        V t37 = vstr_cat(vow_s[718], t36);
+        V t38 = vstr_cat(t37, vow_s[720]);
+        V l_bt = t38;
+        vdrop(t37);
+        vdrop(t36);
+        V t39 = l_et;
+        V t40 = l_at;
+        V t41 = l_bt;
+        V t42 = f_val_eq(l_v, t39, t40, t41);
+        V t43 = vstr_cat(vow_s[721], t42);
+        V t44 = vstr_cat(t43, vow_s[144]);
+        V l_each = t44;
+        vdrop(t43);
+        vdrop(t42);
+        V t45 = l_each;
+        V t46 = vstr_cat(vow_s[722], t45);
+        V t47 = vstr_cat(t46, vow_s[723]);
+        V t48 = l_at;
+        V t49 = vstr_cat(t47, t48);
+        V t50 = vstr_cat(t49, vow_s[714]);
+        V t51 = l_bt;
+        V t52 = vstr_cat(t50, t51);
+        V t53 = vstr_cat(t52, vow_s[715]);
+        vdrop(t52);
+        vdrop(t50);
+        vdrop(t49);
+        vdrop(t47);
+        vdrop(t46);
+        vdrop(l_each);
+        vdrop(l_bt);
+        vdrop(l_at);
+        vdrop(t2);
+        return t53;
+        vdrop(l_each);
+        vdrop(l_bt);
+        vdrop(l_at);
+    } else {
+    }
+    vdrop(t2);
+    V t54 = l_t;
+    V t55 = f_ty_show(t54);
+    V l_ename = t55;
+    V t56 = l_t;
+    vdup(t56);
+    V t57 = t56;
+    V t58 = VP(t57)[0];
+    if (t58 == 7) {
+        V l_x = VP(t57)[1];
+        vdup(vow_s[163]);
+        vdrop(l_ename);
+        l_ename = vow_s[163];
+    } else {
+    }
+    vdrop(t57);
+    V t59 = (*l_v);
+    V t60 = VP(t59)[0];
+    V t61 = l_t;
+    V t62 = f_variants_of(t60, t61);
+    V t63 = t62;
+    V t64 = VP(t63)[0];
+    if (t64 == 1) {
+        V l_vs = VP(t63)[1];
+        V t65 = vlist_empty(1);
+        vdup(vow_s[724]);
+        t65 = vlist_push(t65, vow_s[724]);
+        V l_parts = t65;
+        V t66 = l_vs;
+        V t67 = vlist_len(t66);
+        for (V l_i = (V)INT64_C(0); VI(l_i) < VI(t67); l_i = (V)(VI(l_i) + 1)) {
+            V t68 = vlist_empty(1);
+            V l_fs = t68;
+            V t69 = l_vs;
+            V t70 = l_i;
+            V t71 = vlist_get(t69, t70);
+            V t72 = VP(t71)[1];
+            vdup(t72);
+            V t73 = t72;
+            for (int64_t t74 = 0; t74 < VL(t73)->len; t74++) {
+                V l_fl = VB(VL(t73)->buf)->items[t74];
+                V t75 = l_ename;
+                V t76 = l_vs;
+                V t77 = l_i;
+                V t78 = vlist_get(t76, t77);
+                V t79 = VP(t78)[0];
+                V t80 = l_fl;
+                V t81 = VP(t80)[0];
+                V t82 = l_fl;
+                V t83 = VP(t82)[1];
+                V t84 = VP(t83)[0];
+                V t85 = f_vfield_fn(l_v, t75, t79, t81, t84);
+                V l_f = t85;
+                V t86 = l_fl;
+                V t87 = VP(t86)[1];
+                V t88 = VP(t87)[0];
+                V t89 = l_f;
+                V t90 = vstr_cat(vow_s[142], t89);
+                V t91 = vstr_cat(t90, vow_s[716]);
+                V t92 = l_f;
+                V t93 = vstr_cat(vow_s[142], t92);
+                V t94 = vstr_cat(t93, vow_s[717]);
+                V t95 = f_val_eq(l_v, t88, t91, t94);
+                V t96 = vlist_push(l_fs, t95);
+                l_fs = t96;
+                vdrop(t94);
+                vdrop(t93);
+                vdrop(t91);
+                vdrop(t90);
+                vdrop(l_f);
+            }
+            vdrop(t73);
+            V t97 = l_fs;
+            V t98 = vlist_len(t97);
+            V t99 = (V)(VI(t98) > VI((V)INT64_C(0)));
+            if (t99) {
+                V t100 = l_i;
+                V t101 = vint_to_str(t100);
+                V t102 = vstr_cat(vow_s[725], t101);
+                V t103 = vstr_cat(t102, vow_s[726]);
+                V t104 = l_fs;
+                V t105 = f_and_all(t104);
+                V t106 = vstr_cat(t103, t105);
+                V t107 = vstr_cat(t106, vow_s[144]);
+                V t108 = vlist_push(l_parts, t107);
+                l_parts = t108;
+                vdrop(t106);
+                vdrop(t105);
+                vdrop(t103);
+                vdrop(t102);
+                vdrop(t101);
+            }
+            vdrop(l_fs);
+        }
+        V t109 = l_parts;
+        V t110 = f_and_all(t109);
+        vdrop(l_parts);
+        vdrop(t63);
+        vdrop(l_ename);
+        return t110;
+        vdrop(l_parts);
+    } else if (t64 == 0) {
+        vdup(vow_s[235]);
+        vdrop(t63);
+        vdrop(l_ename);
+        return vow_s[235];
+    } else {
+        vow_panic("unreachable: corrupt enum tag");
+    }
+    vdrop(t63);
+    vdrop(l_ename);
     return 0;
 }
 
@@ -21247,12 +22101,12 @@ static V f_fresh(V * l_v, V l_sort) {
     V t5 = (*l_v);
     V t6 = VP(t5)[1];
     V t7 = vint_to_str(t6);
-    V t8 = vstr_cat(vow_s[699], t7);
+    V t8 = vstr_cat(vow_s[727], t7);
     V l_name = t8;
     vdrop(t7);
     V t9 = vow_steal((*l_v), 2);
     V t10 = l_name;
-    V t11 = vstr_cat(vow_s[700], t10);
+    V t11 = vstr_cat(vow_s[728], t10);
     V t12 = vstr_cat(t11, vow_s[76]);
     V t13 = l_sort;
     V t14 = vstr_cat(t12, t13);
@@ -21278,11 +22132,11 @@ static V f_define(V * l_v, V l_sort, V l_term) {
     V t2 = f_fresh(l_v, t1);
     V l_c = t2;
     V t3 = l_c;
-    V t4 = vstr_cat(vow_s[701], t3);
+    V t4 = vstr_cat(vow_s[729], t3);
     V t5 = vstr_cat(t4, vow_s[76]);
     V t6 = l_term;
     V t7 = vstr_cat(t5, t6);
-    V t8 = vstr_cat(t7, vow_s[698]);
+    V t8 = vstr_cat(t7, vow_s[701]);
     V t9 = f_add_def(l_v, t8);
     (void)t9;
     vdrop(t8);
@@ -21324,11 +22178,11 @@ static V f_add_qdef(V * l_v, V l_d) {
 static V f_global_fn(V * l_v, V l_name, V l_args, V l_sort) {
     V t1 = vow_steal((*l_v), 6);
     V t2 = l_name;
-    V t3 = vstr_cat(vow_s[702], t2);
+    V t3 = vstr_cat(vow_s[710], t2);
     V t4 = vstr_cat(t3, vow_s[59]);
     V t5 = l_args;
     V t6 = vstr_cat(t4, t5);
-    V t7 = vstr_cat(t6, vow_s[703]);
+    V t7 = vstr_cat(t6, vow_s[726]);
     V t8 = l_sort;
     V t9 = vstr_cat(t7, t8);
     V t10 = vstr_cat(t9, vow_s[144]);
@@ -21354,13 +22208,13 @@ static V f_field_fn(V * l_v, V l_sname, V l_field, V l_t) {
     if (t2) {
         V t3 = l_sname;
         V t4 = f_mangle(t3);
-        V t5 = vstr_cat(vow_s[704], t4);
-        V t6 = vstr_cat(t5, vow_s[551]);
+        V t5 = vstr_cat(vow_s[730], t4);
+        V t6 = vstr_cat(t5, vow_s[552]);
         V t7 = l_field;
         V t8 = vstr_cat(t6, t7);
         V t9 = l_t;
         V t10 = f_sort_of(t9);
-        V t11 = f_global_fn(l_v, t8, vow_s[690], t10);
+        V t11 = f_global_fn(l_v, t8, vow_s[693], t10);
         vdrop(t10);
         vdrop(t8);
         vdrop(t6);
@@ -21369,13 +22223,13 @@ static V f_field_fn(V * l_v, V l_sname, V l_field, V l_t) {
         return t11;
     }
     V t12 = l_sname;
-    V t13 = vstr_cat(vow_s[705], t12);
-    V t14 = vstr_cat(t13, vow_s[551]);
+    V t13 = vstr_cat(vow_s[731], t12);
+    V t14 = vstr_cat(t13, vow_s[552]);
     V t15 = l_field;
     V t16 = vstr_cat(t14, t15);
     V t17 = l_t;
     V t18 = f_sort_of(t17);
-    V t19 = f_global_fn(l_v, t16, vow_s[690], t18);
+    V t19 = f_global_fn(l_v, t16, vow_s[693], t18);
     vdrop(t18);
     vdrop(t16);
     vdrop(t14);
@@ -21386,14 +22240,14 @@ static V f_field_fn(V * l_v, V l_sname, V l_field, V l_t) {
 
 static V f_vfield_fn(V * l_v, V l_ename, V l_vname, V l_field, V l_t) {
     V t1 = l_ename;
-    V t2 = vstr_eq(t1, vow_s[163]);
+    V t2 = (V)vstr_eq(t1, vow_s[163]);
     if (t2) {
         V t3 = l_t;
         V t4 = f_sort_of(t3);
-        V t5 = vstr_cat(vow_s[706], t4);
+        V t5 = vstr_cat(vow_s[732], t4);
         V t6 = l_t;
         V t7 = f_sort_of(t6);
-        V t8 = f_global_fn(l_v, t5, vow_s[690], t7);
+        V t8 = f_global_fn(l_v, t5, vow_s[693], t7);
         vdrop(t7);
         vdrop(t5);
         vdrop(t4);
@@ -21404,16 +22258,16 @@ static V f_vfield_fn(V * l_v, V l_ename, V l_vname, V l_field, V l_t) {
     if (t10) {
         V t11 = l_ename;
         V t12 = f_mangle(t11);
-        V t13 = vstr_cat(vow_s[707], t12);
-        V t14 = vstr_cat(t13, vow_s[551]);
+        V t13 = vstr_cat(vow_s[733], t12);
+        V t14 = vstr_cat(t13, vow_s[552]);
         V t15 = l_vname;
         V t16 = vstr_cat(t14, t15);
-        V t17 = vstr_cat(t16, vow_s[551]);
+        V t17 = vstr_cat(t16, vow_s[552]);
         V t18 = l_field;
         V t19 = vstr_cat(t17, t18);
         V t20 = l_t;
         V t21 = f_sort_of(t20);
-        V t22 = f_global_fn(l_v, t19, vow_s[690], t21);
+        V t22 = f_global_fn(l_v, t19, vow_s[693], t21);
         vdrop(t21);
         vdrop(t19);
         vdrop(t17);
@@ -21424,16 +22278,16 @@ static V f_vfield_fn(V * l_v, V l_ename, V l_vname, V l_field, V l_t) {
         return t22;
     }
     V t23 = l_ename;
-    V t24 = vstr_cat(vow_s[708], t23);
-    V t25 = vstr_cat(t24, vow_s[551]);
+    V t24 = vstr_cat(vow_s[734], t23);
+    V t25 = vstr_cat(t24, vow_s[552]);
     V t26 = l_vname;
     V t27 = vstr_cat(t25, t26);
-    V t28 = vstr_cat(t27, vow_s[551]);
+    V t28 = vstr_cat(t27, vow_s[552]);
     V t29 = l_field;
     V t30 = vstr_cat(t28, t29);
     V t31 = l_t;
     V t32 = f_sort_of(t31);
-    V t33 = f_global_fn(l_v, t30, vow_s[690], t32);
+    V t33 = f_global_fn(l_v, t30, vow_s[693], t32);
     vdrop(t32);
     vdrop(t30);
     vdrop(t28);
@@ -21484,7 +22338,7 @@ static V f_env_term(V l_st, V l_n) {
         return t8;
     } else if (t6 == 0) {
         V t9 = l_n;
-        V t10 = vstr_cat(vow_s[709], t9);
+        V t10 = vstr_cat(vow_s[735], t9);
         vdrop(t5);
         return t10;
     } else {
@@ -21546,11 +22400,11 @@ static V f_obligation(V * l_v, V l_st, V l_pos, V l_what, V l_goal) {
             } else if (t18 == 4) {
                 V l_e = VP(t17)[1];
                 V t29 = l_n;
-                V t30 = vstr_cat(vow_s[710], t29);
+                V t30 = vstr_cat(vow_s[736], t29);
                 V t31 = vstr_cat(t30, vow_s[144]);
                 V t32 = l_x;
                 V t33 = VP(t32)[0];
-                V t34 = vstr_cat(vow_s[711], t33);
+                V t34 = vstr_cat(vow_s[737], t33);
                 V t35 = vstr_cat(t34, vow_s[144]);
                 V t36 = vow_fields(2, UINT64_C(3));
                 VP(t36)[0] = t31;
@@ -21561,11 +22415,11 @@ static V f_obligation(V * l_v, V l_st, V l_pos, V l_what, V l_goal) {
                 vdrop(t30);
             } else if (t18 == 2) {
                 V t38 = l_n;
-                V t39 = vstr_cat(vow_s[710], t38);
+                V t39 = vstr_cat(vow_s[736], t38);
                 V t40 = vstr_cat(t39, vow_s[144]);
                 V t41 = l_x;
                 V t42 = VP(t41)[0];
-                V t43 = vstr_cat(vow_s[711], t42);
+                V t43 = vstr_cat(vow_s[737], t42);
                 V t44 = vstr_cat(t43, vow_s[144]);
                 V t45 = vow_fields(2, UINT64_C(3));
                 VP(t45)[0] = t40;
@@ -21578,11 +22432,11 @@ static V f_obligation(V * l_v, V l_st, V l_pos, V l_what, V l_goal) {
                 V l_k = VP(t17)[1];
                 V l_vv = VP(t17)[2];
                 V t47 = l_n;
-                V t48 = vstr_cat(vow_s[710], t47);
+                V t48 = vstr_cat(vow_s[736], t47);
                 V t49 = vstr_cat(t48, vow_s[144]);
                 V t50 = l_x;
                 V t51 = VP(t50)[0];
-                V t52 = vstr_cat(vow_s[711], t51);
+                V t52 = vstr_cat(vow_s[737], t51);
                 V t53 = vstr_cat(t52, vow_s[144]);
                 V t54 = vow_fields(2, UINT64_C(3));
                 VP(t54)[0] = t49;
@@ -21595,11 +22449,11 @@ static V f_obligation(V * l_v, V l_st, V l_pos, V l_what, V l_goal) {
                 V l_k = VP(t17)[1];
                 V l_vv = VP(t17)[2];
                 V t56 = l_n;
-                V t57 = vstr_cat(vow_s[710], t56);
+                V t57 = vstr_cat(vow_s[736], t56);
                 V t58 = vstr_cat(t57, vow_s[144]);
                 V t59 = l_x;
                 V t60 = VP(t59)[0];
-                V t61 = vstr_cat(vow_s[711], t60);
+                V t61 = vstr_cat(vow_s[737], t60);
                 V t62 = vstr_cat(t61, vow_s[144]);
                 V t63 = vow_fields(2, UINT64_C(3));
                 VP(t63)[0] = t58;
@@ -21663,16 +22517,16 @@ static V f_str_const(V * l_v, V l_s) {
         vow_panic("unreachable: corrupt enum tag");
     }
     vdrop(t5);
-    V t8 = f_fresh(l_v, vow_s[690]);
+    V t8 = f_fresh(l_v, vow_s[693]);
     V l_c = t8;
     V t9 = l_c;
-    V t10 = vstr_cat(vow_s[712], t9);
-    V t11 = vstr_cat(t10, vow_s[703]);
+    V t10 = vstr_cat(vow_s[738], t9);
+    V t11 = vstr_cat(t10, vow_s[726]);
     V t12 = l_s;
     V t13 = vstr_len(t12);
     V t14 = vint_to_str(t13);
     V t15 = vstr_cat(t11, t14);
-    V t16 = vstr_cat(t15, vow_s[698]);
+    V t16 = vstr_cat(t15, vow_s[701]);
     V t17 = f_add_def(l_v, t16);
     (void)t17;
     vdrop(t16);
@@ -21696,18 +22550,18 @@ static V f_str_const(V * l_v, V l_s) {
         V t26 = (V)(VI(t23) < VI(t25));
         if (t26) {
             V t27 = l_c;
-            V t28 = vstr_cat(vow_s[713], t27);
+            V t28 = vstr_cat(vow_s[739], t27);
             V t29 = vstr_cat(t28, vow_s[76]);
             V t30 = l_i;
             V t31 = vint_to_str(t30);
             V t32 = vstr_cat(t29, t31);
-            V t33 = vstr_cat(t32, vow_s[703]);
+            V t33 = vstr_cat(t32, vow_s[726]);
             V t34 = l_s;
             V t35 = l_i;
             V t36 = vstr_byte(t34, t35);
             V t37 = vint_to_str(t36);
             V t38 = vstr_cat(t33, t37);
-            V t39 = vstr_cat(t38, vow_s[698]);
+            V t39 = vstr_cat(t38, vow_s[701]);
             V t40 = f_add_def(l_v, t39);
             (void)t40;
             vdrop(t39);
@@ -21902,7 +22756,7 @@ static V f_verify_fn(V * l_v, V l_f) {
             (void)t77;
             V t78 = l_p;
             V t79 = VP(t78)[0];
-            V t80 = vstr_cat(t79, vow_s[714]);
+            V t80 = vstr_cat(t79, vow_s[740]);
             V t81 = l_pr;
             V t82 = f_pretty_expr(t81);
             V t83 = vstr_cat(t80, t82);
@@ -21996,7 +22850,7 @@ static V f_verify_fn(V * l_v, V l_f) {
         V t130 = VP(t129)[3];
         V t131 = VP(t130)[0];
         V t132 = f_ty_show(t131);
-        V t133 = vstr_eq(t132, vow_s[449]);
+        V t133 = (V)vstr_eq(t132, vow_s[449]);
         t128 = t133;
         vdrop(t132);
     }
@@ -22004,7 +22858,7 @@ static V f_verify_fn(V * l_v, V l_f) {
         V t134 = l_st;
         V t135 = l_f;
         V t136 = VP(t135)[9];
-        V t137 = f_check_post(l_v, t134, t136, vow_s[715]);
+        V t137 = f_check_post(l_v, t134, t136, vow_s[702]);
         (void)t137;
     }
     V t138 = l_f;
@@ -22060,8 +22914,8 @@ static V f_check_post(V * l_v, V l_st, V l_pos, V l_val) {
         V t12 = l_pos;
         V t13 = vdup((*l_v));
         V t14 = VP(t13)[9];
-        V t15 = vstr_cat(vow_s[716], t14);
-        V t16 = vstr_cat(t15, vow_s[717]);
+        V t15 = vstr_cat(vow_s[741], t14);
+        V t16 = vstr_cat(t15, vow_s[742]);
         V t17 = l_p;
         V t18 = f_pretty_expr(t17);
         V t19 = vstr_cat(t16, t18);
@@ -22094,8 +22948,8 @@ static V f_check_post(V * l_v, V l_st, V l_pos, V l_val) {
         V t32 = l_pos;
         V t33 = vdup((*l_v));
         V t34 = VP(t33)[9];
-        V t35 = vstr_cat(vow_s[718], t34);
-        V t36 = vstr_cat(t35, vow_s[719]);
+        V t35 = vstr_cat(vow_s[743], t34);
+        V t36 = vstr_cat(t35, vow_s[744]);
         V t37 = l_e;
         V t38 = f_pretty_expr(t37);
         V t39 = vstr_cat(t36, t38);
@@ -22248,7 +23102,7 @@ static V f_sexpr(V * l_v, V l_e, V l_sp) {
             return t16;
         } else if (t15 == 0) {
             V t17 = l_n;
-            V t18 = vstr_cat(vow_s[709], t17);
+            V t18 = vstr_cat(vow_s[735], t17);
             vdrop(t14);
             vdrop(t3);
             return t18;
@@ -22332,7 +23186,7 @@ static V f_sexpr(V * l_v, V l_e, V l_sp) {
         V l_a0 = t52;
         V t53 = l_ci;
         V t54 = VP(t53)[0];
-        V t55 = vstr_eq(t54, vow_s[642]);
+        V t55 = (V)vstr_eq(t54, vow_s[645]);
         if (t55) {
             V t56 = l_ci;
             V t57 = VP(t56)[1];
@@ -22346,10 +23200,10 @@ static V f_sexpr(V * l_v, V l_e, V l_sp) {
         }
         V t60 = l_ci;
         V t61 = VP(t60)[1];
-        V t62 = vstr_eq(t61, vow_s[454]);
+        V t62 = (V)vstr_eq(t61, vow_s[454]);
         if (t62) {
             V t63 = l_a0;
-            V t64 = vstr_cat(vow_s[711], t63);
+            V t64 = vstr_cat(vow_s[737], t63);
             V t65 = vstr_cat(t64, vow_s[144]);
             vdrop(t64);
             vdrop(l_a0);
@@ -22360,11 +23214,11 @@ static V f_sexpr(V * l_v, V l_e, V l_sp) {
         } else {
             V t66 = l_ci;
             V t67 = VP(t66)[1];
-            V t68 = vstr_eq(t67, vow_s[459]);
+            V t68 = (V)vstr_eq(t67, vow_s[459]);
             if (t68) {
                 V t69 = l_a0;
-                V t70 = vstr_cat(vow_s[720], t69);
-                V t71 = vstr_cat(t70, vow_s[721]);
+                V t70 = vstr_cat(vow_s[745], t69);
+                V t71 = vstr_cat(t70, vow_s[746]);
                 vdrop(t70);
                 vdrop(l_a0);
                 vdrop(l_p);
@@ -22374,11 +23228,11 @@ static V f_sexpr(V * l_v, V l_e, V l_sp) {
             } else {
                 V t72 = l_ci;
                 V t73 = VP(t72)[1];
-                V t74 = vstr_eq(t73, vow_s[460]);
+                V t74 = (V)vstr_eq(t73, vow_s[460]);
                 if (t74) {
                     V t75 = l_a0;
-                    V t76 = vstr_cat(vow_s[720], t75);
-                    V t77 = vstr_cat(t76, vow_s[722]);
+                    V t76 = vstr_cat(vow_s[745], t75);
+                    V t77 = vstr_cat(t76, vow_s[747]);
                     vdrop(t76);
                     vdrop(l_a0);
                     vdrop(l_p);
@@ -22397,14 +23251,14 @@ static V f_sexpr(V * l_v, V l_e, V l_sp) {
         vdrop(t81);
         vdrop(t78);
         V t83 = l_a0;
-        V t84 = vstr_cat(vow_s[723], t83);
-        V t85 = vstr_cat(t84, vow_s[724]);
+        V t84 = vstr_cat(vow_s[748], t83);
+        V t85 = vstr_cat(t84, vow_s[749]);
         V t86 = l_f;
         V t87 = vstr_cat(t85, t86);
         V t88 = vstr_cat(t87, vow_s[76]);
         V t89 = l_a0;
         V t90 = vstr_cat(t88, t89);
-        V t91 = vstr_cat(t90, vow_s[703]);
+        V t91 = vstr_cat(t90, vow_s[726]);
         V t92 = l_p;
         V t93 = f_arg_str(t92, (V)INT64_C(1));
         V t94 = vstr_cat(t91, t93);
@@ -22560,7 +23414,7 @@ static V f_sexpr(V * l_v, V l_e, V l_sp) {
         V t156 = VP(t155)[0];
         if (t156 == 2) {
             V t157 = l_ov;
-            V t158 = vstr_cat(vow_s[725], t157);
+            V t158 = vstr_cat(vow_s[750], t157);
             V t159 = vstr_cat(t158, vow_s[76]);
             V t160 = l_iv;
             V t161 = vstr_cat(t159, t160);
@@ -22578,7 +23432,7 @@ static V f_sexpr(V * l_v, V l_e, V l_sp) {
             V l_t = VP(t155)[1];
             V t163 = l_t;
             V t164 = f_sort_of(t163);
-            V t165 = vstr_cat(vow_s[726], t164);
+            V t165 = vstr_cat(vow_s[718], t164);
             V t166 = vstr_cat(t165, vow_s[76]);
             V t167 = l_ov;
             V t168 = vstr_cat(t166, t167);
@@ -22620,10 +23474,10 @@ static V f_sexpr(V * l_v, V l_e, V l_sp) {
         V t176 = f_sexpr(l_v, t174, t175);
         V l_a = t176;
         V t177 = l_op;
-        V t178 = vstr_eq(t177, vow_s[202]);
+        V t178 = (V)vstr_eq(t177, vow_s[202]);
         if (t178) {
             V t179 = l_a;
-            V t180 = vstr_cat(vow_s[693], t179);
+            V t180 = vstr_cat(vow_s[696], t179);
             V t181 = vstr_cat(t180, vow_s[144]);
             vdrop(t180);
             vdrop(l_a);
@@ -22631,7 +23485,7 @@ static V f_sexpr(V * l_v, V l_e, V l_sp) {
             return t181;
         }
         V t182 = l_a;
-        V t183 = vstr_cat(vow_s[727], t182);
+        V t183 = vstr_cat(vow_s[703], t182);
         V t184 = vstr_cat(t183, vow_s[144]);
         vdrop(t183);
         vdrop(l_a);
@@ -22651,13 +23505,37 @@ static V f_sexpr(V * l_v, V l_e, V l_sp) {
         V t190 = f_sexpr(l_v, t188, t189);
         V l_b = t190;
         V t191 = l_op;
-        V t192 = l_a;
-        V t193 = l_b;
-        V t194 = f_binop_term(t191, t192, t193);
+        V t192 = (V)vstr_eq(t191, vow_s[212]);
+        V t193 = t192;
+        if (!t193) {
+            V t194 = l_op;
+            V t195 = (V)vstr_eq(t194, vow_s[213]);
+            t193 = t195;
+        }
+        if (t193) {
+            V t196 = l_op;
+            V t197 = vdup((*l_v));
+            V t198 = VP(t197)[0];
+            V t199 = l_l;
+            V t200 = f_type_of(t198, t199);
+            V t201 = l_a;
+            V t202 = l_b;
+            V t203 = f_eq_term(l_v, t196, t200, t201, t202);
+            vdrop(t200);
+            vdrop(t197);
+            vdrop(l_b);
+            vdrop(l_a);
+            vdrop(t3);
+            return t203;
+        }
+        V t204 = l_op;
+        V t205 = l_a;
+        V t206 = l_b;
+        V t207 = f_binop_term(t204, t205, t206);
         vdrop(l_b);
         vdrop(l_a);
         vdrop(t3);
-        return t194;
+        return t207;
         vdrop(l_b);
         vdrop(l_a);
     } else {
@@ -22745,14 +23623,14 @@ static V f_content_fn(V l_t) {
     V t2 = t1;
     V t3 = VP(t2)[0];
     if (t3 == 2) {
-        vdup(vow_s[728]);
+        vdup(vow_s[751]);
         vdrop(t2);
-        return vow_s[728];
+        return vow_s[751];
     } else if (t3 == 4) {
         V l_e = VP(t2)[1];
         V t4 = l_e;
         V t5 = f_sort_of(t4);
-        V t6 = vstr_cat(vow_s[729], t5);
+        V t6 = vstr_cat(vow_s[752], t5);
         vdrop(t5);
         vdrop(t2);
         return t6;
@@ -22775,7 +23653,7 @@ static V f_fresh_q(V * l_v) {
     V t5 = (*l_v);
     V t6 = VP(t5)[1];
     V t7 = vint_to_str(t6);
-    V t8 = vstr_cat(vow_s[730], t7);
+    V t8 = vstr_cat(vow_s[753], t7);
     vdrop(t7);
     return t8;
     return 0;
@@ -22783,26 +23661,26 @@ static V f_fresh_q(V * l_v) {
 
 static V f_quant_term(V l_q, V l_v, V l_lo, V l_hi, V l_body) {
     V t1 = l_q;
-    V t2 = vstr_eq(t1, vow_s[238]);
+    V t2 = (V)vstr_eq(t1, vow_s[238]);
     if (t2) {
         V t3 = l_v;
-        V t4 = vstr_cat(vow_s[731], t3);
-        V t5 = vstr_cat(t4, vow_s[732]);
+        V t4 = vstr_cat(vow_s[754], t3);
+        V t5 = vstr_cat(t4, vow_s[755]);
         V t6 = l_lo;
         V t7 = vstr_cat(t5, t6);
         V t8 = vstr_cat(t7, vow_s[76]);
         V t9 = l_v;
         V t10 = vstr_cat(t8, t9);
-        V t11 = vstr_cat(t10, vow_s[733]);
+        V t11 = vstr_cat(t10, vow_s[756]);
         V t12 = l_v;
         V t13 = vstr_cat(t11, t12);
         V t14 = vstr_cat(t13, vow_s[76]);
         V t15 = l_hi;
         V t16 = vstr_cat(t14, t15);
-        V t17 = vstr_cat(t16, vow_s[734]);
+        V t17 = vstr_cat(t16, vow_s[757]);
         V t18 = l_body;
         V t19 = vstr_cat(t17, t18);
-        V t20 = vstr_cat(t19, vow_s[698]);
+        V t20 = vstr_cat(t19, vow_s[701]);
         vdrop(t19);
         vdrop(t17);
         vdrop(t16);
@@ -22817,23 +23695,23 @@ static V f_quant_term(V l_q, V l_v, V l_lo, V l_hi, V l_body) {
         return t20;
     }
     V t21 = l_v;
-    V t22 = vstr_cat(vow_s[735], t21);
-    V t23 = vstr_cat(t22, vow_s[736]);
+    V t22 = vstr_cat(vow_s[758], t21);
+    V t23 = vstr_cat(t22, vow_s[759]);
     V t24 = l_lo;
     V t25 = vstr_cat(t23, t24);
     V t26 = vstr_cat(t25, vow_s[76]);
     V t27 = l_v;
     V t28 = vstr_cat(t26, t27);
-    V t29 = vstr_cat(t28, vow_s[733]);
+    V t29 = vstr_cat(t28, vow_s[756]);
     V t30 = l_v;
     V t31 = vstr_cat(t29, t30);
     V t32 = vstr_cat(t31, vow_s[76]);
     V t33 = l_hi;
     V t34 = vstr_cat(t32, t33);
-    V t35 = vstr_cat(t34, vow_s[703]);
+    V t35 = vstr_cat(t34, vow_s[726]);
     V t36 = l_body;
     V t37 = vstr_cat(t35, t36);
-    V t38 = vstr_cat(t37, vow_s[698]);
+    V t38 = vstr_cat(t37, vow_s[701]);
     vdrop(t37);
     vdrop(t35);
     vdrop(t34);
@@ -22953,7 +23831,7 @@ static V f_translatable(V l_v, V l_e) {
             V l_ci = VP(t38)[1];
             V t40 = l_ci;
             V t41 = VP(t40)[0];
-            V t42 = vstr_eq(t41, vow_s[640]);
+            V t42 = (V)vstr_eq(t41, vow_s[643]);
             if (t42) {
                 V t43 = l_ci;
                 V t44 = VP(t43)[1];
@@ -22962,7 +23840,7 @@ static V f_translatable(V l_v, V l_e) {
             } else {
                 V t46 = l_ci;
                 V t47 = VP(t46)[0];
-                V t48 = vstr_eq(t47, vow_s[642]);
+                V t48 = (V)vstr_eq(t47, vow_s[645]);
                 if (t48) {
                     V t49 = l_v;
                     V t50 = VP(t49)[0];
@@ -23164,7 +24042,7 @@ static V f_assume_preds(V * l_v, V * l_st, V l_name, V l_preds, V l_term) {
         V t9 = f_add_fact(l_st, t8);
         (void)t9;
         V t10 = l_name;
-        V t11 = vstr_cat(t10, vow_s[714]);
+        V t11 = vstr_cat(t10, vow_s[740]);
         V t12 = l_p;
         V t13 = f_pretty_expr(t12);
         V t14 = vstr_cat(t11, t13);
@@ -23194,7 +24072,7 @@ static V f_check_preds(V * l_v, V l_st, V l_pos, V l_name, V l_preds, V l_term) 
         V t9 = l_pos;
         V t10 = l_name;
         V t11 = vstr_cat(vow_s[92], t10);
-        V t12 = vstr_cat(t11, vow_s[717]);
+        V t12 = vstr_cat(t11, vow_s[742]);
         V t13 = l_p;
         V t14 = f_pretty_expr(t13);
         V t15 = vstr_cat(t12, t14);
@@ -23226,7 +24104,7 @@ static V f_check_entry(V * l_v, V l_st, V l_invs) {
         V t9 = VP(t8)[1];
         V t10 = l_i;
         V t11 = f_pretty_expr(t10);
-        V t12 = vstr_cat(vow_s[737], t11);
+        V t12 = vstr_cat(vow_s[760], t11);
         V t13 = l_g;
         V t14 = f_obligation(l_v, t7, t9, t12, t13);
         (void)t14;
@@ -23252,7 +24130,7 @@ static V f_check_invs(V * l_v, V l_st, V l_invs, V l_what) {
         V t8 = l_i;
         V t9 = VP(t8)[1];
         V t10 = l_what;
-        V t11 = vstr_cat(vow_s[738], t10);
+        V t11 = vstr_cat(vow_s[761], t10);
         V t12 = vstr_cat(t11, vow_s[51]);
         V t13 = l_i;
         V t14 = f_pretty_expr(t13);
@@ -23316,9 +24194,9 @@ static V f_check_loop_measure(V * l_v, V l_st, V l_l) {
         V t10 = VP(t9)[1];
         V t11 = l_d;
         V t12 = f_pretty_expr(t11);
-        V t13 = vstr_cat(vow_s[739], t12);
+        V t13 = vstr_cat(vow_s[762], t12);
         V t14 = l_now;
-        V t15 = vstr_cat(vow_s[740], t14);
+        V t15 = vstr_cat(vow_s[763], t14);
         V t16 = vstr_cat(t15, vow_s[76]);
         V t17 = l_l;
         V t18 = VP(t17)[4];
@@ -23377,7 +24255,7 @@ static V f_vstmt(V * l_v, V l_s, V * l_st) {
         V t6 = f_vexpr(l_v, t5, l_st);
         V l_t = t6;
         V t7 = l_name;
-        V t8 = vstr_eq(t7, vow_s[551]);
+        V t8 = (V)vstr_eq(t7, vow_s[552]);
         if (t8) {
             vdrop(l_t);
             vdrop(t3);
@@ -23484,8 +24362,8 @@ static V f_vstmt(V * l_v, V l_s, V * l_st) {
         vdrop(l_t);
     } else if (t4 == 2) {
         V l_rv = VP(t3)[1];
-        vdup(vow_s[715]);
-        V l_t = vow_s[715];
+        vdup(vow_s[702]);
+        V l_t = vow_s[702];
         V t62 = l_rv;
         vdup(t62);
         V t63 = t62;
@@ -23564,7 +24442,7 @@ static V f_vstmt(V * l_v, V l_s, V * l_st) {
             l_results = t99;
             vdrop(t95);
             V t100 = l_ct;
-            V t101 = vstr_cat(vow_s[727], t100);
+            V t101 = vstr_cat(vow_s[703], t100);
             V t102 = vstr_cat(t101, vow_s[144]);
             V t103 = f_add_fact(&l_cur, t102);
             (void)t103;
@@ -23573,7 +24451,7 @@ static V f_vstmt(V * l_v, V l_s, V * l_st) {
             V t104 = l_a;
             V t105 = VP(t104)[0];
             V t106 = f_pretty_expr(t105);
-            V t107 = vstr_cat(vow_s[741], t106);
+            V t107 = vstr_cat(vow_s[764], t106);
             V t108 = vstr_cat(t107, vow_s[144]);
             V t109 = f_add_src(&l_cur, t108);
             (void)t109;
@@ -23581,7 +24459,7 @@ static V f_vstmt(V * l_v, V l_s, V * l_st) {
             vdrop(t107);
             vdrop(t106);
             V t110 = l_ct;
-            V t111 = vstr_cat(vow_s[727], t110);
+            V t111 = vstr_cat(vow_s[703], t110);
             V t112 = vstr_cat(t111, vow_s[144]);
             V t113 = vlist_push(l_negs, t112);
             l_negs = t113;
@@ -23680,10 +24558,10 @@ static V f_vstmt(V * l_v, V l_s, V * l_st) {
             V t158 = VP(t157)[1];
             V t159 = l_d;
             V t160 = f_pretty_expr(t159);
-            V t161 = vstr_cat(vow_s[742], t160);
+            V t161 = vstr_cat(vow_s[765], t160);
             V t162 = l_d0;
-            V t163 = vstr_cat(vow_s[743], t162);
-            V t164 = vstr_cat(t163, vow_s[744]);
+            V t163 = vstr_cat(vow_s[766], t162);
+            V t164 = vstr_cat(t163, vow_s[767]);
             V t165 = f_obligation(l_v, t156, t158, t161, t164);
             (void)t165;
             vdrop(t164);
@@ -23717,7 +24595,7 @@ static V f_vstmt(V * l_v, V l_s, V * l_st) {
         (void)t173;
         V t174 = l_inner;
         V t175 = l_invs;
-        V t176 = f_check_invs(l_v, t174, t175, vow_s[745]);
+        V t176 = f_check_invs(l_v, t174, t175, vow_s[768]);
         (void)t176;
         V t177 = l_inner;
         V t178 = l_lc;
@@ -23731,7 +24609,7 @@ static V f_vstmt(V * l_v, V l_s, V * l_st) {
         V t183 = (V)!t182;
         if (t183) {
             V t184 = l_c;
-            V t185 = vstr_cat(vow_s[727], t184);
+            V t185 = vstr_cat(vow_s[703], t184);
             V t186 = vstr_cat(t185, vow_s[144]);
             V t187 = f_add_fact(&l_after, t186);
             (void)t187;
@@ -23739,7 +24617,7 @@ static V f_vstmt(V * l_v, V l_s, V * l_st) {
             vdrop(t185);
             V t188 = l_cond;
             V t189 = f_pretty_expr(t188);
-            V t190 = vstr_cat(vow_s[741], t189);
+            V t190 = vstr_cat(vow_s[764], t189);
             V t191 = vstr_cat(t190, vow_s[144]);
             V t192 = f_add_src(&l_after, t191);
             (void)t192;
@@ -23802,7 +24680,7 @@ static V f_vstmt(V * l_v, V l_s, V * l_st) {
         V t216 = f_fresh(l_v, vow_s[446]);
         V l_iv = t216;
         V t217 = l_a;
-        V t218 = vstr_cat(vow_s[746], t217);
+        V t218 = vstr_cat(vow_s[769], t217);
         V t219 = vstr_cat(t218, vow_s[76]);
         V t220 = l_iv;
         V t221 = vstr_cat(t219, t220);
@@ -23814,17 +24692,17 @@ static V f_vstmt(V * l_v, V l_s, V * l_st) {
         vdrop(t219);
         vdrop(t218);
         V t224 = l_iv;
-        V t225 = vstr_cat(vow_s[747], t224);
+        V t225 = vstr_cat(vow_s[770], t224);
         V t226 = vstr_cat(t225, vow_s[76]);
         V t227 = l_b;
         V t228 = vstr_cat(t226, t227);
-        V t229 = vstr_cat(t228, vow_s[748]);
+        V t229 = vstr_cat(t228, vow_s[771]);
         V t230 = l_iv;
         V t231 = vstr_cat(t229, t230);
         V t232 = vstr_cat(t231, vow_s[76]);
         V t233 = l_a;
         V t234 = vstr_cat(t232, t233);
-        V t235 = vstr_cat(t234, vow_s[698]);
+        V t235 = vstr_cat(t234, vow_s[701]);
         V t236 = f_add_fact(&l_head, t235);
         (void)t236;
         vdrop(t235);
@@ -23875,7 +24753,7 @@ static V f_vstmt(V * l_v, V l_s, V * l_st) {
         vdup(t256);
         V l_inner = t256;
         V t257 = l_iv;
-        V t258 = vstr_cat(vow_s[740], t257);
+        V t258 = vstr_cat(vow_s[763], t257);
         V t259 = vstr_cat(t258, vow_s[76]);
         V t260 = l_b;
         V t261 = vstr_cat(t259, t260);
@@ -23888,7 +24766,7 @@ static V f_vstmt(V * l_v, V l_s, V * l_st) {
         vdrop(t258);
         V t264 = l_lo;
         V t265 = f_pretty_expr(t264);
-        V t266 = vstr_cat(t265, vow_s[749]);
+        V t266 = vstr_cat(t265, vow_s[772]);
         V t267 = l_var_name;
         V t268 = vstr_cat(t266, t267);
         V t269 = f_add_src(&l_inner, t268);
@@ -23897,7 +24775,7 @@ static V f_vstmt(V * l_v, V l_s, V * l_st) {
         vdrop(t266);
         vdrop(t265);
         V t270 = l_var_name;
-        V t271 = vstr_cat(t270, vow_s[750]);
+        V t271 = vstr_cat(t270, vow_s[773]);
         V t272 = l_hi;
         V t273 = f_pretty_expr(t272);
         V t274 = vstr_cat(t271, t273);
@@ -23907,8 +24785,8 @@ static V f_vstmt(V * l_v, V l_s, V * l_st) {
         vdrop(t273);
         vdrop(t271);
         V t276 = l_iv;
-        V t277 = vstr_cat(vow_s[751], t276);
-        V t278 = vstr_cat(t277, vow_s[752]);
+        V t277 = vstr_cat(vow_s[774], t276);
+        V t278 = vstr_cat(t277, vow_s[775]);
         V t279 = f_define(l_v, vow_s[446], t278);
         V l_next = t279;
         vdrop(t278);
@@ -23940,7 +24818,7 @@ static V f_vstmt(V * l_v, V l_s, V * l_st) {
         V t291 = l_next;
         V t292 = f_set_term(t289, t290, t291);
         V t293 = l_invs;
-        V t294 = f_check_invs(l_v, t292, t293, vow_s[745]);
+        V t294 = f_check_invs(l_v, t292, t293, vow_s[768]);
         (void)t294;
         vdrop(t292);
         V t295 = l_head;
@@ -23951,7 +24829,7 @@ static V f_vstmt(V * l_v, V l_s, V * l_st) {
         V t298 = (V)!t297;
         if (t298) {
             V t299 = l_b;
-            V t300 = vstr_cat(vow_s[746], t299);
+            V t300 = vstr_cat(vow_s[769], t299);
             V t301 = vstr_cat(t300, vow_s[76]);
             V t302 = l_iv;
             V t303 = vstr_cat(t301, t302);
@@ -24023,18 +24901,18 @@ static V f_vstmt(V * l_v, V l_s, V * l_st) {
         V t330 = f_fresh(l_v, vow_s[446]);
         V l_k = t330;
         V t331 = l_k;
-        V t332 = vstr_cat(vow_s[753], t331);
+        V t332 = vstr_cat(vow_s[776], t331);
         V t333 = vstr_cat(t332, vow_s[144]);
         V t334 = f_add_fact(&l_inner, t333);
         (void)t334;
         vdrop(t333);
         vdrop(t332);
         V t335 = l_k;
-        V t336 = vstr_cat(vow_s[740], t335);
-        V t337 = vstr_cat(t336, vow_s[754]);
+        V t336 = vstr_cat(vow_s[763], t335);
+        V t337 = vstr_cat(t336, vow_s[777]);
         V t338 = l_lt;
         V t339 = vstr_cat(t337, t338);
-        V t340 = vstr_cat(t339, vow_s[698]);
+        V t340 = vstr_cat(t339, vow_s[701]);
         V t341 = f_add_fact(&l_inner, t340);
         (void)t341;
         vdrop(t340);
@@ -24045,7 +24923,7 @@ static V f_vstmt(V * l_v, V l_s, V * l_st) {
         V t343 = f_sort_of(t342);
         V t344 = l_et;
         V t345 = f_sort_of(t344);
-        V t346 = vstr_cat(vow_s[726], t345);
+        V t346 = vstr_cat(vow_s[718], t345);
         V t347 = vstr_cat(t346, vow_s[76]);
         V t348 = l_lt;
         V t349 = vstr_cat(t347, t348);
@@ -24081,7 +24959,7 @@ static V f_vstmt(V * l_v, V l_s, V * l_st) {
         VP(t362)[0] = t361;
         l_inner = t362;
         V t363 = l_var_name;
-        V t364 = vstr_cat(t363, vow_s[755]);
+        V t364 = vstr_cat(t363, vow_s[778]);
         V t365 = l_l;
         V t366 = f_pretty_expr(t365);
         V t367 = vstr_cat(t364, t366);
@@ -24102,7 +24980,7 @@ static V f_vstmt(V * l_v, V l_s, V * l_st) {
         (void)t374;
         V t375 = l_inner;
         V t376 = l_invs;
-        V t377 = f_check_invs(l_v, t375, t376, vow_s[745]);
+        V t377 = f_check_invs(l_v, t375, t376, vow_s[768]);
         (void)t377;
         V t378 = l_head;
         vdup(t378);
@@ -24125,7 +25003,7 @@ static V f_vstmt(V * l_v, V l_s, V * l_st) {
         V t384 = VP(t383)[0];
         V t385 = l_e;
         V t386 = f_pretty_expr(t385);
-        V t387 = vstr_cat(vow_s[756], t386);
+        V t387 = vstr_cat(vow_s[779], t386);
         V t388 = l_g;
         V t389 = f_obligation(l_v, t382, t384, t387, t388);
         (void)t389;
@@ -24178,7 +25056,7 @@ static V f_vstmt(V * l_v, V l_s, V * l_st) {
         V t414 = (*l_st);
         V t415 = l_lc;
         V t416 = VP(t415)[0];
-        V t417 = f_check_invs(l_v, t414, t416, vow_s[757]);
+        V t417 = f_check_invs(l_v, t414, t416, vow_s[780]);
         (void)t417;
         V t418 = vow_with((*l_st));
         VP(t418)[3] = 1;
@@ -24225,7 +25103,7 @@ static V f_vstmt(V * l_v, V l_s, V * l_st) {
         V t442 = l_at;
         V t443 = l_lc;
         V t444 = VP(t443)[0];
-        V t445 = f_check_invs(l_v, t442, t444, vow_s[758]);
+        V t445 = f_check_invs(l_v, t442, t444, vow_s[781]);
         (void)t445;
         V t446 = (*l_st);
         V t447 = l_lc;
@@ -24331,7 +25209,7 @@ static V f_vmatch(V * l_v, V l_scrut, V l_cases, V l_els, V * l_st) {
         if (t29 == 0) {
             V l_n = VP(t28)[1];
             V t30 = l_sv;
-            V t31 = vstr_cat(vow_s[759], t30);
+            V t31 = vstr_cat(vow_s[704], t30);
             V t32 = vstr_cat(t31, vow_s[76]);
             V t33 = l_n;
             V t34 = f_int_lit(t33);
@@ -24349,7 +25227,7 @@ static V f_vmatch(V * l_v, V l_scrut, V l_cases, V l_els, V * l_st) {
             V t38 = f_str_const(l_v, t37);
             V l_k = t38;
             V t39 = l_sv;
-            V t40 = vstr_cat(vow_s[759], t39);
+            V t40 = vstr_cat(vow_s[704], t39);
             V t41 = vstr_cat(t40, vow_s[76]);
             V t42 = l_k;
             V t43 = vstr_cat(t41, t42);
@@ -24411,7 +25289,7 @@ static V f_vmatch(V * l_v, V l_scrut, V l_cases, V l_els, V * l_st) {
                 vdrop(t55);
                 V t74 = l_scrut;
                 V t75 = f_pretty_expr(t74);
-                V t76 = vstr_cat(t75, vow_s[760]);
+                V t76 = vstr_cat(t75, vow_s[782]);
                 V t77 = l_name;
                 V t78 = vstr_cat(t76, t77);
                 V t79 = f_add_src(&l_arm, t78);
@@ -24471,7 +25349,7 @@ static V f_vmatch(V * l_v, V l_scrut, V l_cases, V l_els, V * l_st) {
                         V t106 = VP(t105)[0];
                         V t107 = l_fl;
                         V t108 = VP(t107)[0];
-                        V t109 = vstr_eq(t106, t108);
+                        V t109 = (V)vstr_eq(t106, t108);
                         if (t109) {
                             V t110 = vow_steal(l_arm, 0);
                             V t111 = l_b;
@@ -24500,8 +25378,8 @@ static V f_vmatch(V * l_v, V l_scrut, V l_cases, V l_els, V * l_st) {
                 }
                 vdrop(t82);
                 V t121 = l_sv;
-                V t122 = vstr_cat(vow_s[720], t121);
-                V t123 = vstr_cat(t122, vow_s[703]);
+                V t122 = vstr_cat(vow_s[745], t121);
+                V t123 = vstr_cat(t122, vow_s[726]);
                 V t124 = l_vi;
                 V t125 = vint_to_str(t124);
                 V t126 = vstr_cat(t123, t125);
@@ -24551,7 +25429,7 @@ static V f_vmatch(V * l_v, V l_scrut, V l_cases, V l_els, V * l_st) {
     for (int64_t t142 = 0; t142 < VL(t141)->len; t142++) {
         V l_g = VB(VL(t141)->buf)->items[t142];
         V t143 = l_g;
-        V t144 = vstr_cat(vow_s[727], t143);
+        V t144 = vstr_cat(vow_s[703], t143);
         V t145 = vstr_cat(t144, vow_s[144]);
         V t146 = vlist_push(l_all_neg, t145);
         l_all_neg = t146;
@@ -24594,16 +25472,16 @@ static V f_vmatch(V * l_v, V l_scrut, V l_cases, V l_els, V * l_st) {
         V t163 = l_is_enum;
         if (t163) {
             V t164 = l_sv;
-            V t165 = vstr_cat(vow_s[761], t164);
-            V t166 = vstr_cat(t165, vow_s[762]);
+            V t165 = vstr_cat(vow_s[783], t164);
+            V t166 = vstr_cat(t165, vow_s[784]);
             V t167 = l_sv;
             V t168 = vstr_cat(t166, t167);
-            V t169 = vstr_cat(t168, vow_s[703]);
+            V t169 = vstr_cat(t168, vow_s[726]);
             V t170 = l_variants;
             V t171 = vlist_len(t170);
             V t172 = vint_to_str(t171);
             V t173 = vstr_cat(t169, t172);
-            V t174 = vstr_cat(t173, vow_s[698]);
+            V t174 = vstr_cat(t173, vow_s[701]);
             V l_range = t174;
             vdrop(t173);
             vdrop(t172);
@@ -24948,7 +25826,7 @@ static V f_merge(V * l_v, V l_base, V l_results) {
     } else {
         V t33 = l_guards;
         V t34 = vjoin(t33, vow_s[76]);
-        V t35 = vstr_cat(vow_s[763], t34);
+        V t35 = vstr_cat(vow_s[785], t34);
         V t36 = vstr_cat(t35, vow_s[144]);
         V t37 = f_add_fact(&l_out, t36);
         (void)t37;
@@ -24983,7 +25861,7 @@ static V f_merge(V * l_v, V l_base, V l_results) {
             if (t55) {
                 V t56 = l_r;
                 V t57 = VP(t56)[0];
-                V t58 = vstr_cat(vow_s[764], t57);
+                V t58 = vstr_cat(vow_s[786], t57);
                 V t59 = vstr_cat(t58, vow_s[76]);
                 V t60 = l_fresh_facts;
                 V t61 = f_and_all(t60);
@@ -25118,7 +25996,7 @@ static V f_merge(V * l_v, V l_base, V l_results) {
                         V t131 = l_i;
                         V t132 = vlist_get(t130, t131);
                         V t133 = VP(t132)[0];
-                        V t134 = vstr_cat(vow_s[765], t133);
+                        V t134 = vstr_cat(vow_s[787], t133);
                         V t135 = vstr_cat(t134, vow_s[76]);
                         V t136 = l_terms;
                         V t137 = l_i;
@@ -25242,7 +26120,7 @@ static V f_bind_of(V l_binds, V l_n) {
         return t6;
     } else if (t5 == 0) {
         V t7 = l_n;
-        V t8 = vstr_cat(vow_s[709], t7);
+        V t8 = vstr_cat(vow_s[735], t7);
         vdrop(t4);
         return t8;
     } else {
@@ -25289,13 +26167,13 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
         vdrop(t3);
         return t12;
     } else if (t4 == 4) {
-        vdup(vow_s[715]);
+        vdup(vow_s[702]);
         vdrop(t3);
-        return vow_s[715];
+        return vow_s[702];
     } else if (t4 == 5) {
-        vdup(vow_s[715]);
+        vdup(vow_s[702]);
         vdrop(t3);
-        return vow_s[715];
+        return vow_s[702];
     } else if (t4 == 6) {
         V l_n = VP(t3)[1];
         V t13 = vlist_empty(1);
@@ -25392,16 +26270,16 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
         } else {
         }
         vdrop(t58);
-        V t61 = f_fresh(l_v, vow_s[690]);
+        V t61 = f_fresh(l_v, vow_s[693]);
         V l_r = t61;
         V t62 = l_r;
-        V t63 = vstr_cat(vow_s[712], t62);
-        V t64 = vstr_cat(t63, vow_s[703]);
+        V t63 = vstr_cat(vow_s[738], t62);
+        V t64 = vstr_cat(t63, vow_s[726]);
         V t65 = l_vals;
         V t66 = vlist_len(t65);
         V t67 = vint_to_str(t66);
         V t68 = vstr_cat(t64, t67);
-        V t69 = vstr_cat(t68, vow_s[698]);
+        V t69 = vstr_cat(t68, vow_s[701]);
         V t70 = f_add_def(l_v, t69);
         (void)t70;
         vdrop(t69);
@@ -25414,7 +26292,7 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
         for (V l_i = (V)INT64_C(0); VI(l_i) < VI(t72); l_i = (V)(VI(l_i) + 1)) {
             V t73 = l_et;
             V t74 = f_sort_of(t73);
-            V t75 = vstr_cat(vow_s[766], t74);
+            V t75 = vstr_cat(vow_s[788], t74);
             V t76 = vstr_cat(t75, vow_s[76]);
             V t77 = l_r;
             V t78 = vstr_cat(t76, t77);
@@ -25422,12 +26300,12 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
             V t80 = l_i;
             V t81 = vint_to_str(t80);
             V t82 = vstr_cat(t79, t81);
-            V t83 = vstr_cat(t82, vow_s[703]);
+            V t83 = vstr_cat(t82, vow_s[726]);
             V t84 = l_vals;
             V t85 = l_i;
             V t86 = vlist_get(t84, t85);
             V t87 = vstr_cat(t83, t86);
-            V t88 = vstr_cat(t87, vow_s[698]);
+            V t88 = vstr_cat(t87, vow_s[701]);
             V t89 = f_add_def(l_v, t88);
             (void)t89;
             vdrop(t88);
@@ -25452,11 +26330,11 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
         vdrop(l_et);
         vdrop(l_vals);
     } else if (t4 == 9) {
-        V t91 = f_fresh(l_v, vow_s[690]);
+        V t91 = f_fresh(l_v, vow_s[693]);
         V l_r = t91;
         V t92 = l_r;
-        V t93 = vstr_cat(vow_s[712], t92);
-        V t94 = vstr_cat(t93, vow_s[767]);
+        V t93 = vstr_cat(vow_s[738], t92);
+        V t94 = vstr_cat(t93, vow_s[789]);
         V t95 = f_add_def(l_v, t94);
         (void)t95;
         vdrop(t94);
@@ -25477,14 +26355,14 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
         V t100 = f_vexpr(l_v, t99, l_st);
         V l_iv = t100;
         V t101 = l_iv;
-        V t102 = vstr_cat(vow_s[768], t101);
-        V t103 = vstr_cat(t102, vow_s[733]);
+        V t102 = vstr_cat(vow_s[790], t101);
+        V t103 = vstr_cat(t102, vow_s[756]);
         V t104 = l_iv;
         V t105 = vstr_cat(t103, t104);
-        V t106 = vstr_cat(t105, vow_s[754]);
+        V t106 = vstr_cat(t105, vow_s[777]);
         V t107 = l_ov;
         V t108 = vstr_cat(t106, t107);
-        V t109 = vstr_cat(t108, vow_s[769]);
+        V t109 = vstr_cat(t108, vow_s[791]);
         V l_goal = t109;
         vdrop(t108);
         vdrop(t106);
@@ -25493,8 +26371,8 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
         vdrop(t102);
         V t110 = l_i;
         V t111 = f_pretty_expr(t110);
-        V t112 = vstr_cat(vow_s[770], t111);
-        V t113 = vstr_cat(t112, vow_s[771]);
+        V t112 = vstr_cat(vow_s[792], t111);
+        V t113 = vstr_cat(t112, vow_s[793]);
         V t114 = l_o;
         V t115 = f_pretty_expr(t114);
         V t116 = vstr_cat(t113, t115);
@@ -25520,7 +26398,7 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
         V t129 = VP(t128)[0];
         if (t129 == 2) {
             V t130 = l_ov;
-            V t131 = vstr_cat(vow_s[725], t130);
+            V t131 = vstr_cat(vow_s[750], t130);
             V t132 = vstr_cat(t131, vow_s[76]);
             V t133 = l_iv;
             V t134 = vstr_cat(t132, t133);
@@ -25539,7 +26417,7 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
             V l_t = VP(t128)[1];
             V t136 = l_t;
             V t137 = f_sort_of(t136);
-            V t138 = vstr_cat(vow_s[726], t137);
+            V t138 = vstr_cat(vow_s[718], t137);
             V t139 = vstr_cat(t138, vow_s[76]);
             V t140 = l_ov;
             V t141 = vstr_cat(t139, t140);
@@ -25561,7 +26439,7 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
             vdrop(t3);
             return t145;
         } else {
-            V t146 = f_fresh(l_v, vow_s[690]);
+            V t146 = f_fresh(l_v, vow_s[693]);
             vdrop(t128);
             vdrop(l_what);
             vdrop(l_goal);
@@ -25588,18 +26466,18 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
             V l_ci = VP(t151)[1];
             V t153 = l_ci;
             V t154 = VP(t153)[0];
-            V t155 = vstr_eq(t154, vow_s[636]);
+            V t155 = (V)vstr_eq(t154, vow_s[639]);
             if (t155) {
-                V t156 = f_fresh(l_v, vow_s[690]);
+                V t156 = f_fresh(l_v, vow_s[693]);
                 V l_r = t156;
                 V t157 = l_r;
-                V t158 = vstr_cat(vow_s[772], t157);
-                V t159 = vstr_cat(t158, vow_s[703]);
+                V t158 = vstr_cat(vow_s[794], t157);
+                V t159 = vstr_cat(t158, vow_s[726]);
                 V t160 = l_ci;
                 V t161 = VP(t160)[2];
                 V t162 = vint_to_str(t161);
                 V t163 = vstr_cat(t159, t162);
-                V t164 = vstr_cat(t163, vow_s[698]);
+                V t164 = vstr_cat(t163, vow_s[701]);
                 V t165 = f_add_def(l_v, t164);
                 (void)t165;
                 vdrop(t164);
@@ -25638,7 +26516,7 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
             vdrop(l_sn);
             l_sn = t175;
         } else {
-            V t176 = f_fresh(l_v, vow_s[690]);
+            V t176 = f_fresh(l_v, vow_s[693]);
             vdrop(t173);
             vdrop(l_sn);
             vdrop(l_ov);
@@ -25793,7 +26671,7 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
         V t253 = vstr_len(t252);
         V t254 = (V)(t253 == (V)INT64_C(0));
         if (t254) {
-            V t255 = f_fresh(l_v, vow_s[690]);
+            V t255 = f_fresh(l_v, vow_s[693]);
             vdrop(l_vals);
             vdrop(l_fields);
             vdrop(l_sn);
@@ -25877,10 +26755,10 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
         V t291 = f_vexpr(l_v, t290, l_st);
         V l_a = t291;
         V t292 = l_op;
-        V t293 = vstr_eq(t292, vow_s[202]);
+        V t293 = (V)vstr_eq(t292, vow_s[202]);
         if (t293) {
             V t294 = l_a;
-            V t295 = vstr_cat(vow_s[693], t294);
+            V t295 = vstr_cat(vow_s[696], t294);
             V t296 = vstr_cat(t295, vow_s[144]);
             vdrop(t295);
             vdrop(l_a);
@@ -25888,7 +26766,7 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
             return t296;
         }
         V t297 = l_a;
-        V t298 = vstr_cat(vow_s[727], t297);
+        V t298 = vstr_cat(vow_s[703], t297);
         V t299 = vstr_cat(t298, vow_s[144]);
         vdrop(t298);
         vdrop(l_a);
@@ -25913,7 +26791,7 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
         V t305 = f_fresh(l_v, vow_s[446]);
         V l_iv = t305;
         V t306 = l_a;
-        V t307 = vstr_cat(vow_s[746], t306);
+        V t307 = vstr_cat(vow_s[769], t306);
         V t308 = vstr_cat(t307, vow_s[76]);
         V t309 = l_iv;
         V t310 = vstr_cat(t308, t309);
@@ -25925,7 +26803,7 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
         vdrop(t308);
         vdrop(t307);
         V t313 = l_iv;
-        V t314 = vstr_cat(vow_s[740], t313);
+        V t314 = vstr_cat(vow_s[763], t313);
         V t315 = vstr_cat(t314, vow_s[76]);
         V t316 = l_b;
         V t317 = vstr_cat(t315, t316);
@@ -26035,17 +26913,17 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
         V l_l = VP(t3)[2];
         V l_r = VP(t3)[3];
         V t360 = l_op;
-        V t361 = vstr_eq(t360, vow_s[216]);
+        V t361 = (V)vstr_eq(t360, vow_s[216]);
         V t362 = t361;
         if (!t362) {
             V t363 = l_op;
-            V t364 = vstr_eq(t363, vow_s[217]);
+            V t364 = (V)vstr_eq(t363, vow_s[217]);
             t362 = t364;
         }
         V t365 = t362;
         if (!t365) {
             V t366 = l_op;
-            V t367 = vstr_eq(t366, vow_s[218]);
+            V t367 = (V)vstr_eq(t366, vow_s[218]);
             t365 = t367;
         }
         if (t365) {
@@ -26056,10 +26934,10 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
             vdup(t370);
             V l_guard = t370;
             V t371 = l_op;
-            V t372 = vstr_eq(t371, vow_s[217]);
+            V t372 = (V)vstr_eq(t371, vow_s[217]);
             if (t372) {
                 V t373 = l_a;
-                V t374 = vstr_cat(vow_s[727], t373);
+                V t374 = vstr_cat(vow_s[703], t373);
                 V t375 = vstr_cat(t374, vow_s[144]);
                 vdrop(l_guard);
                 l_guard = t375;
@@ -26098,7 +26976,7 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
                 V t399 = (V)(VI(t398) > VI((V)INT64_C(0)));
                 if (t399) {
                     V t400 = l_guard;
-                    V t401 = vstr_cat(vow_s[764], t400);
+                    V t401 = vstr_cat(vow_s[786], t400);
                     V t402 = vstr_cat(t401, vow_s[76]);
                     V t403 = l_fresh_facts;
                     V t404 = f_and_all(t403);
@@ -26138,11 +27016,11 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
         V t416 = f_vexpr(l_v, t415, l_st);
         V l_b = t416;
         V t417 = l_op;
-        V t418 = vstr_eq(t417, vow_s[85]);
+        V t418 = (V)vstr_eq(t417, vow_s[85]);
         V t419 = t418;
         if (!t419) {
             V t420 = l_op;
-            V t421 = vstr_eq(t420, vow_s[210]);
+            V t421 = (V)vstr_eq(t420, vow_s[210]);
             t419 = t421;
         }
         if (t419) {
@@ -26151,10 +27029,10 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
             V t424 = VP(t423)[1];
             V t425 = l_r;
             V t426 = f_pretty_expr(t425);
-            V t427 = vstr_cat(vow_s[773], t426);
+            V t427 = vstr_cat(vow_s[795], t426);
             V t428 = l_b;
-            V t429 = vstr_cat(vow_s[697], t428);
-            V t430 = vstr_cat(t429, vow_s[774]);
+            V t429 = vstr_cat(vow_s[700], t428);
+            V t430 = vstr_cat(t429, vow_s[796]);
             V t431 = f_obligation(l_v, t422, t424, t427, t430);
             (void)t431;
             vdrop(t430);
@@ -26173,19 +27051,19 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
             return t436;
         }
         V t437 = l_op;
-        V t438 = vstr_eq(t437, vow_s[211]);
+        V t438 = (V)vstr_eq(t437, vow_s[211]);
         if (t438) {
-            V t439 = f_fresh(l_v, vow_s[690]);
+            V t439 = f_fresh(l_v, vow_s[693]);
             V l_res = t439;
             V t440 = l_res;
-            V t441 = vstr_cat(vow_s[712], t440);
-            V t442 = vstr_cat(t441, vow_s[775]);
+            V t441 = vstr_cat(vow_s[738], t440);
+            V t442 = vstr_cat(t441, vow_s[797]);
             V t443 = l_a;
             V t444 = vstr_cat(t442, t443);
-            V t445 = vstr_cat(t444, vow_s[776]);
+            V t445 = vstr_cat(t444, vow_s[798]);
             V t446 = l_b;
             V t447 = vstr_cat(t445, t446);
-            V t448 = vstr_cat(t447, vow_s[777]);
+            V t448 = vstr_cat(t447, vow_s[715]);
             V t449 = f_add_def(l_v, t448);
             (void)t449;
             vdrop(t448);
@@ -26223,11 +27101,11 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
                 vdrop(t461);
                 vdrop(t460);
                 V t468 = l_q;
-                V t469 = vstr_cat(vow_s[778], t468);
-                V t470 = vstr_cat(t469, vow_s[754]);
+                V t469 = vstr_cat(vow_s[799], t468);
+                V t470 = vstr_cat(t469, vow_s[777]);
                 V t471 = l_a;
                 V t472 = vstr_cat(t470, t471);
-                V t473 = vstr_cat(t472, vow_s[779]);
+                V t473 = vstr_cat(t472, vow_s[800]);
                 V t474 = l_f;
                 V t475 = vstr_cat(t473, t474);
                 V t476 = vstr_cat(t475, vow_s[76]);
@@ -26236,19 +27114,19 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
                 V t479 = vstr_cat(t478, vow_s[76]);
                 V t480 = l_q;
                 V t481 = vstr_cat(t479, t480);
-                V t482 = vstr_cat(t481, vow_s[780]);
+                V t482 = vstr_cat(t481, vow_s[706]);
                 V t483 = l_f;
                 V t484 = vstr_cat(t482, t483);
                 V t485 = vstr_cat(t484, vow_s[76]);
                 V t486 = l_b;
                 V t487 = vstr_cat(t485, t486);
-                V t488 = vstr_cat(t487, vow_s[781]);
+                V t488 = vstr_cat(t487, vow_s[801]);
                 V t489 = l_q;
                 V t490 = vstr_cat(t488, t489);
-                V t491 = vstr_cat(t490, vow_s[754]);
+                V t491 = vstr_cat(t490, vow_s[777]);
                 V t492 = l_a;
                 V t493 = vstr_cat(t491, t492);
-                V t494 = vstr_cat(t493, vow_s[777]);
+                V t494 = vstr_cat(t493, vow_s[715]);
                 V l_pick = t494;
                 vdrop(t493);
                 vdrop(t491);
@@ -26268,26 +27146,26 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
                 vdrop(t470);
                 vdrop(t469);
                 V t495 = l_q;
-                V t496 = vstr_cat(vow_s[782], t495);
-                V t497 = vstr_cat(t496, vow_s[783]);
+                V t496 = vstr_cat(vow_s[802], t495);
+                V t497 = vstr_cat(t496, vow_s[803]);
                 V t498 = l_q;
                 V t499 = vstr_cat(t497, t498);
-                V t500 = vstr_cat(t499, vow_s[733]);
+                V t500 = vstr_cat(t499, vow_s[756]);
                 V t501 = l_q;
                 V t502 = vstr_cat(t500, t501);
-                V t503 = vstr_cat(t502, vow_s[754]);
+                V t503 = vstr_cat(t502, vow_s[777]);
                 V t504 = l_res;
                 V t505 = vstr_cat(t503, t504);
-                V t506 = vstr_cat(t505, vow_s[784]);
+                V t506 = vstr_cat(t505, vow_s[804]);
                 V t507 = l_at_r;
                 V t508 = vstr_cat(t506, t507);
                 V t509 = vstr_cat(t508, vow_s[76]);
                 V t510 = l_pick;
                 V t511 = vstr_cat(t509, t510);
-                V t512 = vstr_cat(t511, vow_s[785]);
+                V t512 = vstr_cat(t511, vow_s[805]);
                 V t513 = l_at_r;
                 V t514 = vstr_cat(t512, t513);
-                V t515 = vstr_cat(t514, vow_s[777]);
+                V t515 = vstr_cat(t514, vow_s[715]);
                 V t516 = f_add_qdef(l_v, t515);
                 (void)t516;
                 vdrop(t515);
@@ -26319,44 +27197,69 @@ static V f_vexpr(V * l_v, V l_e, V * l_st) {
             vdrop(l_f);
             vdrop(l_res);
         }
-        V t518 = vlist_empty(1);
-        vdup(vow_s[212]);
-        t518 = vlist_push(t518, vow_s[212]);
-        vdup(vow_s[213]);
-        t518 = vlist_push(t518, vow_s[213]);
-        vdup(vow_s[128]);
-        t518 = vlist_push(t518, vow_s[128]);
-        vdup(vow_s[214]);
-        t518 = vlist_push(t518, vow_s[214]);
-        vdup(vow_s[129]);
-        t518 = vlist_push(t518, vow_s[129]);
-        vdup(vow_s[215]);
-        t518 = vlist_push(t518, vow_s[215]);
-        V t519 = l_op;
-        V t520 = f_contains_str(t518, t519);
-        vdrop(t518);
-        if (t520) {
+        V t518 = l_op;
+        V t519 = (V)vstr_eq(t518, vow_s[212]);
+        V t520 = t519;
+        if (!t520) {
             V t521 = l_op;
-            V t522 = l_a;
-            V t523 = l_b;
-            V t524 = f_binop_term(t521, t522, t523);
-            V t525 = f_define(l_v, vow_s[447], t524);
+            V t522 = (V)vstr_eq(t521, vow_s[213]);
+            t520 = t522;
+        }
+        if (t520) {
+            V t523 = l_op;
+            V t524 = vdup((*l_v));
+            V t525 = VP(t524)[0];
+            V t526 = l_l;
+            V t527 = f_type_of(t525, t526);
+            V t528 = l_a;
+            V t529 = l_b;
+            V t530 = f_eq_term(l_v, t523, t527, t528, t529);
+            V l_eq = t530;
+            vdrop(t527);
             vdrop(t524);
+            V t531 = l_eq;
+            V t532 = f_define(l_v, vow_s[447], t531);
+            vdrop(l_eq);
             vdrop(l_b);
             vdrop(l_a);
             vdrop(t3);
-            return t525;
+            return t532;
+            vdrop(l_eq);
         }
-        V t526 = l_op;
-        V t527 = l_a;
-        V t528 = l_b;
-        V t529 = f_binop_term(t526, t527, t528);
-        V t530 = f_define(l_v, vow_s[446], t529);
-        vdrop(t529);
+        V t533 = vlist_empty(1);
+        vdup(vow_s[128]);
+        t533 = vlist_push(t533, vow_s[128]);
+        vdup(vow_s[214]);
+        t533 = vlist_push(t533, vow_s[214]);
+        vdup(vow_s[129]);
+        t533 = vlist_push(t533, vow_s[129]);
+        vdup(vow_s[215]);
+        t533 = vlist_push(t533, vow_s[215]);
+        V t534 = l_op;
+        V t535 = f_contains_str(t533, t534);
+        vdrop(t533);
+        if (t535) {
+            V t536 = l_op;
+            V t537 = l_a;
+            V t538 = l_b;
+            V t539 = f_binop_term(t536, t537, t538);
+            V t540 = f_define(l_v, vow_s[447], t539);
+            vdrop(t539);
+            vdrop(l_b);
+            vdrop(l_a);
+            vdrop(t3);
+            return t540;
+        }
+        V t541 = l_op;
+        V t542 = l_a;
+        V t543 = l_b;
+        V t544 = f_binop_term(t541, t542, t543);
+        V t545 = f_define(l_v, vow_s[446], t544);
+        vdrop(t544);
         vdrop(l_b);
         vdrop(l_a);
         vdrop(t3);
-        return t530;
+        return t545;
         vdrop(l_b);
         vdrop(l_a);
     } else {
@@ -26395,11 +27298,11 @@ static V f_construct_struct(V * l_v, V * l_st, V l_pos, V l_sn, V l_binds) {
             vdrop(t18);
             V t20 = l_fl;
             V t21 = VP(t20)[0];
-            V t22 = vstr_cat(vow_s[574], t21);
-            V t23 = vstr_cat(t22, vow_s[786]);
+            V t22 = vstr_cat(vow_s[575], t21);
+            V t23 = vstr_cat(t22, vow_s[806]);
             V t24 = l_sn;
             V t25 = vstr_cat(t23, t24);
-            V t26 = vstr_cat(t25, vow_s[787]);
+            V t26 = vstr_cat(t25, vow_s[807]);
             V t27 = l_p;
             V t28 = f_pretty_expr(t27);
             V t29 = vstr_cat(t26, t28);
@@ -26421,7 +27324,7 @@ static V f_construct_struct(V * l_v, V * l_st, V l_pos, V l_sn, V l_binds) {
         vdrop(t11);
     }
     vdrop(t6);
-    V t35 = f_fresh(l_v, vow_s[690]);
+    V t35 = f_fresh(l_v, vow_s[693]);
     V l_r = t35;
     V t36 = l_fields;
     vdup(t36);
@@ -26437,17 +27340,17 @@ static V f_construct_struct(V * l_v, V * l_st, V l_pos, V l_sn, V l_binds) {
         V t45 = f_field_fn(l_v, t39, t41, t44);
         V l_fnn = t45;
         V t46 = l_fnn;
-        V t47 = vstr_cat(vow_s[788], t46);
+        V t47 = vstr_cat(vow_s[808], t46);
         V t48 = vstr_cat(t47, vow_s[76]);
         V t49 = l_r;
         V t50 = vstr_cat(t48, t49);
-        V t51 = vstr_cat(t50, vow_s[703]);
+        V t51 = vstr_cat(t50, vow_s[726]);
         V t52 = l_binds;
         V t53 = l_fl;
         V t54 = VP(t53)[0];
         V t55 = f_bind_of(t52, t54);
         V t56 = vstr_cat(t51, t55);
-        V t57 = vstr_cat(t56, vow_s[698]);
+        V t57 = vstr_cat(t56, vow_s[701]);
         V t58 = f_add_def(l_v, t57);
         (void)t58;
         vdrop(t57);
@@ -26558,7 +27461,7 @@ static V f_vcall(V * l_v, V l_e, V l_args, V * l_st) {
     vdrop(t22);
     V t45 = l_ci;
     V t46 = VP(t45)[0];
-    V t47 = vstr_eq(t46, vow_s[642]);
+    V t47 = (V)vstr_eq(t46, vow_s[645]);
     if (t47) {
         V t48 = l_e;
         V t49 = l_ci;
@@ -26574,7 +27477,7 @@ static V f_vcall(V * l_v, V l_e, V l_args, V * l_st) {
     }
     V t54 = l_ci;
     V t55 = VP(t54)[0];
-    V t56 = vstr_eq(t55, vow_s[120]);
+    V t56 = (V)vstr_eq(t55, vow_s[120]);
     if (t56) {
         V t57 = (*l_v);
         V t58 = VP(t57)[0];
@@ -26623,7 +27526,7 @@ static V f_vcall(V * l_v, V l_e, V l_args, V * l_st) {
     }
     V t82 = l_ci;
     V t83 = VP(t82)[0];
-    V t84 = vstr_eq(t83, vow_s[636]);
+    V t84 = (V)vstr_eq(t83, vow_s[639]);
     if (t84) {
         V t85 = (*l_v);
         V t86 = VP(t85)[0];
@@ -26719,8 +27622,8 @@ static V f_vcall(V * l_v, V l_e, V l_args, V * l_st) {
                 vdrop(t140);
                 V t142 = l_fl;
                 V t143 = VP(t142)[0];
-                V t144 = vstr_cat(vow_s[574], t143);
-                V t145 = vstr_cat(t144, vow_s[786]);
+                V t144 = vstr_cat(vow_s[575], t143);
+                V t145 = vstr_cat(t144, vow_s[806]);
                 V t146 = l_ci;
                 V t147 = VP(t146)[1];
                 V t148 = vstr_cat(t145, t147);
@@ -26728,7 +27631,7 @@ static V f_vcall(V * l_v, V l_e, V l_args, V * l_st) {
                 V t150 = l_vinfo;
                 V t151 = VP(t150)[0];
                 V t152 = vstr_cat(t149, t151);
-                V t153 = vstr_cat(t152, vow_s[787]);
+                V t153 = vstr_cat(t152, vow_s[807]);
                 V t154 = l_pr;
                 V t155 = f_pretty_expr(t154);
                 V t156 = vstr_cat(t153, t155);
@@ -26753,16 +27656,16 @@ static V f_vcall(V * l_v, V l_e, V l_args, V * l_st) {
             vdrop(t133);
         }
         vdrop(t128);
-        V t163 = f_fresh(l_v, vow_s[690]);
+        V t163 = f_fresh(l_v, vow_s[693]);
         V l_r = t163;
         V t164 = l_r;
-        V t165 = vstr_cat(vow_s[772], t164);
-        V t166 = vstr_cat(t165, vow_s[703]);
+        V t165 = vstr_cat(vow_s[794], t164);
+        V t166 = vstr_cat(t165, vow_s[726]);
         V t167 = l_ci;
         V t168 = VP(t167)[2];
         V t169 = vint_to_str(t168);
         V t170 = vstr_cat(t166, t169);
-        V t171 = vstr_cat(t170, vow_s[698]);
+        V t171 = vstr_cat(t170, vow_s[701]);
         V t172 = f_add_def(l_v, t171);
         (void)t172;
         vdrop(t171);
@@ -26788,17 +27691,17 @@ static V f_vcall(V * l_v, V l_e, V l_args, V * l_st) {
             V t186 = f_vfield_fn(l_v, t178, t180, t182, t185);
             V l_fnn = t186;
             V t187 = l_fnn;
-            V t188 = vstr_cat(vow_s[788], t187);
+            V t188 = vstr_cat(vow_s[808], t187);
             V t189 = vstr_cat(t188, vow_s[76]);
             V t190 = l_r;
             V t191 = vstr_cat(t189, t190);
-            V t192 = vstr_cat(t191, vow_s[703]);
+            V t192 = vstr_cat(t191, vow_s[726]);
             V t193 = l_binds;
             V t194 = l_fl;
             V t195 = VP(t194)[0];
             V t196 = f_bind_of(t193, t195);
             V t197 = vstr_cat(t192, t196);
-            V t198 = vstr_cat(t197, vow_s[698]);
+            V t198 = vstr_cat(t197, vow_s[701]);
             V t199 = f_add_def(l_v, t198);
             (void)t199;
             vdrop(t198);
@@ -26931,11 +27834,11 @@ static V f_vcall_user(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
                 V l_g = t47;
                 V t48 = l_fp;
                 V t49 = VP(t48)[0];
-                V t50 = vstr_cat(vow_s[599], t49);
-                V t51 = vstr_cat(t50, vow_s[789]);
+                V t50 = vstr_cat(vow_s[600], t49);
+                V t51 = vstr_cat(t50, vow_s[809]);
                 V t52 = l_name;
                 V t53 = vstr_cat(t51, t52);
-                V t54 = vstr_cat(t53, vow_s[717]);
+                V t54 = vstr_cat(t53, vow_s[742]);
                 V t55 = l_pr;
                 V t56 = f_pretty_expr(t55);
                 V t57 = vstr_cat(t54, t56);
@@ -26984,8 +27887,8 @@ static V f_vcall_user(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
         V t80 = l_e;
         V t81 = VP(t80)[1];
         V t82 = l_name;
-        V t83 = vstr_cat(vow_s[790], t82);
-        V t84 = vstr_cat(t83, vow_s[719]);
+        V t83 = vstr_cat(vow_s[810], t82);
+        V t84 = vstr_cat(t83, vow_s[744]);
         V t85 = l_r;
         V t86 = f_pretty_expr(t85);
         V t87 = vstr_cat(t84, t86);
@@ -27002,7 +27905,7 @@ static V f_vcall_user(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
     V t90 = l_name;
     V t91 = (*l_v);
     V t92 = VP(t91)[9];
-    V t93 = vstr_eq(t90, t92);
+    V t93 = (V)vstr_eq(t90, t92);
     if (t93) {
         V t94 = (*l_v);
         V t95 = VP(t94)[12];
@@ -27022,8 +27925,8 @@ static V f_vcall_user(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
             V t104 = f_spec_with(l_v, t102, t103, vow_s[20]);
             V l_now = t104;
             V t105 = l_name;
-            V t106 = vstr_cat(vow_s[791], t105);
-            V t107 = vstr_cat(t106, vow_s[792]);
+            V t106 = vstr_cat(vow_s[811], t105);
+            V t107 = vstr_cat(t106, vow_s[812]);
             V t108 = l_d;
             V t109 = f_pretty_expr(t108);
             V t110 = vstr_cat(t107, t109);
@@ -27036,14 +27939,14 @@ static V f_vcall_user(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
             V t113 = VP(t112)[1];
             V t114 = l_what;
             V t115 = l_entry;
-            V t116 = vstr_cat(vow_s[793], t115);
-            V t117 = vstr_cat(t116, vow_s[794]);
+            V t116 = vstr_cat(vow_s[813], t115);
+            V t117 = vstr_cat(t116, vow_s[814]);
             V t118 = l_now;
             V t119 = vstr_cat(t117, t118);
             V t120 = vstr_cat(t119, vow_s[76]);
             V t121 = l_entry;
             V t122 = vstr_cat(t120, t121);
-            V t123 = vstr_cat(t122, vow_s[698]);
+            V t123 = vstr_cat(t122, vow_s[701]);
             V t124 = f_obligation(l_v, t111, t113, t114, t123);
             (void)t124;
             vdrop(t123);
@@ -27204,7 +28107,7 @@ static V f_vcall_user(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
         V t210 = f_inline_call(l_v, t208, t209);
         V l_t = t210;
         V t211 = l_res;
-        V t212 = vstr_cat(vow_s[759], t211);
+        V t212 = vstr_cat(vow_s[704], t211);
         V t213 = vstr_cat(t212, vow_s[76]);
         V t214 = l_t;
         V t215 = vstr_cat(t213, t214);
@@ -27345,7 +28248,7 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
     V t12 = t11;
     if (vstr_eq(t12, vow_s[454])) {
         V t13 = l_a0;
-        V t14 = vstr_cat(vow_s[711], t13);
+        V t14 = vstr_cat(vow_s[737], t13);
         V t15 = vstr_cat(t14, vow_s[144]);
         V t16 = f_define(l_v, vow_s[446], t15);
         vdrop(t15);
@@ -27372,14 +28275,14 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
         } else {
         }
         vdrop(t19);
-        V t22 = f_fresh(l_v, vow_s[690]);
+        V t22 = f_fresh(l_v, vow_s[693]);
         V l_r = t22;
         V t23 = l_r;
-        V t24 = vstr_cat(vow_s[712], t23);
-        V t25 = vstr_cat(t24, vow_s[775]);
+        V t24 = vstr_cat(vow_s[738], t23);
+        V t25 = vstr_cat(t24, vow_s[797]);
         V t26 = l_a0;
         V t27 = vstr_cat(t25, t26);
-        V t28 = vstr_cat(t27, vow_s[795]);
+        V t28 = vstr_cat(t27, vow_s[815]);
         V t29 = f_add_def(l_v, t28);
         (void)t29;
         vdrop(t28);
@@ -27388,17 +28291,17 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
         vdrop(t24);
         V t30 = l_et;
         V t31 = f_sort_of(t30);
-        V t32 = vstr_cat(vow_s[766], t31);
+        V t32 = vstr_cat(vow_s[788], t31);
         V t33 = vstr_cat(t32, vow_s[76]);
         V t34 = l_r;
         V t35 = vstr_cat(t33, t34);
-        V t36 = vstr_cat(t35, vow_s[754]);
+        V t36 = vstr_cat(t35, vow_s[777]);
         V t37 = l_a0;
         V t38 = vstr_cat(t36, t37);
-        V t39 = vstr_cat(t38, vow_s[734]);
+        V t39 = vstr_cat(t38, vow_s[757]);
         V t40 = l_a1;
         V t41 = vstr_cat(t39, t40);
-        V t42 = vstr_cat(t41, vow_s[698]);
+        V t42 = vstr_cat(t41, vow_s[701]);
         V t43 = f_add_def(l_v, t42);
         (void)t43;
         vdrop(t42);
@@ -27416,7 +28319,7 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
         V t46 = f_sort_of(t45);
         V l_s = t46;
         V t47 = l_s;
-        V t48 = vstr_cat(vow_s[726], t47);
+        V t48 = vstr_cat(vow_s[718], t47);
         V t49 = vstr_cat(t48, vow_s[76]);
         V t50 = l_r;
         V t51 = vstr_cat(t49, t50);
@@ -27431,20 +28334,20 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
         vdrop(t49);
         vdrop(t48);
         V t56 = l_q;
-        V t57 = vstr_cat(vow_s[782], t56);
-        V t58 = vstr_cat(t57, vow_s[783]);
+        V t57 = vstr_cat(vow_s[802], t56);
+        V t58 = vstr_cat(t57, vow_s[803]);
         V t59 = l_q;
         V t60 = vstr_cat(t58, t59);
-        V t61 = vstr_cat(t60, vow_s[733]);
+        V t61 = vstr_cat(t60, vow_s[756]);
         V t62 = l_q;
         V t63 = vstr_cat(t61, t62);
-        V t64 = vstr_cat(t63, vow_s[754]);
+        V t64 = vstr_cat(t63, vow_s[777]);
         V t65 = l_a0;
         V t66 = vstr_cat(t64, t65);
-        V t67 = vstr_cat(t66, vow_s[784]);
+        V t67 = vstr_cat(t66, vow_s[804]);
         V t68 = l_at_r;
         V t69 = vstr_cat(t67, t68);
-        V t70 = vstr_cat(t69, vow_s[796]);
+        V t70 = vstr_cat(t69, vow_s[816]);
         V t71 = l_s;
         V t72 = vstr_cat(t70, t71);
         V t73 = vstr_cat(t72, vow_s[76]);
@@ -27453,10 +28356,10 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
         V t76 = vstr_cat(t75, vow_s[76]);
         V t77 = l_q;
         V t78 = vstr_cat(t76, t77);
-        V t79 = vstr_cat(t78, vow_s[797]);
+        V t79 = vstr_cat(t78, vow_s[817]);
         V t80 = l_at_r;
         V t81 = vstr_cat(t79, t80);
-        V t82 = vstr_cat(t81, vow_s[777]);
+        V t82 = vstr_cat(t81, vow_s[715]);
         V t83 = f_add_qdef(l_v, t82);
         (void)t83;
         vdrop(t82);
@@ -27497,22 +28400,22 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
         vdrop(l_et);
     } else if (vstr_eq(t12, vow_s[464])) {
         V t85 = l_a1;
-        V t86 = vstr_cat(vow_s[768], t85);
-        V t87 = vstr_cat(t86, vow_s[733]);
+        V t86 = vstr_cat(vow_s[790], t85);
+        V t87 = vstr_cat(t86, vow_s[756]);
         V t88 = l_a1;
         V t89 = vstr_cat(t87, t88);
-        V t90 = vstr_cat(t89, vow_s[754]);
+        V t90 = vstr_cat(t89, vow_s[777]);
         V t91 = l_a0;
         V t92 = vstr_cat(t90, t91);
-        V t93 = vstr_cat(t92, vow_s[769]);
+        V t93 = vstr_cat(t92, vow_s[791]);
         V l_goal = t93;
         vdrop(t92);
         vdrop(t90);
         vdrop(t89);
         vdrop(t87);
         vdrop(t86);
-        vdup(vow_s[798]);
-        V l_what = vow_s[798];
+        vdup(vow_s[818]);
+        V l_what = vow_s[818];
         V t94 = l_pe;
         V t95 = vlist_len(t94);
         V t96 = (V)(VI(t95) >= VI((V)INT64_C(2)));
@@ -27520,8 +28423,8 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
             V t97 = l_pe;
             V t98 = vlist_get(t97, (V)INT64_C(1));
             V t99 = f_pretty_expr(t98);
-            V t100 = vstr_cat(vow_s[799], t99);
-            V t101 = vstr_cat(t100, vow_s[771]);
+            V t100 = vstr_cat(vow_s[819], t99);
+            V t101 = vstr_cat(t100, vow_s[793]);
             V t102 = l_pe;
             V t103 = vlist_get(t102, (V)INT64_C(0));
             V t104 = f_pretty_expr(t103);
@@ -27560,14 +28463,14 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
         V t118 = l_et;
         V t119 = f_sort_of(t118);
         V l_s = t119;
-        V t120 = f_fresh(l_v, vow_s[690]);
+        V t120 = f_fresh(l_v, vow_s[693]);
         V l_r = t120;
         V t121 = l_r;
-        V t122 = vstr_cat(vow_s[712], t121);
-        V t123 = vstr_cat(t122, vow_s[776]);
+        V t122 = vstr_cat(vow_s[738], t121);
+        V t123 = vstr_cat(t122, vow_s[798]);
         V t124 = l_a0;
         V t125 = vstr_cat(t123, t124);
-        V t126 = vstr_cat(t125, vow_s[769]);
+        V t126 = vstr_cat(t125, vow_s[791]);
         V t127 = f_add_def(l_v, t126);
         (void)t127;
         vdrop(t126);
@@ -27575,17 +28478,17 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
         vdrop(t123);
         vdrop(t122);
         V t128 = l_s;
-        V t129 = vstr_cat(vow_s[766], t128);
+        V t129 = vstr_cat(vow_s[788], t128);
         V t130 = vstr_cat(t129, vow_s[76]);
         V t131 = l_r;
         V t132 = vstr_cat(t130, t131);
         V t133 = vstr_cat(t132, vow_s[76]);
         V t134 = l_a1;
         V t135 = vstr_cat(t133, t134);
-        V t136 = vstr_cat(t135, vow_s[703]);
+        V t136 = vstr_cat(t135, vow_s[726]);
         V t137 = l_a2;
         V t138 = vstr_cat(t136, t137);
-        V t139 = vstr_cat(t138, vow_s[698]);
+        V t139 = vstr_cat(t138, vow_s[701]);
         V t140 = f_add_def(l_v, t139);
         (void)t140;
         vdrop(t139);
@@ -27599,7 +28502,7 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
         V t141 = f_fresh_q(l_v);
         V l_q = t141;
         V t142 = l_s;
-        V t143 = vstr_cat(vow_s[726], t142);
+        V t143 = vstr_cat(vow_s[718], t142);
         V t144 = vstr_cat(t143, vow_s[76]);
         V t145 = l_r;
         V t146 = vstr_cat(t144, t145);
@@ -27614,26 +28517,26 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
         vdrop(t144);
         vdrop(t143);
         V t151 = l_q;
-        V t152 = vstr_cat(vow_s[782], t151);
-        V t153 = vstr_cat(t152, vow_s[783]);
+        V t152 = vstr_cat(vow_s[802], t151);
+        V t153 = vstr_cat(t152, vow_s[803]);
         V t154 = l_q;
         V t155 = vstr_cat(t153, t154);
-        V t156 = vstr_cat(t155, vow_s[733]);
+        V t156 = vstr_cat(t155, vow_s[756]);
         V t157 = l_q;
         V t158 = vstr_cat(t156, t157);
-        V t159 = vstr_cat(t158, vow_s[754]);
+        V t159 = vstr_cat(t158, vow_s[777]);
         V t160 = l_a0;
         V t161 = vstr_cat(t159, t160);
-        V t162 = vstr_cat(t161, vow_s[800]);
+        V t162 = vstr_cat(t161, vow_s[820]);
         V t163 = l_q;
         V t164 = vstr_cat(t162, t163);
         V t165 = vstr_cat(t164, vow_s[76]);
         V t166 = l_a1;
         V t167 = vstr_cat(t165, t166);
-        V t168 = vstr_cat(t167, vow_s[784]);
+        V t168 = vstr_cat(t167, vow_s[804]);
         V t169 = l_at_r;
         V t170 = vstr_cat(t168, t169);
-        V t171 = vstr_cat(t170, vow_s[796]);
+        V t171 = vstr_cat(t170, vow_s[816]);
         V t172 = l_s;
         V t173 = vstr_cat(t171, t172);
         V t174 = vstr_cat(t173, vow_s[76]);
@@ -27642,10 +28545,10 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
         V t177 = vstr_cat(t176, vow_s[76]);
         V t178 = l_q;
         V t179 = vstr_cat(t177, t178);
-        V t180 = vstr_cat(t179, vow_s[797]);
+        V t180 = vstr_cat(t179, vow_s[817]);
         V t181 = l_at_r;
         V t182 = vstr_cat(t180, t181);
-        V t183 = vstr_cat(t182, vow_s[777]);
+        V t183 = vstr_cat(t182, vow_s[715]);
         V t184 = f_add_qdef(l_v, t183);
         (void)t184;
         vdrop(t183);
@@ -27694,20 +28597,20 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
         vdrop(l_goal);
     } else if (vstr_eq(t12, vow_s[466])) {
         V t186 = l_a1;
-        V t187 = vstr_cat(vow_s[768], t186);
-        V t188 = vstr_cat(t187, vow_s[801]);
+        V t187 = vstr_cat(vow_s[790], t186);
+        V t188 = vstr_cat(t187, vow_s[821]);
         V t189 = l_a1;
         V t190 = vstr_cat(t188, t189);
         V t191 = vstr_cat(t190, vow_s[76]);
         V t192 = l_a2;
         V t193 = vstr_cat(t191, t192);
-        V t194 = vstr_cat(t193, vow_s[801]);
+        V t194 = vstr_cat(t193, vow_s[821]);
         V t195 = l_a2;
         V t196 = vstr_cat(t194, t195);
-        V t197 = vstr_cat(t196, vow_s[754]);
+        V t197 = vstr_cat(t196, vow_s[777]);
         V t198 = l_a0;
         V t199 = vstr_cat(t197, t198);
-        V t200 = vstr_cat(t199, vow_s[769]);
+        V t200 = vstr_cat(t199, vow_s[791]);
         V l_goal = t200;
         vdrop(t199);
         vdrop(t197);
@@ -27718,8 +28621,8 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
         vdrop(t190);
         vdrop(t188);
         vdrop(t187);
-        vdup(vow_s[802]);
-        V l_what = vow_s[802];
+        vdup(vow_s[822]);
+        V l_what = vow_s[822];
         V t201 = l_pe;
         V t202 = vlist_len(t201);
         V t203 = (V)(VI(t202) >= VI((V)INT64_C(3)));
@@ -27727,13 +28630,13 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
             V t204 = l_pe;
             V t205 = vlist_get(t204, (V)INT64_C(1));
             V t206 = f_pretty_expr(t205);
-            V t207 = vstr_cat(vow_s[803], t206);
-            V t208 = vstr_cat(t207, vow_s[749]);
+            V t207 = vstr_cat(vow_s[823], t206);
+            V t208 = vstr_cat(t207, vow_s[772]);
             V t209 = l_pe;
             V t210 = vlist_get(t209, (V)INT64_C(2));
             V t211 = f_pretty_expr(t210);
             V t212 = vstr_cat(t208, t211);
-            V t213 = vstr_cat(t212, vow_s[804]);
+            V t213 = vstr_cat(t212, vow_s[824]);
             V t214 = l_pe;
             V t215 = vlist_get(t214, (V)INT64_C(0));
             V t216 = f_pretty_expr(t215);
@@ -27757,17 +28660,17 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
         V t223 = l_goal;
         V t224 = f_obligation(l_v, t219, t221, t222, t223);
         (void)t224;
-        V t225 = f_fresh(l_v, vow_s[690]);
+        V t225 = f_fresh(l_v, vow_s[693]);
         V l_r = t225;
         V t226 = l_r;
-        V t227 = vstr_cat(vow_s[805], t226);
-        V t228 = vstr_cat(t227, vow_s[806]);
+        V t227 = vstr_cat(vow_s[825], t226);
+        V t228 = vstr_cat(t227, vow_s[826]);
         V t229 = l_a2;
         V t230 = vstr_cat(t228, t229);
         V t231 = vstr_cat(t230, vow_s[76]);
         V t232 = l_a1;
         V t233 = vstr_cat(t231, t232);
-        V t234 = vstr_cat(t233, vow_s[698]);
+        V t234 = vstr_cat(t233, vow_s[701]);
         V t235 = f_add_fact(l_st, t234);
         (void)t235;
         vdrop(t234);
@@ -27801,20 +28704,20 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
             vdrop(t244);
             vdrop(t243);
             V t251 = l_q;
-            V t252 = vstr_cat(vow_s[731], t251);
-            V t253 = vstr_cat(t252, vow_s[783]);
+            V t252 = vstr_cat(vow_s[754], t251);
+            V t253 = vstr_cat(t252, vow_s[803]);
             V t254 = l_q;
             V t255 = vstr_cat(t253, t254);
-            V t256 = vstr_cat(t255, vow_s[733]);
+            V t256 = vstr_cat(t255, vow_s[756]);
             V t257 = l_q;
             V t258 = vstr_cat(t256, t257);
-            V t259 = vstr_cat(t258, vow_s[781]);
+            V t259 = vstr_cat(t258, vow_s[801]);
             V t260 = l_a2;
             V t261 = vstr_cat(t259, t260);
             V t262 = vstr_cat(t261, vow_s[76]);
             V t263 = l_a1;
             V t264 = vstr_cat(t262, t263);
-            V t265 = vstr_cat(t264, vow_s[784]);
+            V t265 = vstr_cat(t264, vow_s[804]);
             V t266 = l_at_r;
             V t267 = vstr_cat(t265, t266);
             V t268 = vstr_cat(t267, vow_s[59]);
@@ -27823,16 +28726,16 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
             V t271 = vstr_cat(t270, vow_s[76]);
             V t272 = l_a0;
             V t273 = vstr_cat(t271, t272);
-            V t274 = vstr_cat(t273, vow_s[807]);
+            V t274 = vstr_cat(t273, vow_s[827]);
             V t275 = l_a1;
             V t276 = vstr_cat(t274, t275);
             V t277 = vstr_cat(t276, vow_s[76]);
             V t278 = l_q;
             V t279 = vstr_cat(t277, t278);
-            V t280 = vstr_cat(t279, vow_s[808]);
+            V t280 = vstr_cat(t279, vow_s[828]);
             V t281 = l_at_r;
             V t282 = vstr_cat(t280, t281);
-            V t283 = vstr_cat(t282, vow_s[769]);
+            V t283 = vstr_cat(t282, vow_s[791]);
             V t284 = f_add_fact(l_st, t283);
             (void)t284;
             vdrop(t283);
@@ -27878,17 +28781,17 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
         vdrop(l_goal);
     } else if (vstr_eq(t12, vow_s[477])) {
         V t286 = l_a0;
-        V t287 = vstr_cat(vow_s[768], t286);
-        V t288 = vstr_cat(t287, vow_s[733]);
+        V t287 = vstr_cat(vow_s[790], t286);
+        V t288 = vstr_cat(t287, vow_s[756]);
         V t289 = l_a0;
         V t290 = vstr_cat(t288, t289);
-        V t291 = vstr_cat(t290, vow_s[809]);
+        V t291 = vstr_cat(t290, vow_s[829]);
         V l_goal = t291;
         vdrop(t290);
         vdrop(t288);
         vdrop(t287);
-        vdup(vow_s[810]);
-        V l_what = vow_s[810];
+        vdup(vow_s[830]);
+        V l_what = vow_s[830];
         V t292 = l_pe;
         V t293 = vlist_len(t292);
         V t294 = (V)(VI(t293) >= VI((V)INT64_C(1)));
@@ -27896,8 +28799,8 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
             V t295 = l_pe;
             V t296 = vlist_get(t295, (V)INT64_C(0));
             V t297 = f_pretty_expr(t296);
-            V t298 = vstr_cat(vow_s[811], t297);
-            V t299 = vstr_cat(t298, vow_s[812]);
+            V t298 = vstr_cat(vow_s[831], t297);
+            V t299 = vstr_cat(t298, vow_s[832]);
             vdrop(l_what);
             l_what = t299;
             vdrop(t298);
@@ -27910,18 +28813,18 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
         V t304 = l_goal;
         V t305 = f_obligation(l_v, t300, t302, t303, t304);
         (void)t305;
-        V t306 = f_fresh(l_v, vow_s[690]);
+        V t306 = f_fresh(l_v, vow_s[693]);
         V l_r = t306;
         V t307 = l_r;
-        V t308 = vstr_cat(vow_s[712], t307);
-        V t309 = vstr_cat(t308, vow_s[813]);
+        V t308 = vstr_cat(vow_s[738], t307);
+        V t309 = vstr_cat(t308, vow_s[833]);
         V t310 = f_add_def(l_v, t309);
         (void)t310;
         vdrop(t309);
         vdrop(t308);
         V t311 = l_r;
-        V t312 = vstr_cat(vow_s[814], t311);
-        V t313 = vstr_cat(t312, vow_s[815]);
+        V t312 = vstr_cat(vow_s[834], t311);
+        V t313 = vstr_cat(t312, vow_s[835]);
         V t314 = l_a0;
         V t315 = vstr_cat(t313, t314);
         V t316 = vstr_cat(t315, vow_s[144]);
@@ -27946,11 +28849,11 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
         vdrop(l_what);
         vdrop(l_goal);
     } else if (vstr_eq(t12, vow_s[473])) {
-        V t319 = f_fresh(l_v, vow_s[690]);
+        V t319 = f_fresh(l_v, vow_s[693]);
         V l_r = t319;
         V t320 = l_r;
-        V t321 = vstr_cat(vow_s[816], t320);
-        V t322 = vstr_cat(t321, vow_s[813]);
+        V t321 = vstr_cat(vow_s[836], t320);
+        V t322 = vstr_cat(t321, vow_s[833]);
         V t323 = f_add_def(l_v, t322);
         (void)t323;
         vdrop(t322);
@@ -27966,11 +28869,11 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
         return t324;
         vdrop(l_r);
     } else if (vstr_eq(t12, vow_s[69])) {
-        V t325 = f_fresh(l_v, vow_s[690]);
+        V t325 = f_fresh(l_v, vow_s[693]);
         V l_r = t325;
         V t326 = l_r;
-        V t327 = vstr_cat(vow_s[712], t326);
-        V t328 = vstr_cat(t327, vow_s[817]);
+        V t327 = vstr_cat(vow_s[738], t326);
+        V t328 = vstr_cat(t327, vow_s[837]);
         V t329 = f_add_def(l_v, t328);
         (void)t329;
         vdrop(t328);
@@ -27986,14 +28889,14 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
         return t330;
         vdrop(l_r);
     } else if (vstr_eq(t12, vow_s[484])) {
-        V t331 = f_fresh(l_v, vow_s[690]);
+        V t331 = f_fresh(l_v, vow_s[693]);
         V l_r = t331;
         V t332 = l_r;
-        V t333 = vstr_cat(vow_s[712], t332);
-        V t334 = vstr_cat(t333, vow_s[776]);
+        V t333 = vstr_cat(vow_s[738], t332);
+        V t334 = vstr_cat(t333, vow_s[798]);
         V t335 = l_a0;
         V t336 = vstr_cat(t334, t335);
-        V t337 = vstr_cat(t336, vow_s[769]);
+        V t337 = vstr_cat(t336, vow_s[791]);
         V t338 = f_add_def(l_v, t337);
         (void)t338;
         vdrop(t337);
@@ -28011,41 +28914,41 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
         return t339;
         vdrop(l_r);
     } else if (vstr_eq(t12, vow_s[485])) {
-        vdup(vow_s[715]);
+        vdup(vow_s[702]);
         vdrop(t12);
         vdrop(l_a2);
         vdrop(l_a1);
         vdrop(l_a0);
         vdrop(l_rty);
-        return vow_s[715];
+        return vow_s[702];
     } else if (vstr_eq(t12, vow_s[500])) {
-        vdup(vow_s[715]);
+        vdup(vow_s[702]);
         vdrop(t12);
         vdrop(l_a2);
         vdrop(l_a1);
         vdrop(l_a0);
         vdrop(l_rty);
-        return vow_s[715];
+        return vow_s[702];
     } else if (vstr_eq(t12, vow_s[487])) {
-        vdup(vow_s[715]);
+        vdup(vow_s[702]);
         vdrop(t12);
         vdrop(l_a2);
         vdrop(l_a1);
         vdrop(l_a0);
         vdrop(l_rty);
-        return vow_s[715];
+        return vow_s[702];
     } else if (vstr_eq(t12, vow_s[488])) {
-        vdup(vow_s[715]);
+        vdup(vow_s[702]);
         vdrop(t12);
         vdrop(l_a2);
         vdrop(l_a1);
         vdrop(l_a0);
         vdrop(l_rty);
-        return vow_s[715];
+        return vow_s[702];
     } else if (vstr_eq(t12, vow_s[459])) {
         V t340 = l_a0;
-        V t341 = vstr_cat(vow_s[720], t340);
-        V t342 = vstr_cat(t341, vow_s[721]);
+        V t341 = vstr_cat(vow_s[745], t340);
+        V t342 = vstr_cat(t341, vow_s[746]);
         V t343 = f_define(l_v, vow_s[447], t342);
         vdrop(t342);
         vdrop(t341);
@@ -28057,8 +28960,8 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
         return t343;
     } else if (vstr_eq(t12, vow_s[460])) {
         V t344 = l_a0;
-        V t345 = vstr_cat(vow_s[720], t344);
-        V t346 = vstr_cat(t345, vow_s[722]);
+        V t345 = vstr_cat(vow_s[745], t344);
+        V t346 = vstr_cat(t345, vow_s[747]);
         V t347 = f_define(l_v, vow_s[447], t346);
         vdrop(t346);
         vdrop(t345);
@@ -28075,14 +28978,14 @@ static V f_vbuiltin(V * l_v, V l_e, V l_name, V l_p, V l_pe, V * l_st) {
         V t350 = l_rty;
         V t351 = f_sort_of(t350);
         V t352 = l_a0;
-        V t353 = vstr_cat(vow_s[723], t352);
-        V t354 = vstr_cat(t353, vow_s[724]);
+        V t353 = vstr_cat(vow_s[748], t352);
+        V t354 = vstr_cat(t353, vow_s[749]);
         V t355 = l_f;
         V t356 = vstr_cat(t354, t355);
         V t357 = vstr_cat(t356, vow_s[76]);
         V t358 = l_a0;
         V t359 = vstr_cat(t357, t358);
-        V t360 = vstr_cat(t359, vow_s[703]);
+        V t360 = vstr_cat(t359, vow_s[726]);
         V t361 = l_a1;
         V t362 = vstr_cat(t360, t361);
         V t363 = vstr_cat(t362, vow_s[144]);
@@ -28142,15 +29045,15 @@ static V f_arg_str(V l_p, V l_i) {
         vdup(t10);
         return t10;
     }
-    vdup(vow_s[715]);
-    return vow_s[715];
+    vdup(vow_s[702]);
+    return vow_s[702];
     return 0;
 }
 
 static V f_run_z3(V l_script) {
-    vdup(vow_s[818]);
-    V l_z3 = vow_s[818];
-    V t1 = vgetenv(vow_s[819]);
+    vdup(vow_s[838]);
+    V l_z3 = vow_s[838];
+    V t1 = vgetenv(vow_s[839]);
     V t2 = t1;
     V t3 = VP(t2)[0];
     if (t3 == 1) {
@@ -28168,10 +29071,10 @@ static V f_run_z3(V l_script) {
     V t6 = l_z3;
     vdup(t6);
     t5 = vlist_push(t5, t6);
-    vdup(vow_s[820]);
-    t5 = vlist_push(t5, vow_s[820]);
-    vdup(vow_s[821]);
-    t5 = vlist_push(t5, vow_s[821]);
+    vdup(vow_s[840]);
+    t5 = vlist_push(t5, vow_s[840]);
+    vdup(vow_s[841]);
+    t5 = vlist_push(t5, vow_s[841]);
     V t7 = l_script;
     V t8 = vrun(t5, t7);
     vdrop(t5);
@@ -28183,10 +29086,10 @@ static V f_run_z3(V l_script) {
 
 static V f_script_for(V l_pre, V l_vcs, V l_model) {
     V t1 = vlist_empty(1);
-    vdup(vow_s[822]);
-    t1 = vlist_push(t1, vow_s[822]);
-    vdup(vow_s[823]);
-    t1 = vlist_push(t1, vow_s[823]);
+    vdup(vow_s[842]);
+    t1 = vlist_push(t1, vow_s[842]);
+    vdup(vow_s[843]);
+    t1 = vlist_push(t1, vow_s[843]);
     V l_s = t1;
     V t2 = l_pre;
     V t3 = vlist_cat(l_s, t2);
@@ -28198,7 +29101,7 @@ static V f_script_for(V l_pre, V l_vcs, V l_model) {
         V l_vc = VB(VL(t5)->buf)->items[t6];
         V t7 = l_vc;
         V t8 = VP(t7)[0];
-        V t9 = vstr_cat(vow_s[824], t8);
+        V t9 = vstr_cat(vow_s[844], t8);
         V t10 = vlist_push(l_s, t9);
         l_s = t10;
         V t11 = l_vc;
@@ -28228,8 +29131,8 @@ static V f_script_for(V l_pre, V l_vcs, V l_model) {
             l_obs = t22;
             l_is_model = 1;
         } else if (t21 == 0) {
-            vdup(vow_s[825]);
-            V t24 = vlist_push(l_s, vow_s[825]);
+            vdup(vow_s[845]);
+            V t24 = vlist_push(l_s, vow_s[845]);
             l_s = t24;
         } else {
             vow_panic("unreachable: corrupt enum tag");
@@ -28244,8 +29147,8 @@ static V f_script_for(V l_pre, V l_vcs, V l_model) {
         V t29 = t28;
         for (int64_t t30 = 0; t30 < VL(t29)->len; t30++) {
             V l_ob = VB(VL(t29)->buf)->items[t30];
-            vdup(vow_s[826]);
-            V t31 = vlist_push(l_s, vow_s[826]);
+            vdup(vow_s[846]);
+            V t31 = vlist_push(l_s, vow_s[846]);
             l_s = t31;
             V t32 = l_ob;
             V t33 = VP(t32)[2];
@@ -28254,7 +29157,7 @@ static V f_script_for(V l_pre, V l_vcs, V l_model) {
             for (int64_t t35 = 0; t35 < VL(t34)->len; t35++) {
                 V l_f = VB(VL(t34)->buf)->items[t35];
                 V t36 = l_f;
-                V t37 = vstr_cat(vow_s[827], t36);
+                V t37 = vstr_cat(vow_s[847], t36);
                 V t38 = vstr_cat(t37, vow_s[144]);
                 V t39 = vlist_push(l_s, t38);
                 l_s = t39;
@@ -28263,13 +29166,13 @@ static V f_script_for(V l_pre, V l_vcs, V l_model) {
             vdrop(t34);
             V t40 = l_ob;
             V t41 = VP(t40)[3];
-            V t42 = vstr_cat(vow_s[828], t41);
-            V t43 = vstr_cat(t42, vow_s[698]);
+            V t42 = vstr_cat(vow_s[848], t41);
+            V t43 = vstr_cat(t42, vow_s[701]);
             V t44 = vlist_push(l_s, t43);
             l_s = t44;
             vdrop(t42);
-            vdup(vow_s[825]);
-            V t45 = vlist_push(l_s, vow_s[825]);
+            vdup(vow_s[845]);
+            V t45 = vlist_push(l_s, vow_s[845]);
             l_s = t45;
             V t46 = l_is_model;
             V t47 = t46;
@@ -28298,21 +29201,21 @@ static V f_script_for(V l_pre, V l_vcs, V l_model) {
                 vdrop(t55);
                 V t60 = l_terms;
                 V t61 = vjoin(t60, vow_s[76]);
-                V t62 = vstr_cat(vow_s[829], t61);
-                V t63 = vstr_cat(t62, vow_s[698]);
+                V t62 = vstr_cat(vow_s[849], t61);
+                V t63 = vstr_cat(t62, vow_s[701]);
                 V t64 = vlist_push(l_s, t63);
                 l_s = t64;
                 vdrop(t62);
                 vdrop(t61);
                 vdrop(l_terms);
             }
-            vdup(vow_s[830]);
-            V t65 = vlist_push(l_s, vow_s[830]);
+            vdup(vow_s[850]);
+            V t65 = vlist_push(l_s, vow_s[850]);
             l_s = t65;
         }
         vdrop(t29);
-        vdup(vow_s[830]);
-        V t66 = vlist_push(l_s, vow_s[830]);
+        vdup(vow_s[850]);
+        V t66 = vlist_push(l_s, vow_s[850]);
         l_s = t66;
         vdrop(l_obs);
     }
@@ -28331,7 +29234,7 @@ static V f_parse_values(V l_out) {
     V t1 = vlist_empty(1);
     V l_vals = t1;
     V t2 = l_out;
-    V t3 = f_find(t2, vow_s[831], (V)INT64_C(0));
+    V t3 = f_find(t2, vow_s[851], (V)INT64_C(0));
     V l_start = t3;
     V t4 = l_start;
     V t5 = (V)(VI(t4) < VI((V)INT64_C(0)));
@@ -28535,7 +29438,7 @@ static V f_split_pair(V l_pair) {
     V l_val = t53;
     vdrop(t52);
     V t54 = l_val;
-    V t55 = f_starts_with(t54, vow_s[693]);
+    V t55 = f_starts_with(t54, vow_s[696]);
     V t56 = t55;
     if (t55) {
         V t57 = l_val;
@@ -28580,7 +29483,7 @@ static V f_discharge(V l_pre, V l_vcs) {
     V t4 = f_script_for(t1, t2, t3);
     V l_script = t4;
     vdrop(t3);
-    V t5 = vgetenv(vow_s[832]);
+    V t5 = vgetenv(vow_s[852]);
     V t6 = t5;
     V t7 = VP(t6)[0];
     if (t7 == 1) {
@@ -28609,23 +29512,23 @@ static V f_discharge(V l_pre, V l_vcs) {
         V t20 = f_trim(t19);
         V l_l = t20;
         V t21 = l_l;
-        V t22 = vstr_eq(t21, vow_s[833]);
+        V t22 = (V)vstr_eq(t21, vow_s[853]);
         V t23 = t22;
         if (!t23) {
             V t24 = l_l;
-            V t25 = vstr_eq(t24, vow_s[834]);
+            V t25 = (V)vstr_eq(t24, vow_s[854]);
             t23 = t25;
         }
         V t26 = t23;
         if (!t26) {
             V t27 = l_l;
-            V t28 = vstr_eq(t27, vow_s[835]);
+            V t28 = (V)vstr_eq(t27, vow_s[855]);
             t26 = t28;
         }
         V t29 = t26;
         if (!t29) {
             V t30 = l_l;
-            V t31 = f_starts_with(t30, vow_s[836]);
+            V t31 = f_starts_with(t30, vow_s[856]);
             t29 = t31;
         }
         if (t29) {
@@ -28645,10 +29548,10 @@ static V f_discharge(V l_pre, V l_vcs) {
     for (int64_t t37 = 0; t37 < VL(t36)->len; t37++) {
         V l_a = VB(VL(t36)->buf)->items[t37];
         V t38 = l_a;
-        V t39 = f_starts_with(t38, vow_s[836]);
+        V t39 = f_starts_with(t38, vow_s[856]);
         if (t39) {
             V t40 = l_a;
-            V t41 = vstr_cat(vow_s[837], t40);
+            V t41 = vstr_cat(vow_s[857], t40);
             V t42 = l_none;
             vdup(t42);
             V t43 = vow_fields(2, UINT64_C(3));
@@ -28681,17 +29584,17 @@ static V f_discharge(V l_pre, V l_vcs) {
     V t53 = l_answers;
     V t54 = vlist_len(t53);
     V t55 = l_total;
-    V t56 = (V)!(V)(t54 == t55);
+    V t56 = (V)!(t54 == t55);
     if (t56) {
         V t57 = l_answers;
         V t58 = vlist_len(t57);
         V t59 = vint_to_str(t58);
-        V t60 = vstr_cat(vow_s[838], t59);
-        V t61 = vstr_cat(t60, vow_s[648]);
+        V t60 = vstr_cat(vow_s[858], t59);
+        V t61 = vstr_cat(t60, vow_s[651]);
         V t62 = l_total;
         V t63 = vint_to_str(t62);
         V t64 = vstr_cat(t61, t63);
-        V t65 = vstr_cat(t64, vow_s[839]);
+        V t65 = vstr_cat(t64, vow_s[859]);
         V l_msg = t65;
         vdrop(t64);
         vdrop(t63);
@@ -28700,10 +29603,10 @@ static V f_discharge(V l_pre, V l_vcs) {
         vdrop(t59);
         V t66 = l_o;
         V t67 = VP(t66)[0];
-        V t68 = (V)!(V)(t67 == (V)INT64_C(0));
+        V t68 = (V)!(t67 == (V)INT64_C(0));
         if (t68) {
             V t69 = l_msg;
-            V t70 = vstr_cat(t69, vow_s[840]);
+            V t70 = vstr_cat(t69, vow_s[860]);
             V t71 = l_none;
             vdup(t71);
             V t72 = vow_fields(2, UINT64_C(3));
@@ -28748,14 +29651,14 @@ static V f_discharge(V l_pre, V l_vcs) {
             V t85 = l_answers;
             V t86 = l_k;
             V t87 = vlist_get(t85, t86);
-            V t88 = vstr_eq(t87, vow_s[834]);
+            V t88 = (V)vstr_eq(t87, vow_s[854]);
             t84 = t88;
         }
         if (t84) {
             V t89 = l_vc;
             V t90 = VP(t89)[0];
-            V t91 = vstr_cat(vow_s[841], t90);
-            V t92 = vstr_cat(t91, vow_s[842]);
+            V t91 = vstr_cat(vow_s[861], t90);
+            V t92 = vstr_cat(t91, vow_s[862]);
             V t93 = l_none;
             vdup(t93);
             V t94 = vow_fields(2, UINT64_C(3));
@@ -28779,8 +29682,8 @@ static V f_discharge(V l_pre, V l_vcs) {
         V t99 = t98;
         for (int64_t t100 = 0; t100 < VL(t99)->len; t100++) {
             V l_ob = VB(VL(t99)->buf)->items[t100];
-            vdup(vow_s[835]);
-            V l_a = vow_s[835];
+            vdup(vow_s[855]);
+            V l_a = vow_s[855];
             V t101 = l_k;
             V t102 = l_answers;
             V t103 = vlist_len(t102);
@@ -28797,7 +29700,7 @@ static V f_discharge(V l_pre, V l_vcs) {
             V t109 = vadd(t108, (V)INT64_C(1));
             l_k = t109;
             V t110 = l_a;
-            V t111 = vstr_eq(t110, vow_s[834]);
+            V t111 = (V)vstr_eq(t110, vow_s[854]);
             if (t111) {
                 vdrop(l_a);
                 continue;
@@ -28805,7 +29708,7 @@ static V f_discharge(V l_pre, V l_vcs) {
             V t112 = vlist_empty(1);
             V l_model = t112;
             V t113 = l_a;
-            V t114 = vstr_eq(t113, vow_s[833]);
+            V t114 = (V)vstr_eq(t113, vow_s[853]);
             V t115 = t114;
             if (t114) {
                 V t116 = l_ob;
@@ -28913,16 +29816,16 @@ static V f_failure_diag(V l_f) {
     V t4 = l_f;
     V t5 = VP(t4)[1];
     V t6 = VP(t5)[1];
-    V t7 = vstr_cat(vow_s[843], t6);
+    V t7 = vstr_cat(vow_s[863], t6);
     V t8 = f_diag(t3, t7);
     V l_d = t8;
     vdrop(t7);
     V t9 = l_f;
     V t10 = VP(t9)[2];
-    V t11 = vstr_eq(t10, vow_s[835]);
+    V t11 = (V)vstr_eq(t10, vow_s[855]);
     if (t11) {
         V t12 = l_d;
-        V t13 = f_with_note(t12, vow_s[844]);
+        V t13 = f_with_note(t12, vow_s[864]);
         vdrop(l_d);
         l_d = t13;
     } else {
@@ -28941,7 +29844,7 @@ static V f_failure_diag(V l_f) {
                 V l_m = VB(VL(t21)->buf)->items[t22];
                 V t23 = l_m;
                 V t24 = VP(t23)[0];
-                V t25 = vstr_cat(t24, vow_s[845]);
+                V t25 = vstr_cat(t24, vow_s[865]);
                 V t26 = l_m;
                 V t27 = VP(t26)[1];
                 V t28 = vstr_cat(t25, t27);
@@ -28953,7 +29856,7 @@ static V f_failure_diag(V l_f) {
             V t30 = l_d;
             V t31 = l_parts;
             V t32 = vjoin(t31, vow_s[54]);
-            V t33 = vstr_cat(vow_s[846], t32);
+            V t33 = vstr_cat(vow_s[866], t32);
             V t34 = f_with_note(t30, t33);
             vdrop(l_d);
             l_d = t34;
@@ -28965,7 +29868,7 @@ static V f_failure_diag(V l_f) {
     V t35 = l_d;
     V t36 = l_f;
     V t37 = VP(t36)[0];
-    V t38 = vstr_cat(vow_s[847], t37);
+    V t38 = vstr_cat(vow_s[867], t37);
     V t39 = vstr_cat(t38, vow_s[92]);
     V t40 = f_with_note(t35, t39);
     vdrop(t39);
@@ -29005,15 +29908,15 @@ static V f_quote(V l_s) {
                 V t13 = l_c;
                 V t14 = (V)(t13 == (V)INT64_C(13));
                 if (t14) {
-                    vdup(vow_s[848]);
-                    V t15 = vlist_push(l_parts, vow_s[848]);
+                    vdup(vow_s[868]);
+                    V t15 = vlist_push(l_parts, vow_s[868]);
                     l_parts = t15;
                 } else {
                     V t16 = l_c;
                     V t17 = (V)(t16 == (V)INT64_C(0));
                     if (t17) {
-                        vdup(vow_s[849]);
-                        V t18 = vlist_push(l_parts, vow_s[849]);
+                        vdup(vow_s[869]);
+                        V t18 = vlist_push(l_parts, vow_s[869]);
                         l_parts = t18;
                     } else {
                         V t19 = l_c;
@@ -29068,7 +29971,7 @@ static V f_pretty_args(V l_args) {
         V t9 = VP(t8)[1];
         if (t9) {
             V t10 = l_v;
-            V t11 = vstr_cat(vow_s[850], t10);
+            V t11 = vstr_cat(vow_s[870], t10);
             vdrop(l_v);
             l_v = t11;
         }
@@ -29234,9 +30137,9 @@ static V f_pretty_expr(V l_e) {
         return t30;
         vdrop(l_parts);
     } else if (t4 == 9) {
-        vdup(vow_s[851]);
+        vdup(vow_s[871]);
         vdrop(t3);
-        return vow_s[851];
+        return vow_s[871];
     } else if (t4 == 10) {
         V l_o = VP(t3)[1];
         V l_i = VP(t3)[2];
@@ -29270,7 +30173,7 @@ static V f_pretty_expr(V l_e) {
         V l_a = VP(t3)[2];
         V t43 = l_o;
         V t44 = f_pretty_operand(t43);
-        V t45 = vstr_cat(t44, vow_s[852]);
+        V t45 = vstr_cat(t44, vow_s[872]);
         V t46 = l_a;
         V t47 = f_pretty_args(t46);
         V t48 = vstr_cat(t45, t47);
@@ -29285,11 +30188,11 @@ static V f_pretty_expr(V l_e) {
         V l_op = VP(t3)[1];
         V l_x = VP(t3)[2];
         V t50 = l_op;
-        V t51 = vstr_eq(t50, vow_s[224]);
+        V t51 = (V)vstr_eq(t50, vow_s[224]);
         if (t51) {
             V t52 = l_x;
             V t53 = f_pretty_operand(t52);
-            V t54 = vstr_cat(vow_s[853], t53);
+            V t54 = vstr_cat(vow_s[873], t53);
             vdrop(t53);
             vdrop(t3);
             return t54;
@@ -29330,7 +30233,7 @@ static V f_pretty_expr(V l_e) {
         V t68 = vstr_cat(t67, vow_s[76]);
         V t69 = l_v;
         V t70 = vstr_cat(t68, t69);
-        V t71 = vstr_cat(t70, vow_s[854]);
+        V t71 = vstr_cat(t70, vow_s[874]);
         V t72 = l_lo;
         V t73 = f_pretty_expr(t72);
         V t74 = vstr_cat(t71, t73);
@@ -29406,7 +30309,7 @@ static V f_pretty_type(V l_t) {
     if (t24 == 1) {
         V l_r = VP(t23)[1];
         V t25 = l_s;
-        V t26 = vstr_cat(t25, vow_s[714]);
+        V t26 = vstr_cat(t25, vow_s[740]);
         V t27 = l_r;
         V t28 = f_pretty_expr(t27);
         V t29 = vstr_cat(t26, t28);
@@ -29440,9 +30343,9 @@ static V f_pretty_fields(V l_fs) {
         V t5 = l_f;
         V t6 = VP(t5)[1];
         if (t6) {
-            vdup(vow_s[850]);
+            vdup(vow_s[870]);
             vdrop(l_io);
-            l_io = vow_s[850];
+            l_io = vow_s[870];
         }
         V t7 = l_f;
         V t8 = VP(t7)[0];
@@ -29471,7 +30374,7 @@ static V f_pretty_fields(V l_fs) {
 
 static V f_pline(V * l_out, V l_ind, V l_s) {
     V t1 = l_ind;
-    V t2 = f_repeat(vow_s[855], t1);
+    V t2 = f_repeat(vow_s[875], t1);
     V t3 = l_s;
     V t4 = vstr_cat(t2, t3);
     V t5 = vlist_push((*l_out), t4);
@@ -29490,7 +30393,7 @@ static V f_pretty_invs(V l_invs) {
         V l_i = VB(VL(t3)->buf)->items[t4];
         V t5 = l_i;
         V t6 = f_pretty_expr(t5);
-        V t7 = vstr_cat(vow_s[856], t6);
+        V t7 = vstr_cat(vow_s[876], t6);
         V t8 = vlist_push(l_parts, t7);
         l_parts = t8;
         vdrop(t6);
@@ -29620,7 +30523,7 @@ static V f_pretty_stmt(V * l_out, V l_s, V l_ind) {
             V t15 = l_t;
             V t16 = f_pretty_type(t15);
             V t17 = vstr_cat(t14, t16);
-            V t18 = vstr_cat(t17, vow_s[845]);
+            V t18 = vstr_cat(t17, vow_s[865]);
             V t19 = l_value;
             V t20 = f_pretty_expr(t19);
             V t21 = vstr_cat(t18, t20);
@@ -29640,7 +30543,7 @@ static V f_pretty_stmt(V * l_out, V l_s, V l_ind) {
             V t25 = vstr_cat(t24, vow_s[76]);
             V t26 = l_name;
             V t27 = vstr_cat(t25, t26);
-            V t28 = vstr_cat(t27, vow_s[845]);
+            V t28 = vstr_cat(t27, vow_s[865]);
             V t29 = l_value;
             V t30 = f_pretty_expr(t29);
             V t31 = vstr_cat(t28, t30);
@@ -29661,8 +30564,8 @@ static V f_pretty_stmt(V * l_out, V l_s, V l_ind) {
         V l_value = VP(t3)[2];
         V t33 = l_ind;
         V t34 = l_name;
-        V t35 = vstr_cat(vow_s[857], t34);
-        V t36 = vstr_cat(t35, vow_s[845]);
+        V t35 = vstr_cat(vow_s[877], t34);
+        V t36 = vstr_cat(t35, vow_s[865]);
         V t37 = l_value;
         V t38 = f_pretty_expr(t37);
         V t39 = vstr_cat(t36, t38);
@@ -29683,7 +30586,7 @@ static V f_pretty_stmt(V * l_out, V l_s, V l_ind) {
             V t44 = l_ind;
             V t45 = l_e;
             V t46 = f_pretty_expr(t45);
-            V t47 = vstr_cat(vow_s[858], t46);
+            V t47 = vstr_cat(vow_s[878], t46);
             V t48 = f_pline(l_out, t44, t47);
             (void)t48;
             vdrop(t47);
@@ -29721,7 +30624,7 @@ static V f_pretty_stmt(V * l_out, V l_s, V l_ind) {
             V t59 = VP(t58)[0];
             V t60 = f_pretty_expr(t59);
             V t61 = vstr_cat(t57, t60);
-            V t62 = vstr_cat(t61, vow_s[859]);
+            V t62 = vstr_cat(t61, vow_s[879]);
             V t63 = f_pline(l_out, t55, t62);
             (void)t63;
             vdrop(t62);
@@ -29757,7 +30660,7 @@ static V f_pretty_stmt(V * l_out, V l_s, V l_ind) {
         }
         vdrop(t70);
         V t78 = l_ind;
-        V t79 = f_pline(l_out, t78, vow_s[860]);
+        V t79 = f_pline(l_out, t78, vow_s[880]);
         (void)t79;
     } else if (t4 == 4) {
         V l_c = VP(t3)[1];
@@ -29774,7 +30677,7 @@ static V f_pretty_stmt(V * l_out, V l_s, V l_ind) {
             V l_m = VP(t81)[1];
             V t83 = l_m;
             V t84 = f_pretty_expr(t83);
-            V t85 = vstr_cat(vow_s[861], t84);
+            V t85 = vstr_cat(vow_s[881], t84);
             vdrop(l_d);
             l_d = t85;
             vdrop(t84);
@@ -29786,13 +30689,13 @@ static V f_pretty_stmt(V * l_out, V l_s, V l_ind) {
         V t86 = l_ind;
         V t87 = l_c;
         V t88 = f_pretty_expr(t87);
-        V t89 = vstr_cat(vow_s[862], t88);
+        V t89 = vstr_cat(vow_s[882], t88);
         V t90 = l_invs;
         V t91 = f_pretty_invs(t90);
         V t92 = vstr_cat(t89, t91);
         V t93 = l_d;
         V t94 = vstr_cat(t92, t93);
-        V t95 = vstr_cat(t94, vow_s[863]);
+        V t95 = vstr_cat(t94, vow_s[883]);
         V t96 = f_pline(l_out, t86, t95);
         (void)t96;
         vdrop(t95);
@@ -29807,7 +30710,7 @@ static V f_pretty_stmt(V * l_out, V l_s, V l_ind) {
         V t100 = f_pretty_block(l_out, t97, t99);
         (void)t100;
         V t101 = l_ind;
-        V t102 = f_pline(l_out, t101, vow_s[864]);
+        V t102 = f_pline(l_out, t101, vow_s[884]);
         (void)t102;
         vdrop(l_d);
     } else if (t4 == 5) {
@@ -29817,8 +30720,8 @@ static V f_pretty_stmt(V * l_out, V l_s, V l_ind) {
         V l_invs = VP(t3)[4];
         V l_body = VP(t3)[5];
         V t103 = l_v;
-        V t104 = vstr_cat(vow_s[865], t103);
-        V t105 = vstr_cat(t104, vow_s[854]);
+        V t104 = vstr_cat(vow_s[885], t103);
+        V t105 = vstr_cat(t104, vow_s[874]);
         V t106 = l_lo;
         V t107 = f_pretty_expr(t106);
         V t108 = vstr_cat(t105, t107);
@@ -29829,7 +30732,7 @@ static V f_pretty_stmt(V * l_out, V l_s, V l_ind) {
         V t113 = l_invs;
         V t114 = f_pretty_invs(t113);
         V t115 = vstr_cat(t112, t114);
-        V t116 = vstr_cat(t115, vow_s[863]);
+        V t116 = vstr_cat(t115, vow_s[883]);
         V l_head = t116;
         vdrop(t115);
         vdrop(t114);
@@ -29850,7 +30753,7 @@ static V f_pretty_stmt(V * l_out, V l_s, V l_ind) {
         V t123 = f_pretty_block(l_out, t120, t122);
         (void)t123;
         V t124 = l_ind;
-        V t125 = f_pline(l_out, t124, vow_s[866]);
+        V t125 = f_pline(l_out, t124, vow_s[886]);
         (void)t125;
         vdrop(l_head);
     } else if (t4 == 6) {
@@ -29860,15 +30763,15 @@ static V f_pretty_stmt(V * l_out, V l_s, V l_ind) {
         V l_body = VP(t3)[4];
         V t126 = l_ind;
         V t127 = l_v;
-        V t128 = vstr_cat(vow_s[865], t127);
-        V t129 = vstr_cat(t128, vow_s[854]);
+        V t128 = vstr_cat(vow_s[885], t127);
+        V t129 = vstr_cat(t128, vow_s[874]);
         V t130 = l_l;
         V t131 = f_pretty_expr(t130);
         V t132 = vstr_cat(t129, t131);
         V t133 = l_invs;
         V t134 = f_pretty_invs(t133);
         V t135 = vstr_cat(t132, t134);
-        V t136 = vstr_cat(t135, vow_s[863]);
+        V t136 = vstr_cat(t135, vow_s[883]);
         V t137 = f_pline(l_out, t126, t136);
         (void)t137;
         vdrop(t136);
@@ -29884,7 +30787,7 @@ static V f_pretty_stmt(V * l_out, V l_s, V l_ind) {
         V t141 = f_pretty_block(l_out, t138, t140);
         (void)t141;
         V t142 = l_ind;
-        V t143 = f_pline(l_out, t142, vow_s[866]);
+        V t143 = f_pline(l_out, t142, vow_s[886]);
         (void)t143;
     } else if (t4 == 7) {
         V l_sc = VP(t3)[1];
@@ -29893,7 +30796,7 @@ static V f_pretty_stmt(V * l_out, V l_s, V l_ind) {
         V t144 = l_ind;
         V t145 = l_sc;
         V t146 = f_pretty_expr(t145);
-        V t147 = vstr_cat(vow_s[867], t146);
+        V t147 = vstr_cat(vow_s[887], t146);
         V t148 = f_pline(l_out, t144, t147);
         (void)t148;
         vdrop(t147);
@@ -29907,8 +30810,8 @@ static V f_pretty_stmt(V * l_out, V l_s, V l_ind) {
             V t153 = l_c;
             V t154 = VP(t153)[0];
             V t155 = f_pretty_pat(t154);
-            V t156 = vstr_cat(vow_s[868], t155);
-            V t157 = vstr_cat(t156, vow_s[859]);
+            V t156 = vstr_cat(vow_s[888], t155);
+            V t157 = vstr_cat(t156, vow_s[879]);
             V t158 = f_pline(l_out, t152, t157);
             (void)t158;
             vdrop(t157);
@@ -29942,14 +30845,14 @@ static V f_pretty_stmt(V * l_out, V l_s, V l_ind) {
         }
         vdrop(t165);
         V t173 = l_ind;
-        V t174 = f_pline(l_out, t173, vow_s[869]);
+        V t174 = f_pline(l_out, t173, vow_s[889]);
         (void)t174;
     } else if (t4 == 8) {
         V l_e = VP(t3)[1];
         V t175 = l_ind;
         V t176 = l_e;
         V t177 = f_pretty_expr(t176);
-        V t178 = vstr_cat(vow_s[870], t177);
+        V t178 = vstr_cat(vow_s[890], t177);
         V t179 = f_pline(l_out, t175, t178);
         (void)t179;
         vdrop(t178);
@@ -29959,7 +30862,7 @@ static V f_pretty_stmt(V * l_out, V l_s, V l_ind) {
         V t180 = l_ind;
         V t181 = l_e;
         V t182 = f_pretty_expr(t181);
-        V t183 = vstr_cat(vow_s[871], t182);
+        V t183 = vstr_cat(vow_s[891], t182);
         V t184 = f_pline(l_out, t180, t183);
         (void)t184;
         vdrop(t183);
@@ -30008,7 +30911,7 @@ static V f_pretty_tparams(V l_ts) {
 static V f_fn_contract(V l_f) {
     V t1 = l_f;
     V t2 = VP(t1)[0];
-    V t3 = vstr_cat(vow_s[872], t2);
+    V t3 = vstr_cat(vow_s[892], t2);
     V t4 = l_f;
     V t5 = VP(t4)[1];
     V t6 = f_pretty_tparams(t5);
@@ -30034,7 +30937,7 @@ static V f_fn_contract(V l_f) {
     if (t17 == 1) {
         V l_r = VP(t16)[1];
         V t18 = l_s;
-        V t19 = vstr_cat(t18, vow_s[873]);
+        V t19 = vstr_cat(t18, vow_s[893]);
         V t20 = l_r;
         V t21 = f_pretty_type(t20);
         V t22 = vstr_cat(t19, t21);
@@ -30068,7 +30971,7 @@ static V f_fn_contract(V l_f) {
         }
         vdrop(t30);
         V t35 = l_s;
-        V t36 = vstr_cat(t35, vow_s[874]);
+        V t36 = vstr_cat(t35, vow_s[894]);
         V t37 = l_u;
         V t38 = vjoin(t37, vow_s[54]);
         V t39 = vstr_cat(t36, t38);
@@ -30085,7 +30988,7 @@ static V f_fn_contract(V l_f) {
     for (int64_t t43 = 0; t43 < VL(t42)->len; t43++) {
         V l_r = VB(VL(t42)->buf)->items[t43];
         V t44 = l_s;
-        V t45 = vstr_cat(t44, vow_s[875]);
+        V t45 = vstr_cat(t44, vow_s[895]);
         V t46 = l_r;
         V t47 = f_pretty_expr(t46);
         V t48 = vstr_cat(t45, t47);
@@ -30102,7 +31005,7 @@ static V f_fn_contract(V l_f) {
     for (int64_t t52 = 0; t52 < VL(t51)->len; t52++) {
         V l_e = VB(VL(t51)->buf)->items[t52];
         V t53 = l_s;
-        V t54 = vstr_cat(t53, vow_s[876]);
+        V t54 = vstr_cat(t53, vow_s[896]);
         V t55 = l_e;
         V t56 = f_pretty_expr(t55);
         V t57 = vstr_cat(t54, t56);
@@ -30120,7 +31023,7 @@ static V f_fn_contract(V l_f) {
     if (t61 == 1) {
         V l_d = VP(t60)[1];
         V t62 = l_s;
-        V t63 = vstr_cat(t62, vow_s[861]);
+        V t63 = vstr_cat(t62, vow_s[881]);
         V t64 = l_d;
         V t65 = f_pretty_expr(t64);
         V t66 = vstr_cat(t63, t65);
@@ -30152,7 +31055,7 @@ static V f_pretty_item(V l_item) {
         V l_f = VP(t3)[1];
         V t5 = l_f;
         V t6 = f_fn_contract(t5);
-        V t7 = vstr_cat(t6, vow_s[863]);
+        V t7 = vstr_cat(t6, vow_s[883]);
         V t8 = vlist_push(l_out, t7);
         l_out = t8;
         vdrop(t6);
@@ -30162,14 +31065,14 @@ static V f_pretty_item(V l_item) {
         (void)t11;
         V t12 = l_f;
         V t13 = VP(t12)[0];
-        V t14 = vstr_cat(vow_s[877], t13);
+        V t14 = vstr_cat(vow_s[897], t13);
         V t15 = vlist_push(l_out, t14);
         l_out = t15;
     } else if (t4 == 1) {
         V l_s = VP(t3)[1];
         V t16 = l_s;
         V t17 = VP(t16)[0];
-        V t18 = vstr_cat(vow_s[878], t17);
+        V t18 = vstr_cat(vow_s[898], t17);
         V t19 = l_s;
         V t20 = VP(t19)[1];
         V t21 = f_pretty_tparams(t20);
@@ -30186,7 +31089,7 @@ static V f_pretty_item(V l_item) {
             V l_f = VB(VL(t26)->buf)->items[t27];
             V t28 = l_f;
             V t29 = VP(t28)[0];
-            V t30 = vstr_cat(vow_s[855], t29);
+            V t30 = vstr_cat(vow_s[875], t29);
             V t31 = vstr_cat(t30, vow_s[51]);
             V t32 = l_f;
             V t33 = VP(t32)[2];
@@ -30203,14 +31106,14 @@ static V f_pretty_item(V l_item) {
         vdrop(t26);
         V t38 = l_s;
         V t39 = VP(t38)[0];
-        V t40 = vstr_cat(vow_s[879], t39);
+        V t40 = vstr_cat(vow_s[899], t39);
         V t41 = vlist_push(l_out, t40);
         l_out = t41;
     } else if (t4 == 2) {
         V l_e = VP(t3)[1];
         V t42 = l_e;
         V t43 = VP(t42)[0];
-        V t44 = vstr_cat(vow_s[880], t43);
+        V t44 = vstr_cat(vow_s[900], t43);
         V t45 = l_e;
         V t46 = VP(t45)[1];
         V t47 = f_pretty_tparams(t46);
@@ -30232,7 +31135,7 @@ static V f_pretty_item(V l_item) {
             if (t57) {
                 V t58 = l_v;
                 V t59 = VP(t58)[0];
-                V t60 = vstr_cat(vow_s[855], t59);
+                V t60 = vstr_cat(vow_s[875], t59);
                 V t61 = vstr_cat(t60, vow_s[28]);
                 V t62 = vlist_push(l_out, t61);
                 l_out = t62;
@@ -30240,13 +31143,13 @@ static V f_pretty_item(V l_item) {
             } else {
                 V t63 = l_v;
                 V t64 = VP(t63)[0];
-                V t65 = vstr_cat(vow_s[855], t64);
+                V t65 = vstr_cat(vow_s[875], t64);
                 V t66 = vstr_cat(t65, vow_s[142]);
                 V t67 = l_v;
                 V t68 = VP(t67)[1];
                 V t69 = f_pretty_fields(t68);
                 V t70 = vstr_cat(t66, t69);
-                V t71 = vstr_cat(t70, vow_s[881]);
+                V t71 = vstr_cat(t70, vow_s[901]);
                 V t72 = vlist_push(l_out, t71);
                 l_out = t72;
                 vdrop(t70);
@@ -30258,15 +31161,15 @@ static V f_pretty_item(V l_item) {
         vdrop(t52);
         V t73 = l_e;
         V t74 = VP(t73)[0];
-        V t75 = vstr_cat(vow_s[882], t74);
+        V t75 = vstr_cat(vow_s[902], t74);
         V t76 = vlist_push(l_out, t75);
         l_out = t76;
     } else if (t4 == 3) {
         V l_a = VP(t3)[1];
         V t77 = l_a;
         V t78 = VP(t77)[0];
-        V t79 = vstr_cat(vow_s[883], t78);
-        V t80 = vstr_cat(t79, vow_s[845]);
+        V t79 = vstr_cat(vow_s[903], t78);
+        V t80 = vstr_cat(t79, vow_s[865]);
         V t81 = l_a;
         V t82 = VP(t81)[1];
         V t83 = f_pretty_type(t82);
@@ -30317,8 +31220,8 @@ static V f_c_string(V l_s) {
                 V t13 = l_b;
                 V t14 = (V)(t13 == (V)INT64_C(63));
                 if (t14) {
-                    vdup(vow_s[884]);
-                    V t15 = vlist_push(l_parts, vow_s[884]);
+                    vdup(vow_s[904]);
+                    V t15 = vlist_push(l_parts, vow_s[904]);
                     l_parts = t15;
                 } else {
                     V t16 = l_b;
@@ -30337,7 +31240,7 @@ static V f_c_string(V l_s) {
                     } else {
                         V t24 = l_b;
                         V t25 = f_octal3(t24);
-                        V t26 = vstr_cat(vow_s[885], t25);
+                        V t26 = vstr_cat(vow_s[905], t25);
                         V t27 = vlist_push(l_parts, t26);
                         l_parts = t27;
                         vdrop(t25);
@@ -30363,8 +31266,8 @@ static V f_c_params(V l_f) {
     V t3 = vlist_len(t2);
     V t4 = (V)(t3 == (V)INT64_C(0));
     if (t4) {
-        vdup(vow_s[886]);
-        return vow_s[886];
+        vdup(vow_s[906]);
+        return vow_s[906];
     }
     V t5 = vlist_empty(1);
     V l_ps = t5;
@@ -30379,13 +31282,13 @@ static V f_c_params(V l_f) {
         if (t11) {
             V t12 = l_p;
             V t13 = VP(t12)[0];
-            V t14 = vstr_cat(vow_s[887], t13);
+            V t14 = vstr_cat(vow_s[907], t13);
             V t15 = vlist_push(l_ps, t14);
             l_ps = t15;
         } else {
             V t16 = l_p;
             V t17 = VP(t16)[0];
-            V t18 = vstr_cat(vow_s[888], t17);
+            V t18 = vstr_cat(vow_s[908], t17);
             V t19 = vlist_push(l_ps, t18);
             l_ps = t19;
         }
@@ -30413,212 +31316,261 @@ static V f_generate(V l_items, V l_info, V l_files, V l_verified) {
     V t11 = vneg((V)INT64_C(1));
     V t12 = vlist_empty(1);
     V t13 = vlist_empty(0);
+    V t14 = vlist_empty(1);
     vdup(t1);
     vdup(t2);
     vdup(vmap_empty());
-    V t14 = vow_fields(17, UINT64_C(106471));
-    VP(t14)[0] = t1;
-    VP(t14)[1] = t2;
-    VP(t14)[2] = t3;
-    VP(t14)[3] = (V)INT64_C(0);
-    VP(t14)[4] = (V)INT64_C(0);
-    VP(t14)[5] = t4;
-    VP(t14)[6] = vmap_empty();
-    VP(t14)[7] = t5;
-    VP(t14)[8] = t6;
-    VP(t14)[9] = t7;
-    VP(t14)[10] = t8;
-    VP(t14)[11] = t9;
-    VP(t14)[12] = t10;
-    VP(t14)[13] = t11;
-    VP(t14)[14] = 0;
-    VP(t14)[15] = t12;
-    VP(t14)[16] = t13;
-    V l_g = t14;
-    V t15 = vlist_empty(1);
-    V l_fns = t15;
-    V t16 = l_items;
-    vdup(t16);
-    V t17 = t16;
-    for (int64_t t18 = 0; t18 < VL(t17)->len; t18++) {
-        V l_item = VB(VL(t17)->buf)->items[t18];
-        V t19 = l_item;
-        vdup(t19);
-        V t20 = t19;
-        V t21 = VP(t20)[0];
-        if (t21 == 0) {
-            V l_f = VP(t20)[1];
-            V t22 = l_f;
-            V t23 = VP(t22)[1];
-            V t24 = vlist_len(t23);
-            V t25 = (V)(t24 == (V)INT64_C(0));
-            if (t25) {
-                V t26 = l_f;
-                vdup(t26);
-                V t27 = vlist_push(l_fns, t26);
-                l_fns = t27;
+    V t15 = vow_fields(18, UINT64_C(237543));
+    VP(t15)[0] = t1;
+    VP(t15)[1] = t2;
+    VP(t15)[2] = t3;
+    VP(t15)[3] = (V)INT64_C(0);
+    VP(t15)[4] = (V)INT64_C(0);
+    VP(t15)[5] = t4;
+    VP(t15)[6] = vmap_empty();
+    VP(t15)[7] = t5;
+    VP(t15)[8] = t6;
+    VP(t15)[9] = t7;
+    VP(t15)[10] = t8;
+    VP(t15)[11] = t9;
+    VP(t15)[12] = t10;
+    VP(t15)[13] = t11;
+    VP(t15)[14] = 0;
+    VP(t15)[15] = t12;
+    VP(t15)[16] = t13;
+    VP(t15)[17] = t14;
+    V l_g = t15;
+    V t16 = vlist_empty(1);
+    V l_fns = t16;
+    V t17 = l_items;
+    vdup(t17);
+    V t18 = t17;
+    for (int64_t t19 = 0; t19 < VL(t18)->len; t19++) {
+        V l_item = VB(VL(t18)->buf)->items[t19];
+        V t20 = l_item;
+        vdup(t20);
+        V t21 = t20;
+        V t22 = VP(t21)[0];
+        if (t22 == 0) {
+            V l_f = VP(t21)[1];
+            V t23 = l_f;
+            V t24 = VP(t23)[1];
+            V t25 = vlist_len(t24);
+            V t26 = (V)(t25 == (V)INT64_C(0));
+            if (t26) {
+                V t27 = l_f;
+                vdup(t27);
+                V t28 = vlist_push(l_fns, t27);
+                l_fns = t28;
             }
         } else {
         }
-        vdrop(t20);
+        vdrop(t21);
     }
-    vdrop(t17);
-    V t28 = l_info;
-    V t29 = VP(t28)[14];
-    V t30 = vlist_cat(l_fns, t29);
-    l_fns = t30;
-    V t31 = vlist_empty(1);
-    V l_body = t31;
-    V t32 = l_fns;
-    vdup(t32);
-    V t33 = t32;
-    for (int64_t t34 = 0; t34 < VL(t33)->len; t34++) {
-        V l_f = VB(VL(t33)->buf)->items[t34];
-        V t35 = vlist_empty(1);
-        V t36 = vow_with(l_g);
-        vdrop(VP(t36)[2]);
-        VP(t36)[2] = t35;
-        VP(t36)[4] = (V)INT64_C(0);
-        l_g = t36;
-        V t37 = l_f;
-        V t38 = f_gen_function(&l_g, t37);
-        (void)t38;
-        V t39 = l_g;
-        V t40 = VP(t39)[2];
-        V t41 = vlist_cat(l_body, t40);
-        l_body = t41;
+    vdrop(t18);
+    V t29 = l_info;
+    V t30 = VP(t29)[14];
+    V t31 = vlist_cat(l_fns, t30);
+    l_fns = t31;
+    V t32 = vlist_empty(1);
+    V l_body = t32;
+    V t33 = l_fns;
+    vdup(t33);
+    V t34 = t33;
+    for (int64_t t35 = 0; t35 < VL(t34)->len; t35++) {
+        V l_f = VB(VL(t34)->buf)->items[t35];
+        V t36 = vlist_empty(1);
+        V t37 = vow_with(l_g);
+        vdrop(VP(t37)[2]);
+        VP(t37)[2] = t36;
+        VP(t37)[4] = (V)INT64_C(0);
+        l_g = t37;
+        V t38 = l_f;
+        V t39 = f_gen_function(&l_g, t38);
+        (void)t39;
+        V t40 = l_g;
+        V t41 = VP(t40)[2];
+        V t42 = vlist_cat(l_body, t41);
+        l_body = t42;
     }
-    vdrop(t33);
-    V t42 = vlist_empty(1);
-    vdup(vow_s[889]);
-    t42 = vlist_push(t42, vow_s[889]);
-    V l_c = t42;
-    V t43 = l_verified;
-    if (t43) {
-        vdup(vow_s[890]);
-        V t44 = vlist_push(l_c, vow_s[890]);
-        l_c = t44;
+    vdrop(t34);
+    V t43 = vlist_empty(1);
+    vdup(vow_s[909]);
+    t43 = vlist_push(t43, vow_s[909]);
+    V l_c = t43;
+    V t44 = l_verified;
+    if (t44) {
+        vdup(vow_s[910]);
+        V t45 = vlist_push(l_c, vow_s[910]);
+        l_c = t45;
     }
-    vdup(vow_s[891]);
-    V t45 = vlist_push(l_c, vow_s[891]);
-    l_c = t45;
-    vdup(vow_s[20]);
-    V t46 = vlist_push(l_c, vow_s[20]);
+    vdup(vow_s[911]);
+    V t46 = vlist_push(l_c, vow_s[911]);
     l_c = t46;
-    V t47 = l_g;
-    V t48 = VP(t47)[5];
-    V t49 = vlist_len(t48);
-    V l_n = t49;
-    V t50 = l_n;
-    V t51 = (V)(VI(t50) < VI((V)INT64_C(1)));
-    if (t51) {
+    vdup(vow_s[20]);
+    V t47 = vlist_push(l_c, vow_s[20]);
+    l_c = t47;
+    V t48 = l_g;
+    V t49 = VP(t48)[5];
+    V t50 = vlist_len(t49);
+    V l_n = t50;
+    V t51 = l_n;
+    V t52 = (V)(VI(t51) < VI((V)INT64_C(1)));
+    if (t52) {
         l_n = (V)INT64_C(1);
     }
-    V t52 = l_n;
-    V t53 = vint_to_str(t52);
-    V t54 = vstr_cat(vow_s[892], t53);
-    V t55 = vstr_cat(t54, vow_s[893]);
-    V t56 = vlist_push(l_c, t55);
-    l_c = t56;
+    V t53 = l_n;
+    V t54 = vint_to_str(t53);
+    V t55 = vstr_cat(vow_s[912], t54);
+    V t56 = vstr_cat(t55, vow_s[913]);
+    V t57 = vlist_push(l_c, t56);
+    l_c = t57;
+    vdrop(t55);
     vdrop(t54);
-    vdrop(t53);
-    V t57 = l_fns;
-    vdup(t57);
-    V t58 = t57;
-    for (int64_t t59 = 0; t59 < VL(t58)->len; t59++) {
-        V l_f = VB(VL(t58)->buf)->items[t59];
-        V t60 = l_f;
-        V t61 = VP(t60)[0];
-        V t62 = f_c_fn(t61);
-        V t63 = vstr_cat(vow_s[894], t62);
-        V t64 = vstr_cat(t63, vow_s[142]);
-        V t65 = l_f;
-        V t66 = f_c_params(t65);
-        V t67 = vstr_cat(t64, t66);
-        V t68 = vstr_cat(t67, vow_s[895]);
-        V t69 = vlist_push(l_c, t68);
-        l_c = t69;
+    V t58 = l_fns;
+    vdup(t58);
+    V t59 = t58;
+    for (int64_t t60 = 0; t60 < VL(t59)->len; t60++) {
+        V l_f = VB(VL(t59)->buf)->items[t60];
+        V t61 = l_f;
+        V t62 = VP(t61)[0];
+        V t63 = f_c_fn(t62);
+        V t64 = vstr_cat(vow_s[914], t63);
+        V t65 = vstr_cat(t64, vow_s[142]);
+        V t66 = l_f;
+        V t67 = f_c_params(t66);
+        V t68 = vstr_cat(t65, t67);
+        V t69 = vstr_cat(t68, vow_s[915]);
+        V t70 = vlist_push(l_c, t69);
+        l_c = t70;
+        vdrop(t68);
         vdrop(t67);
-        vdrop(t66);
+        vdrop(t65);
         vdrop(t64);
         vdrop(t63);
-        vdrop(t62);
     }
-    vdrop(t58);
-    vdup(vow_s[20]);
-    V t70 = vlist_push(l_c, vow_s[20]);
-    l_c = t70;
-    V t71 = l_body;
-    V t72 = vlist_cat(l_c, t71);
-    l_c = t72;
-    vdup(vow_s[896]);
-    V t73 = vlist_push(l_c, vow_s[896]);
-    l_c = t73;
-    vdup(vow_s[897]);
-    V t74 = vlist_push(l_c, vow_s[897]);
-    l_c = t74;
-    vdup(vow_s[898]);
-    V t75 = vlist_push(l_c, vow_s[898]);
-    l_c = t75;
-    V t76 = l_g;
-    V t77 = VP(t76)[5];
-    V t78 = vlist_len(t77);
-    for (V l_i = (V)INT64_C(0); VI(l_i) < VI(t78); l_i = (V)(VI(l_i) + 1)) {
-        V t79 = l_g;
-        V t80 = VP(t79)[5];
-        V t81 = l_i;
-        V t82 = vlist_get(t80, t81);
-        vdup(t82);
-        V l_s = t82;
-        V t83 = l_i;
-        V t84 = vint_to_str(t83);
-        V t85 = vstr_cat(vow_s[899], t84);
-        V t86 = vstr_cat(t85, vow_s[900]);
-        V t87 = l_s;
-        V t88 = f_c_string(t87);
-        V t89 = vstr_cat(t86, t88);
-        V t90 = vstr_cat(t89, vow_s[54]);
-        V t91 = l_s;
-        V t92 = vstr_len(t91);
-        V t93 = vint_to_str(t92);
-        V t94 = vstr_cat(t90, t93);
-        V t95 = vstr_cat(t94, vow_s[901]);
-        V t96 = vlist_push(l_c, t95);
-        l_c = t96;
-        vdrop(t94);
-        vdrop(t93);
-        vdrop(t90);
-        vdrop(t89);
-        vdrop(t88);
-        vdrop(t86);
-        vdrop(t85);
+    vdrop(t59);
+    V t71 = vlist_empty(1);
+    V l_eq_defs = t71;
+    V l_done = (V)INT64_C(0);
+    for (;;) {
+        V t72 = l_done;
+        V t73 = l_g;
+        V t74 = VP(t73)[17];
+        V t75 = vlist_len(t74);
+        V t76 = (V)(VI(t72) < VI(t75));
+        if (!t76) break;
+        V t77 = l_g;
+        V t78 = VP(t77)[17];
+        V t79 = l_done;
+        V t80 = vlist_get(t78, t79);
+        vdup(t80);
+        V l_t = t80;
+        V t81 = l_done;
+        V t82 = vadd(t81, (V)INT64_C(1));
+        l_done = t82;
+        V t83 = l_t;
+        V t84 = f_gen_eq_fn(&l_g, t83);
+        V t85 = vlist_cat(l_eq_defs, t84);
+        l_eq_defs = t85;
         vdrop(t84);
+        vdrop(l_t);
+    }
+    V t86 = l_g;
+    V t87 = VP(t86)[17];
+    vdup(t87);
+    V t88 = t87;
+    for (int64_t t89 = 0; t89 < VL(t88)->len; t89++) {
+        V l_t = VB(VL(t88)->buf)->items[t89];
+        V t90 = l_t;
+        V t91 = f_eq_c_name(t90);
+        V t92 = vstr_cat(vow_s[914], t91);
+        V t93 = vstr_cat(t92, vow_s[916]);
+        V t94 = vlist_push(l_c, t93);
+        l_c = t94;
+        vdrop(t92);
+        vdrop(t91);
+    }
+    vdrop(t88);
+    vdup(vow_s[20]);
+    V t95 = vlist_push(l_c, vow_s[20]);
+    l_c = t95;
+    V t96 = l_eq_defs;
+    V t97 = vlist_cat(l_c, t96);
+    l_c = t97;
+    V t98 = l_body;
+    V t99 = vlist_cat(l_c, t98);
+    l_c = t99;
+    vdup(vow_s[917]);
+    V t100 = vlist_push(l_c, vow_s[917]);
+    l_c = t100;
+    vdup(vow_s[918]);
+    V t101 = vlist_push(l_c, vow_s[918]);
+    l_c = t101;
+    vdup(vow_s[919]);
+    V t102 = vlist_push(l_c, vow_s[919]);
+    l_c = t102;
+    V t103 = l_g;
+    V t104 = VP(t103)[5];
+    V t105 = vlist_len(t104);
+    for (V l_i = (V)INT64_C(0); VI(l_i) < VI(t105); l_i = (V)(VI(l_i) + 1)) {
+        V t106 = l_g;
+        V t107 = VP(t106)[5];
+        V t108 = l_i;
+        V t109 = vlist_get(t107, t108);
+        vdup(t109);
+        V l_s = t109;
+        V t110 = l_i;
+        V t111 = vint_to_str(t110);
+        V t112 = vstr_cat(vow_s[920], t111);
+        V t113 = vstr_cat(t112, vow_s[921]);
+        V t114 = l_s;
+        V t115 = f_c_string(t114);
+        V t116 = vstr_cat(t113, t115);
+        V t117 = vstr_cat(t116, vow_s[54]);
+        V t118 = l_s;
+        V t119 = vstr_len(t118);
+        V t120 = vint_to_str(t119);
+        V t121 = vstr_cat(t117, t120);
+        V t122 = vstr_cat(t121, vow_s[922]);
+        V t123 = vlist_push(l_c, t122);
+        l_c = t123;
+        vdrop(t121);
+        vdrop(t120);
+        vdrop(t117);
+        vdrop(t116);
+        vdrop(t115);
+        vdrop(t113);
+        vdrop(t112);
+        vdrop(t111);
         vdrop(l_s);
     }
-    vdup(vow_s[902]);
-    V t97 = vlist_push(l_c, vow_s[902]);
-    l_c = t97;
-    vdup(vow_s[903]);
-    V t98 = vlist_push(l_c, vow_s[903]);
-    l_c = t98;
-    vdup(vow_s[904]);
-    V t99 = vlist_push(l_c, vow_s[904]);
-    l_c = t99;
-    vdup(vow_s[905]);
-    V t100 = vlist_push(l_c, vow_s[905]);
-    l_c = t100;
+    vdup(vow_s[923]);
+    V t124 = vlist_push(l_c, vow_s[923]);
+    l_c = t124;
+    vdup(vow_s[924]);
+    V t125 = vlist_push(l_c, vow_s[924]);
+    l_c = t125;
+    vdup(vow_s[925]);
+    V t126 = vlist_push(l_c, vow_s[925]);
+    l_c = t126;
+    vdup(vow_s[926]);
+    V t127 = vlist_push(l_c, vow_s[926]);
+    l_c = t127;
     vdup(vow_s[243]);
-    V t101 = vlist_push(l_c, vow_s[243]);
-    l_c = t101;
-    V t102 = l_c;
-    V t103 = vjoin(t102, vow_s[73]);
-    V t104 = vstr_cat(t103, vow_s[73]);
-    vdrop(t103);
+    V t128 = vlist_push(l_c, vow_s[243]);
+    l_c = t128;
+    V t129 = l_c;
+    V t130 = vjoin(t129, vow_s[73]);
+    V t131 = vstr_cat(t130, vow_s[73]);
+    vdrop(t130);
+    vdrop(l_eq_defs);
     vdrop(l_c);
     vdrop(l_body);
     vdrop(l_fns);
     vdrop(l_g);
-    return t104;
+    return t131;
+    vdrop(l_eq_defs);
     vdrop(l_c);
     vdrop(l_body);
     vdrop(l_fns);
@@ -30652,7 +31604,7 @@ static V f_fresh_tmp(V * l_g) {
     V t5 = (*l_g);
     V t6 = VP(t5)[4];
     V t7 = vint_to_str(t6);
-    V t8 = vstr_cat(vow_s[906], t7);
+    V t8 = vstr_cat(vow_s[927], t7);
     vdrop(t7);
     return t8;
     return 0;
@@ -30662,11 +31614,11 @@ static V f_bind(V * l_g, V l_rhs) {
     V t1 = f_fresh_tmp(l_g);
     V l_t = t1;
     V t2 = l_t;
-    V t3 = vstr_cat(vow_s[907], t2);
-    V t4 = vstr_cat(t3, vow_s[845]);
+    V t3 = vstr_cat(vow_s[928], t2);
+    V t4 = vstr_cat(t3, vow_s[865]);
     V t5 = l_rhs;
     V t6 = vstr_cat(t4, t5);
-    V t7 = vstr_cat(t6, vow_s[908]);
+    V t7 = vstr_cat(t6, vow_s[929]);
     V t8 = f_line(l_g, t7);
     (void)t8;
     vdrop(t7);
@@ -30692,7 +31644,7 @@ static V f_str_lit(V * l_g, V l_s) {
         V l_i = VP(t5)[1];
         V t7 = l_i;
         V t8 = vint_to_str(t7);
-        V t9 = vstr_cat(vow_s[909], t8);
+        V t9 = vstr_cat(vow_s[930], t8);
         V t10 = vstr_cat(t9, vow_s[228]);
         vdrop(t9);
         vdrop(t8);
@@ -30720,7 +31672,7 @@ static V f_str_lit(V * l_g, V l_s) {
         (*l_g) = t21;
         V t22 = l_i;
         V t23 = vint_to_str(t22);
-        V t24 = vstr_cat(vow_s[909], t23);
+        V t24 = vstr_cat(vow_s[930], t23);
         V t25 = vstr_cat(t24, vow_s[228]);
         vdrop(t24);
         vdrop(t23);
@@ -30779,12 +31731,12 @@ static V f_c_fn(V l_name) {
     if (t2) {
         V t3 = l_name;
         V t4 = f_mangle(t3);
-        V t5 = vstr_cat(vow_s[910], t4);
+        V t5 = vstr_cat(vow_s[931], t4);
         vdrop(t4);
         return t5;
     }
     V t6 = l_name;
-    V t7 = vstr_cat(vow_s[911], t6);
+    V t7 = vstr_cat(vow_s[932], t6);
     return t7;
     return 0;
 }
@@ -30796,13 +31748,13 @@ static V f_cvar(V l_g, V l_n) {
     V t4 = f_contains_str(t2, t3);
     if (t4) {
         V t5 = l_n;
-        V t6 = vstr_cat(vow_s[912], t5);
+        V t6 = vstr_cat(vow_s[933], t5);
         V t7 = vstr_cat(t6, vow_s[144]);
         vdrop(t6);
         return t7;
     }
     V t8 = l_n;
-    V t9 = vstr_cat(vow_s[913], t8);
+    V t9 = vstr_cat(vow_s[934], t8);
     return t9;
     return 0;
 }
@@ -30913,7 +31865,7 @@ static V f_remove_last(V l_xs, V l_x) {
         V t7 = l_i;
         V t8 = vlist_get(t6, t7);
         V t9 = l_x;
-        V t10 = vstr_eq(t8, t9);
+        V t10 = (V)vstr_eq(t8, t9);
         if (t10) {
             V t11 = l_xs;
             V t12 = l_i;
@@ -30966,8 +31918,8 @@ static V f_take(V * l_g, V l_v, V l_heap) {
     }
     V t15 = l_v;
     V t16 = VP(t15)[0];
-    V t17 = vstr_cat(vow_s[914], t16);
-    V t18 = vstr_cat(t17, vow_s[895]);
+    V t17 = vstr_cat(vow_s[935], t16);
+    V t18 = vstr_cat(t17, vow_s[915]);
     V t19 = f_line(l_g, t18);
     (void)t19;
     vdrop(t18);
@@ -31017,8 +31969,8 @@ static V f_flush(V * l_g) {
         V t22 = l_ts;
         V t23 = l_i;
         V t24 = vlist_get(t22, t23);
-        V t25 = vstr_cat(vow_s[915], t24);
-        V t26 = vstr_cat(t25, vow_s[895]);
+        V t25 = vstr_cat(vow_s[936], t24);
+        V t26 = vstr_cat(t25, vow_s[915]);
         V t27 = f_line(l_g, t26);
         (void)t27;
         vdrop(t26);
@@ -31136,8 +32088,8 @@ static V f_drop_to(V * l_g, V l_mark) {
         V t12 = l_vs;
         V t13 = l_i;
         V t14 = vlist_get(t12, t13);
-        V t15 = vstr_cat(vow_s[915], t14);
-        V t16 = vstr_cat(t15, vow_s[895]);
+        V t15 = vstr_cat(vow_s[936], t14);
+        V t16 = vstr_cat(t15, vow_s[915]);
         V t17 = f_line(l_g, t16);
         (void)t17;
         vdrop(t16);
@@ -31388,7 +32340,7 @@ static V f_move_candidate(V l_g, V l_value, V l_name) {
         V l_l = VP(t10)[2];
         V l_r = VP(t10)[3];
         V t15 = l_op;
-        V t16 = vstr_eq(t15, vow_s[211]);
+        V t16 = (V)vstr_eq(t15, vow_s[211]);
         V t17 = t16;
         if (t16) {
             V t18 = l_g;
@@ -31426,7 +32378,7 @@ static V f_move_candidate(V l_g, V l_value, V l_name) {
             V l_ci = VP(t32)[1];
             V t34 = l_ci;
             V t35 = VP(t34)[0];
-            V t36 = vstr_eq(t35, vow_s[640]);
+            V t36 = (V)vstr_eq(t35, vow_s[643]);
             V t37 = t36;
             if (t36) {
                 V t38 = vlist_empty(1);
@@ -31525,7 +32477,7 @@ static V f_consumed_operand(V l_g, V l_e) {
         V l_l = VP(t3)[2];
         V l_r = VP(t3)[3];
         V t7 = l_op;
-        V t8 = vstr_eq(t7, vow_s[211]);
+        V t8 = (V)vstr_eq(t7, vow_s[211]);
         V t9 = t8;
         if (t8) {
             V t10 = l_g;
@@ -31563,7 +32515,7 @@ static V f_consumed_operand(V l_g, V l_e) {
             V l_ci = VP(t23)[1];
             V t25 = l_ci;
             V t26 = VP(t25)[0];
-            V t27 = vstr_eq(t26, vow_s[640]);
+            V t27 = (V)vstr_eq(t26, vow_s[643]);
             V t28 = t27;
             if (t27) {
                 V t29 = vlist_empty(1);
@@ -31648,7 +32600,7 @@ static V f_uses_of(V l_e, V l_name, V * l_out) {
         V l_n = VP(t3)[1];
         V t5 = l_n;
         V t6 = l_name;
-        V t7 = vstr_eq(t5, t6);
+        V t7 = (V)vstr_eq(t5, t6);
         if (t7) {
             vdup(vow_s[176]);
             V t8 = vlist_push((*l_out), vow_s[176]);
@@ -31666,10 +32618,10 @@ static V f_uses_of(V l_e, V l_name, V * l_out) {
             V l_n = VP(t11)[1];
             V t13 = l_n;
             V t14 = l_name;
-            V t15 = vstr_eq(t13, t14);
+            V t15 = (V)vstr_eq(t13, t14);
             if (t15) {
                 V t16 = l_f;
-                V t17 = vstr_cat(vow_s[916], t16);
+                V t17 = vstr_cat(vow_s[937], t16);
                 V t18 = vlist_push((*l_out), t17);
                 (*l_out) = t18;
             }
@@ -31794,7 +32746,7 @@ static V f_count_str(V l_xs, V l_x) {
         V l_y = VB(VL(t2)->buf)->items[t3];
         V t4 = l_y;
         V t5 = l_x;
-        V t6 = vstr_eq(t4, t5);
+        V t6 = (V)vstr_eq(t4, t5);
         if (t6) {
             V t7 = l_n;
             V t8 = vadd(t7, (V)INT64_C(1));
@@ -31866,7 +32818,7 @@ static V f_steal_candidates(V l_g, V l_value, V l_name) {
                     V t30 = l_f;
                     V t31 = l_a;
                     V t32 = VP(t31)[0];
-                    V t33 = vstr_eq(t30, t32);
+                    V t33 = (V)vstr_eq(t30, t32);
                     V t34 = t33;
                     if (t33) {
                         V t35 = l_fo;
@@ -31879,7 +32831,7 @@ static V f_steal_candidates(V l_g, V l_value, V l_name) {
                     if (t34) {
                         V t40 = l_all_uses;
                         V t41 = l_f;
-                        V t42 = vstr_cat(vow_s[916], t41);
+                        V t42 = vstr_cat(vow_s[937], t41);
                         V t43 = f_count_str(t40, t42);
                         V t44 = (V)(t43 == (V)INT64_C(1));
                         t39 = t44;
@@ -31937,7 +32889,7 @@ static V f_var_id(V l_e, V l_name) {
         V l_n = VP(t3)[1];
         V t5 = l_n;
         V t6 = l_name;
-        V t7 = vstr_eq(t5, t6);
+        V t7 = (V)vstr_eq(t5, t6);
         if (t7) {
             V t8 = l_e;
             V t9 = VP(t8)[0];
@@ -32000,12 +32952,12 @@ static V f_gen_function(V * l_g, V l_f) {
     V t18 = l_f;
     V t19 = VP(t18)[0];
     V t20 = f_c_fn(t19);
-    V t21 = vstr_cat(vow_s[894], t20);
+    V t21 = vstr_cat(vow_s[914], t20);
     V t22 = vstr_cat(t21, vow_s[142]);
     V t23 = l_f;
     V t24 = f_c_params(t23);
     V t25 = vstr_cat(t22, t24);
-    V t26 = vstr_cat(t25, vow_s[917]);
+    V t26 = vstr_cat(t25, vow_s[938]);
     V t27 = f_line(l_g, t26);
     (void)t27;
     vdrop(t26);
@@ -32020,7 +32972,7 @@ static V f_gen_function(V * l_g, V l_f) {
     V t30 = VP(t29)[8];
     V t31 = f_gen_scoped(l_g, t30);
     (void)t31;
-    V t32 = f_line(l_g, vow_s[918]);
+    V t32 = f_line(l_g, vow_s[939]);
     (void)t32;
     V t33 = f_dedent(l_g);
     (void)t33;
@@ -32135,12 +33087,12 @@ static V f_gen_stmt(V * l_g, V l_s) {
         V t6 = f_gen_top(l_g, t5);
         V l_v = t6;
         V t7 = l_name;
-        V t8 = vstr_eq(t7, vow_s[551]);
+        V t8 = (V)vstr_eq(t7, vow_s[552]);
         if (t8) {
             V t9 = l_v;
             V t10 = VP(t9)[0];
-            V t11 = vstr_cat(vow_s[919], t10);
-            V t12 = vstr_cat(t11, vow_s[908]);
+            V t11 = vstr_cat(vow_s[940], t10);
+            V t12 = vstr_cat(t11, vow_s[929]);
             V t13 = f_line(l_g, t12);
             (void)t13;
             vdrop(t12);
@@ -32157,11 +33109,11 @@ static V f_gen_stmt(V * l_g, V l_s) {
             V t20 = f_take(l_g, t18, t19);
             V l_c = t20;
             V t21 = l_name;
-            V t22 = vstr_cat(vow_s[888], t21);
-            V t23 = vstr_cat(t22, vow_s[845]);
+            V t22 = vstr_cat(vow_s[908], t21);
+            V t23 = vstr_cat(t22, vow_s[865]);
             V t24 = l_c;
             V t25 = vstr_cat(t23, t24);
-            V t26 = vstr_cat(t25, vow_s[908]);
+            V t26 = vstr_cat(t25, vow_s[929]);
             V t27 = f_line(l_g, t26);
             (void)t27;
             vdrop(t26);
@@ -32173,7 +33125,7 @@ static V f_gen_stmt(V * l_g, V l_s) {
             V t29 = l_heap;
             if (t29) {
                 V t30 = l_name;
-                V t31 = vstr_cat(vow_s[913], t30);
+                V t31 = vstr_cat(vow_s[934], t30);
                 V t32 = f_declare_owned(l_g, t31);
                 (void)t32;
                 vdrop(t31);
@@ -32244,18 +33196,18 @@ static V f_gen_stmt(V * l_g, V l_s) {
         }
         if (t64) {
             V t67 = l_lv;
-            V t68 = vstr_cat(vow_s[915], t67);
-            V t69 = vstr_cat(t68, vow_s[895]);
+            V t68 = vstr_cat(vow_s[936], t67);
+            V t69 = vstr_cat(t68, vow_s[915]);
             V t70 = f_line(l_g, t69);
             (void)t70;
             vdrop(t69);
             vdrop(t68);
         }
         V t71 = l_lv;
-        V t72 = vstr_cat(t71, vow_s[845]);
+        V t72 = vstr_cat(t71, vow_s[865]);
         V t73 = l_c;
         V t74 = vstr_cat(t72, t73);
-        V t75 = vstr_cat(t74, vow_s[908]);
+        V t75 = vstr_cat(t74, vow_s[929]);
         V t76 = f_line(l_g, t75);
         (void)t76;
         vdrop(t75);
@@ -32275,7 +33227,7 @@ static V f_gen_stmt(V * l_g, V l_s) {
         if (t80 == 0) {
             V t81 = f_drop_to(l_g, (V)INT64_C(0));
             (void)t81;
-            V t82 = f_line(l_g, vow_s[918]);
+            V t82 = f_line(l_g, vow_s[939]);
             (void)t82;
         } else if (t80 == 1) {
             V l_e = VP(t79)[1];
@@ -32294,8 +33246,8 @@ static V f_gen_stmt(V * l_g, V l_s) {
             V t91 = f_drop_to(l_g, (V)INT64_C(0));
             (void)t91;
             V t92 = l_c;
-            V t93 = vstr_cat(vow_s[858], t92);
-            V t94 = vstr_cat(t93, vow_s[908]);
+            V t93 = vstr_cat(vow_s[878], t92);
+            V t94 = vstr_cat(t93, vow_s[929]);
             V t95 = f_line(l_g, t94);
             (void)t95;
             vdrop(t94);
@@ -32322,7 +33274,7 @@ static V f_gen_stmt(V * l_g, V l_s) {
         V l_cond = VP(t3)[1];
         V l_invs = VP(t3)[2];
         V l_body = VP(t3)[4];
-        V t102 = f_line(l_g, vow_s[920]);
+        V t102 = f_line(l_g, vow_s[941]);
         (void)t102;
         V t103 = f_indent(l_g);
         (void)t103;
@@ -32333,8 +33285,8 @@ static V f_gen_stmt(V * l_g, V l_s) {
         (void)t106;
         V t107 = l_c;
         V t108 = VP(t107)[0];
-        V t109 = vstr_cat(vow_s[921], t108);
-        V t110 = vstr_cat(t109, vow_s[922]);
+        V t109 = vstr_cat(vow_s[942], t108);
+        V t110 = vstr_cat(t109, vow_s[943]);
         V t111 = f_line(l_g, t110);
         (void)t111;
         vdrop(t110);
@@ -32362,28 +33314,28 @@ static V f_gen_stmt(V * l_g, V l_s) {
         V t120 = f_flush(l_g);
         (void)t120;
         V t121 = l_v;
-        V t122 = vstr_cat(vow_s[913], t121);
+        V t122 = vstr_cat(vow_s[934], t121);
         V l_lv = t122;
         V t123 = l_lv;
-        V t124 = vstr_cat(vow_s[923], t123);
-        V t125 = vstr_cat(t124, vow_s[845]);
+        V t124 = vstr_cat(vow_s[944], t123);
+        V t125 = vstr_cat(t124, vow_s[865]);
         V t126 = l_a;
         V t127 = VP(t126)[0];
         V t128 = vstr_cat(t125, t127);
-        V t129 = vstr_cat(t128, vow_s[924]);
+        V t129 = vstr_cat(t128, vow_s[945]);
         V t130 = l_lv;
         V t131 = vstr_cat(t129, t130);
-        V t132 = vstr_cat(t131, vow_s[925]);
+        V t132 = vstr_cat(t131, vow_s[946]);
         V t133 = l_b;
         V t134 = VP(t133)[0];
         V t135 = vstr_cat(t132, t134);
-        V t136 = vstr_cat(t135, vow_s[926]);
+        V t136 = vstr_cat(t135, vow_s[947]);
         V t137 = l_lv;
         V t138 = vstr_cat(t136, t137);
-        V t139 = vstr_cat(t138, vow_s[927]);
+        V t139 = vstr_cat(t138, vow_s[948]);
         V t140 = l_lv;
         V t141 = vstr_cat(t139, t140);
-        V t142 = vstr_cat(t141, vow_s[928]);
+        V t142 = vstr_cat(t141, vow_s[949]);
         V t143 = f_line(l_g, t142);
         (void)t143;
         vdrop(t142);
@@ -32434,17 +33386,17 @@ static V f_gen_stmt(V * l_g, V l_s) {
         V t159 = f_fresh_tmp(l_g);
         V l_k = t159;
         V t160 = l_k;
-        V t161 = vstr_cat(vow_s[929], t160);
-        V t162 = vstr_cat(t161, vow_s[930]);
+        V t161 = vstr_cat(vow_s[950], t160);
+        V t162 = vstr_cat(t161, vow_s[951]);
         V t163 = l_k;
         V t164 = vstr_cat(t162, t163);
-        V t165 = vstr_cat(t164, vow_s[931]);
+        V t165 = vstr_cat(t164, vow_s[952]);
         V t166 = l_owner;
         V t167 = vstr_cat(t165, t166);
-        V t168 = vstr_cat(t167, vow_s[932]);
+        V t168 = vstr_cat(t167, vow_s[953]);
         V t169 = l_k;
         V t170 = vstr_cat(t168, t169);
-        V t171 = vstr_cat(t170, vow_s[933]);
+        V t171 = vstr_cat(t170, vow_s[954]);
         V t172 = f_line(l_g, t171);
         (void)t172;
         vdrop(t171);
@@ -32458,14 +33410,14 @@ static V f_gen_stmt(V * l_g, V l_s) {
         V t173 = f_indent(l_g);
         (void)t173;
         V t174 = l_v;
-        V t175 = vstr_cat(vow_s[888], t174);
-        V t176 = vstr_cat(t175, vow_s[934]);
+        V t175 = vstr_cat(vow_s[908], t174);
+        V t176 = vstr_cat(t175, vow_s[955]);
         V t177 = l_owner;
         V t178 = vstr_cat(t176, t177);
-        V t179 = vstr_cat(t178, vow_s[935]);
+        V t179 = vstr_cat(t178, vow_s[956]);
         V t180 = l_k;
         V t181 = vstr_cat(t179, t180);
-        V t182 = vstr_cat(t181, vow_s[893]);
+        V t182 = vstr_cat(t181, vow_s[913]);
         V t183 = f_line(l_g, t182);
         (void)t183;
         vdrop(t182);
@@ -32498,7 +33450,7 @@ static V f_gen_stmt(V * l_g, V l_s) {
         (void)t192;
     } else if (t4 == 8) {
         V l_e = VP(t3)[1];
-        V t193 = f_line(l_g, vow_s[936]);
+        V t193 = f_line(l_g, vow_s[957]);
         (void)t193;
         V t194 = l_e;
         V t195 = f_gen_top(l_g, t194);
@@ -32509,7 +33461,7 @@ static V f_gen_stmt(V * l_g, V l_s) {
         V t198 = l_s;
         V t199 = VP(t198)[0];
         V t200 = f_loc(t197, t199);
-        V t201 = vstr_cat(vow_s[937], t200);
+        V t201 = vstr_cat(vow_s[958], t200);
         V t202 = vstr_cat(t201, vow_s[51]);
         V t203 = l_e;
         V t204 = f_pretty_expr(t203);
@@ -32521,12 +33473,12 @@ static V f_gen_stmt(V * l_g, V l_s) {
         vdrop(t200);
         V t206 = l_c;
         V t207 = VP(t206)[0];
-        V t208 = vstr_cat(vow_s[921], t207);
-        V t209 = vstr_cat(t208, vow_s[938]);
+        V t208 = vstr_cat(vow_s[942], t207);
+        V t209 = vstr_cat(t208, vow_s[959]);
         V t210 = l_msg;
         V t211 = f_c_string(t210);
         V t212 = vstr_cat(t209, t211);
-        V t213 = vstr_cat(t212, vow_s[895]);
+        V t213 = vstr_cat(t212, vow_s[915]);
         V t214 = f_line(l_g, t213);
         (void)t214;
         vdrop(t213);
@@ -32534,7 +33486,7 @@ static V f_gen_stmt(V * l_g, V l_s) {
         vdrop(t211);
         vdrop(t209);
         vdrop(t208);
-        V t215 = f_line(l_g, vow_s[939]);
+        V t215 = f_line(l_g, vow_s[960]);
         (void)t215;
         vdrop(l_msg);
         vdrop(l_c);
@@ -32549,7 +33501,7 @@ static V f_gen_stmt(V * l_g, V l_s) {
         V t220 = l_s;
         V t221 = VP(t220)[0];
         V t222 = f_loc(t219, t221);
-        V t223 = vstr_cat(vow_s[940], t222);
+        V t223 = vstr_cat(vow_s[961], t222);
         V t224 = vstr_cat(t223, vow_s[51]);
         V t225 = l_e;
         V t226 = f_pretty_expr(t225);
@@ -32561,12 +33513,12 @@ static V f_gen_stmt(V * l_g, V l_s) {
         vdrop(t222);
         V t228 = l_c;
         V t229 = VP(t228)[0];
-        V t230 = vstr_cat(vow_s[921], t229);
-        V t231 = vstr_cat(t230, vow_s[938]);
+        V t230 = vstr_cat(vow_s[942], t229);
+        V t231 = vstr_cat(t230, vow_s[959]);
         V t232 = l_msg;
         V t233 = f_c_string(t232);
         V t234 = vstr_cat(t231, t233);
-        V t235 = vstr_cat(t234, vow_s[895]);
+        V t235 = vstr_cat(t234, vow_s[915]);
         V t236 = f_line(l_g, t235);
         (void)t236;
         vdrop(t235);
@@ -32582,7 +33534,7 @@ static V f_gen_stmt(V * l_g, V l_s) {
         V t239 = f_drop_to(l_g, t238);
         (void)t239;
         vdrop(t237);
-        V t240 = f_line(l_g, vow_s[941]);
+        V t240 = f_line(l_g, vow_s[962]);
         (void)t240;
     } else if (t4 == 11) {
         V t241 = vdup((*l_g));
@@ -32590,7 +33542,7 @@ static V f_gen_stmt(V * l_g, V l_s) {
         V t243 = f_drop_to(l_g, t242);
         (void)t243;
         vdrop(t241);
-        V t244 = f_line(l_g, vow_s[942]);
+        V t244 = f_line(l_g, vow_s[963]);
         (void)t244;
     } else if (t4 == 12) {
         V l_e = VP(t3)[1];
@@ -32599,8 +33551,8 @@ static V f_gen_stmt(V * l_g, V l_s) {
         V l_v = t246;
         V t247 = l_v;
         V t248 = VP(t247)[0];
-        V t249 = vstr_cat(vow_s[919], t248);
-        V t250 = vstr_cat(t249, vow_s[908]);
+        V t249 = vstr_cat(vow_s[940], t248);
+        V t250 = vstr_cat(t249, vow_s[929]);
         V t251 = f_line(l_g, t250);
         (void)t251;
         vdrop(t250);
@@ -32628,8 +33580,8 @@ static V f_gen_if(V * l_g, V l_arms, V l_els) {
     (void)t6;
     V t7 = l_cv;
     V t8 = VP(t7)[0];
-    V t9 = vstr_cat(vow_s[943], t8);
-    V t10 = vstr_cat(t9, vow_s[917]);
+    V t9 = vstr_cat(vow_s[964], t8);
+    V t10 = vstr_cat(t9, vow_s[938]);
     V t11 = f_line(l_g, t10);
     (void)t11;
     vdrop(t10);
@@ -32642,7 +33594,7 @@ static V f_gen_if(V * l_g, V l_arms, V l_els) {
     V t16 = vlist_len(t15);
     V t17 = (V)(VI(t16) > VI((V)INT64_C(1)));
     if (t17) {
-        V t18 = f_line(l_g, vow_s[944]);
+        V t18 = f_line(l_g, vow_s[965]);
         (void)t18;
         V t19 = f_indent(l_g);
         (void)t19;
@@ -32668,7 +33620,7 @@ static V f_gen_if(V * l_g, V l_arms, V l_els) {
     V t30 = VP(t29)[0];
     if (t30 == 1) {
         V l_b = VP(t29)[1];
-        V t31 = f_line(l_g, vow_s[944]);
+        V t31 = f_line(l_g, vow_s[965]);
         (void)t31;
         V t32 = l_b;
         V t33 = f_braced(l_g, t32);
@@ -32746,8 +33698,8 @@ static V f_gen_match(V * l_g, V l_scrut, V l_cases, V l_els) {
     V t28 = l_is_enum;
     if (t28) {
         V t29 = l_v;
-        V t30 = vstr_cat(vow_s[945], t29);
-        V t31 = vstr_cat(t30, vow_s[946]);
+        V t30 = vstr_cat(vow_s[966], t29);
+        V t31 = vstr_cat(t30, vow_s[967]);
         V t32 = f_bind(l_g, t31);
         vdrop(l_tag);
         l_tag = t32;
@@ -32770,8 +33722,8 @@ static V f_gen_match(V * l_g, V l_scrut, V l_cases, V l_els) {
         if (t39 == 0) {
             V l_n = VP(t38)[1];
             V t40 = l_tag;
-            V t41 = vstr_cat(vow_s[947], t40);
-            V t42 = vstr_cat(t41, vow_s[948]);
+            V t41 = vstr_cat(vow_s[968], t40);
+            V t42 = vstr_cat(t41, vow_s[969]);
             V t43 = l_n;
             V t44 = vint_to_str(t43);
             V t45 = vstr_cat(t42, t44);
@@ -32788,7 +33740,7 @@ static V f_gen_match(V * l_g, V l_scrut, V l_cases, V l_els) {
             V t48 = f_str_lit(l_g, t47);
             V l_l = t48;
             V t49 = l_tag;
-            V t50 = vstr_cat(vow_s[949], t49);
+            V t50 = vstr_cat(vow_s[970], t49);
             V t51 = vstr_cat(t50, vow_s[54]);
             V t52 = l_l;
             V t53 = vstr_cat(t51, t52);
@@ -32803,7 +33755,7 @@ static V f_gen_match(V * l_g, V l_scrut, V l_cases, V l_els) {
             V l_name = VP(t38)[1];
             V l_binds = VP(t38)[2];
             V t55 = l_tag;
-            V t56 = vstr_cat(t55, vow_s[950]);
+            V t56 = vstr_cat(t55, vow_s[971]);
             V t57 = l_variants;
             V t58 = l_name;
             V t59 = f_find_variant(t57, t58);
@@ -32817,8 +33769,8 @@ static V f_gen_match(V * l_g, V l_scrut, V l_cases, V l_els) {
             vow_panic("unreachable: corrupt enum tag");
         }
         vdrop(t38);
-        vdup(vow_s[951]);
-        V l_kw = vow_s[951];
+        vdup(vow_s[972]);
+        V l_kw = vow_s[972];
         V t62 = l_first;
         if (t62) {
             vdup(vow_s[179]);
@@ -32830,7 +33782,7 @@ static V f_gen_match(V * l_g, V l_scrut, V l_cases, V l_els) {
         V t64 = vstr_cat(t63, vow_s[59]);
         V t65 = l_cond;
         V t66 = vstr_cat(t64, t65);
-        V t67 = vstr_cat(t66, vow_s[917]);
+        V t67 = vstr_cat(t66, vow_s[938]);
         V t68 = f_line(l_g, t67);
         (void)t68;
         vdrop(t67);
@@ -32871,16 +33823,16 @@ static V f_gen_match(V * l_g, V l_scrut, V l_cases, V l_els) {
                     V l_fi = t89;
                     V t90 = l_b;
                     V t91 = VP(t90)[1];
-                    V t92 = vstr_cat(vow_s[888], t91);
-                    V t93 = vstr_cat(t92, vow_s[952]);
+                    V t92 = vstr_cat(vow_s[908], t91);
+                    V t93 = vstr_cat(t92, vow_s[973]);
                     V t94 = l_v;
                     V t95 = vstr_cat(t93, t94);
-                    V t96 = vstr_cat(t95, vow_s[953]);
+                    V t96 = vstr_cat(t95, vow_s[974]);
                     V t97 = l_fi;
                     V t98 = vadd(t97, (V)INT64_C(1));
                     V t99 = vint_to_str(t98);
                     V t100 = vstr_cat(t96, t99);
-                    V t101 = vstr_cat(t100, vow_s[893]);
+                    V t101 = vstr_cat(t100, vow_s[913]);
                     V t102 = f_line(l_g, t101);
                     (void)t102;
                     vdrop(t101);
@@ -32918,7 +33870,7 @@ static V f_gen_match(V * l_g, V l_scrut, V l_cases, V l_els) {
             V t111 = f_line(l_g, vow_s[242]);
             (void)t111;
         } else {
-            V t112 = f_line(l_g, vow_s[944]);
+            V t112 = f_line(l_g, vow_s[965]);
             (void)t112;
         }
         V t113 = l_b;
@@ -32930,9 +33882,9 @@ static V f_gen_match(V * l_g, V l_scrut, V l_cases, V l_els) {
         V t116 = l_first;
         V t117 = (V)!t116;
         if (t117) {
-            V t118 = f_line(l_g, vow_s[944]);
+            V t118 = f_line(l_g, vow_s[965]);
             (void)t118;
-            V t119 = f_line(l_g, vow_s[954]);
+            V t119 = f_line(l_g, vow_s[975]);
             (void)t119;
             V t120 = f_line(l_g, vow_s[243]);
             (void)t120;
@@ -33002,17 +33954,17 @@ static V f_map_flags(V l_t) {
         vdrop(l_v);
         l_v = t9;
     } else {
-        vdup(vow_s[715]);
+        vdup(vow_s[702]);
         vdrop(t4);
         vdrop(l_v);
         vdrop(l_k);
-        return vow_s[715];
+        return vow_s[702];
     }
     vdrop(t4);
     V l_f = (V)INT64_C(0);
     V t10 = l_k;
     V t11 = f_ty_show(t10);
-    V t12 = vstr_eq(t11, vow_s[448]);
+    V t12 = (V)vstr_eq(t11, vow_s[448]);
     vdrop(t11);
     if (t12) {
         l_f = (V)INT64_C(5);
@@ -33042,13 +33994,13 @@ static V f_map_ops(V l_t) {
     if (t3 == 6) {
         V l_k = VP(t2)[1];
         V l_v = VP(t2)[2];
-        vdup(vow_s[955]);
+        vdup(vow_s[976]);
         vdrop(t2);
-        return vow_s[955];
+        return vow_s[976];
     } else {
-        vdup(vow_s[956]);
+        vdup(vow_s[977]);
         vdrop(t2);
-        return vow_s[956];
+        return vow_s[977];
     }
     vdrop(t2);
     return 0;
@@ -33057,11 +34009,11 @@ static V f_map_ops(V l_t) {
 static V f_flag(V l_b) {
     V t1 = l_b;
     if (t1) {
-        vdup(vow_s[957]);
-        return vow_s[957];
+        vdup(vow_s[978]);
+        return vow_s[978];
     }
-    vdup(vow_s[715]);
-    return vow_s[715];
+    vdup(vow_s[702]);
+    return vow_s[702];
     return 0;
 }
 
@@ -33104,7 +34056,7 @@ static V f_field_mask(V l_fields, V l_offset) {
     vdrop(t7);
     V t20 = l_mask;
     V t21 = vint_to_str(t20);
-    V t22 = vstr_cat(vow_s[958], t21);
+    V t22 = vstr_cat(vow_s[979], t21);
     V t23 = vstr_cat(t22, vow_s[144]);
     vdrop(t22);
     vdrop(t21);
@@ -33122,7 +34074,7 @@ static V f_gen_expr(V * l_g, V l_e) {
         V l_n = VP(t3)[1];
         V t5 = l_n;
         V t6 = vint_to_str(t5);
-        V t7 = vstr_cat(vow_s[959], t6);
+        V t7 = vstr_cat(vow_s[980], t6);
         V t8 = vstr_cat(t7, vow_s[144]);
         V t9 = f_plain_val(t8);
         vdrop(t8);
@@ -33142,11 +34094,11 @@ static V f_gen_expr(V * l_g, V l_e) {
         V l_b = VP(t3)[1];
         V t13 = l_b;
         if (t13) {
-            V t14 = f_plain_val(vow_s[957]);
+            V t14 = f_plain_val(vow_s[978]);
             vdrop(t3);
             return t14;
         }
-        V t15 = f_plain_val(vow_s[715]);
+        V t15 = f_plain_val(vow_s[702]);
         vdrop(t3);
         return t15;
     } else if (t4 == 3) {
@@ -33184,7 +34136,7 @@ static V f_gen_expr(V * l_g, V l_e) {
             V t34 = vdup((*l_g));
             V t35 = l_n;
             V t36 = f_cvar(t34, t35);
-            V t37 = vstr_cat(vow_s[914], t36);
+            V t37 = vstr_cat(vow_s[935], t36);
             V t38 = vstr_cat(t37, vow_s[144]);
             V t39 = f_owned_tmp(l_g, t38, 1);
             vdrop(t38);
@@ -33205,16 +34157,16 @@ static V f_gen_expr(V * l_g, V l_e) {
         vdrop(t3);
         return t44;
     } else if (t4 == 4) {
-        V t45 = f_plain_val(vow_s[960]);
+        V t45 = f_plain_val(vow_s[981]);
         vdrop(t3);
         return t45;
     } else if (t4 == 5) {
-        V t46 = f_plain_val(vow_s[960]);
+        V t46 = f_plain_val(vow_s[981]);
         vdrop(t3);
         return t46;
     } else if (t4 == 6) {
         V l_n = VP(t3)[1];
-        V t47 = f_plain_val(vow_s[960]);
+        V t47 = f_plain_val(vow_s[981]);
         vdrop(t3);
         return t47;
     } else if (t4 == 7) {
@@ -33236,7 +34188,7 @@ static V f_gen_expr(V * l_g, V l_e) {
         vdrop(t54);
         V t56 = l_eh;
         V t57 = f_flag(t56);
-        V t58 = vstr_cat(vow_s[961], t57);
+        V t58 = vstr_cat(vow_s[982], t57);
         V t59 = vstr_cat(t58, vow_s[144]);
         V t60 = f_owned_tmp(l_g, t59, 1);
         V l_acc = t60;
@@ -33257,14 +34209,14 @@ static V f_gen_expr(V * l_g, V l_e) {
             V l_c = t68;
             V t69 = l_acc;
             V t70 = VP(t69)[0];
-            V t71 = vstr_cat(t70, vow_s[962]);
+            V t71 = vstr_cat(t70, vow_s[983]);
             V t72 = l_acc;
             V t73 = VP(t72)[0];
             V t74 = vstr_cat(t71, t73);
             V t75 = vstr_cat(t74, vow_s[54]);
             V t76 = l_c;
             V t77 = vstr_cat(t75, t76);
-            V t78 = vstr_cat(t77, vow_s[895]);
+            V t78 = vstr_cat(t77, vow_s[915]);
             V t79 = f_line(l_g, t78);
             (void)t79;
             vdrop(t78);
@@ -33283,7 +34235,7 @@ static V f_gen_expr(V * l_g, V l_e) {
         return t80;
         vdrop(l_acc);
     } else if (t4 == 9) {
-        V t81 = f_plain_val(vow_s[963]);
+        V t81 = f_plain_val(vow_s[984]);
         vdrop(t3);
         return t81;
     } else if (t4 == 10) {
@@ -33304,7 +34256,7 @@ static V f_gen_expr(V * l_g, V l_e) {
         if (t91 == 2) {
             V t92 = l_ov;
             V t93 = VP(t92)[0];
-            V t94 = vstr_cat(vow_s[964], t93);
+            V t94 = vstr_cat(vow_s[985], t93);
             V t95 = vstr_cat(t94, vow_s[54]);
             V t96 = l_iv;
             V t97 = VP(t96)[0];
@@ -33325,7 +34277,7 @@ static V f_gen_expr(V * l_g, V l_e) {
         } else {
             V t102 = l_ov;
             V t103 = VP(t102)[0];
-            V t104 = vstr_cat(vow_s[965], t103);
+            V t104 = vstr_cat(vow_s[986], t103);
             V t105 = vstr_cat(t104, vow_s[54]);
             V t106 = l_iv;
             V t107 = VP(t106)[0];
@@ -33360,20 +34312,96 @@ static V f_gen_expr(V * l_g, V l_e) {
             V l_ci = VP(t116)[1];
             V t118 = l_ci;
             V t119 = VP(t118)[0];
-            V t120 = vstr_eq(t119, vow_s[636]);
+            V t120 = (V)vstr_eq(t119, vow_s[639]);
             if (t120) {
-                V t121 = l_ci;
-                V t122 = VP(t121)[2];
-                V t123 = vint_to_str(t122);
-                V t124 = vstr_cat(vow_s[966], t123);
-                V t125 = vstr_cat(t124, vow_s[144]);
-                V t126 = f_owned_tmp(l_g, t125, 1);
-                vdrop(t125);
-                vdrop(t124);
-                vdrop(t123);
+                V l_k = (V)INT64_C(0);
+                V t121 = (*l_g);
+                V t122 = VP(t121)[0];
+                V t123 = (*l_g);
+                V t124 = VP(t123)[0];
+                V t125 = l_e;
+                V t126 = f_type_of(t124, t125);
+                V t127 = f_variants_of(t122, t126);
+                V t128 = t127;
+                vdrop(t126);
+                V t129 = VP(t128)[0];
+                if (t129 == 1) {
+                    V l_vs = VP(t128)[1];
+                    V t130 = l_ci;
+                    V t131 = VP(t130)[2];
+                    V t132 = (V)(VI(t131) >= VI((V)INT64_C(0)));
+                    V t133 = t132;
+                    if (t132) {
+                        V t134 = l_ci;
+                        V t135 = VP(t134)[2];
+                        V t136 = l_vs;
+                        V t137 = vlist_len(t136);
+                        V t138 = (V)(VI(t135) < VI(t137));
+                        t133 = t138;
+                    }
+                    if (t133) {
+                        V t139 = l_vs;
+                        V t140 = l_ci;
+                        V t141 = VP(t140)[2];
+                        V t142 = vlist_get(t139, t141);
+                        V t143 = VP(t142)[1];
+                        V t144 = vlist_len(t143);
+                        l_k = t144;
+                    }
+                } else if (t129 == 0) {
+                } else {
+                    vow_panic("unreachable: corrupt enum tag");
+                }
+                vdrop(t128);
+                V t145 = l_k;
+                V t146 = (V)(t145 == (V)INT64_C(0));
+                if (t146) {
+                    V t147 = l_ci;
+                    V t148 = VP(t147)[2];
+                    V t149 = vint_to_str(t148);
+                    V t150 = vstr_cat(vow_s[987], t149);
+                    V t151 = vstr_cat(t150, vow_s[144]);
+                    V t152 = f_owned_tmp(l_g, t151, 1);
+                    vdrop(t151);
+                    vdrop(t150);
+                    vdrop(t149);
+                    vdrop(t116);
+                    vdrop(t3);
+                    return t152;
+                }
+                V t153 = l_k;
+                V t154 = vadd(t153, (V)INT64_C(1));
+                V t155 = vint_to_str(t154);
+                V t156 = vstr_cat(vow_s[988], t155);
+                V t157 = vstr_cat(t156, vow_s[989]);
+                V t158 = f_owned_tmp(l_g, t157, 1);
+                V l_r = t158;
+                vdrop(t157);
+                vdrop(t156);
+                vdrop(t155);
+                V t159 = l_r;
+                V t160 = VP(t159)[0];
+                V t161 = vstr_cat(vow_s[966], t160);
+                V t162 = vstr_cat(t161, vow_s[990]);
+                V t163 = l_ci;
+                V t164 = VP(t163)[2];
+                V t165 = vint_to_str(t164);
+                V t166 = vstr_cat(t162, t165);
+                V t167 = vstr_cat(t166, vow_s[929]);
+                V t168 = f_line(l_g, t167);
+                (void)t168;
+                vdrop(t167);
+                vdrop(t166);
+                vdrop(t165);
+                vdrop(t162);
+                vdrop(t161);
+                V t169 = l_r;
+                vdup(t169);
+                vdrop(l_r);
                 vdrop(t116);
                 vdrop(t3);
-                return t126;
+                return t169;
+                vdrop(l_r);
             }
         } else if (t117 == 0) {
         } else {
@@ -33382,276 +34410,276 @@ static V f_gen_expr(V * l_g, V l_e) {
         vdrop(t116);
         vdup(vow_s[20]);
         V l_sn = vow_s[20];
-        V t127 = (*l_g);
-        V t128 = VP(t127)[0];
-        V t129 = l_o;
-        V t130 = f_type_of(t128, t129);
-        V t131 = t130;
-        V t132 = VP(t131)[0];
-        if (t132 == 8) {
-            V l_n = VP(t131)[1];
-            V t133 = l_n;
-            vdup(t133);
+        V t170 = (*l_g);
+        V t171 = VP(t170)[0];
+        V t172 = l_o;
+        V t173 = f_type_of(t171, t172);
+        V t174 = t173;
+        V t175 = VP(t174)[0];
+        if (t175 == 8) {
+            V l_n = VP(t174)[1];
+            V t176 = l_n;
+            vdup(t176);
             vdrop(l_sn);
-            l_sn = t133;
+            l_sn = t176;
         } else {
         }
-        vdrop(t131);
-        V t134 = (*l_g);
-        V t135 = VP(t134)[0];
-        V t136 = l_sn;
-        V t137 = f_struct_fields(t135, t136);
-        V t138 = l_f;
-        V t139 = f_find_field(t137, t138);
-        V l_fi = t139;
-        vdrop(t137);
-        V t140 = (*l_g);
-        V t141 = VP(t140)[16];
-        V t142 = l_e;
-        V t143 = VP(t142)[0];
-        V t144 = f_int_list_contains(t141, t143);
-        if (t144) {
-            V t145 = l_o;
-            V t146 = VP(t145)[2];
-            vdup(t146);
-            V t147 = t146;
-            V t148 = VP(t147)[0];
-            if (t148 == 3) {
-                V l_n = VP(t147)[1];
-                V t149 = vdup((*l_g));
-                V t150 = l_n;
-                V t151 = f_cvar(t149, t150);
-                V t152 = vstr_cat(vow_s[967], t151);
-                V t153 = vstr_cat(t152, vow_s[54]);
-                V t154 = l_fi;
-                V t155 = vint_to_str(t154);
-                V t156 = vstr_cat(t153, t155);
-                V t157 = vstr_cat(t156, vow_s[144]);
-                V t158 = f_owned_tmp(l_g, t157, 1);
-                vdrop(t157);
-                vdrop(t156);
-                vdrop(t155);
-                vdrop(t153);
-                vdrop(t152);
-                vdrop(t151);
-                vdrop(t149);
-                vdrop(t147);
+        vdrop(t174);
+        V t177 = (*l_g);
+        V t178 = VP(t177)[0];
+        V t179 = l_sn;
+        V t180 = f_struct_fields(t178, t179);
+        V t181 = l_f;
+        V t182 = f_find_field(t180, t181);
+        V l_fi = t182;
+        vdrop(t180);
+        V t183 = (*l_g);
+        V t184 = VP(t183)[16];
+        V t185 = l_e;
+        V t186 = VP(t185)[0];
+        V t187 = f_int_list_contains(t184, t186);
+        if (t187) {
+            V t188 = l_o;
+            V t189 = VP(t188)[2];
+            vdup(t189);
+            V t190 = t189;
+            V t191 = VP(t190)[0];
+            if (t191 == 3) {
+                V l_n = VP(t190)[1];
+                V t192 = vdup((*l_g));
+                V t193 = l_n;
+                V t194 = f_cvar(t192, t193);
+                V t195 = vstr_cat(vow_s[991], t194);
+                V t196 = vstr_cat(t195, vow_s[54]);
+                V t197 = l_fi;
+                V t198 = vint_to_str(t197);
+                V t199 = vstr_cat(t196, t198);
+                V t200 = vstr_cat(t199, vow_s[144]);
+                V t201 = f_owned_tmp(l_g, t200, 1);
+                vdrop(t200);
+                vdrop(t199);
+                vdrop(t198);
+                vdrop(t196);
+                vdrop(t195);
+                vdrop(t194);
+                vdrop(t192);
+                vdrop(t190);
                 vdrop(l_sn);
                 vdrop(t3);
-                return t158;
+                return t201;
             } else {
             }
-            vdrop(t147);
+            vdrop(t190);
         }
-        V t159 = l_o;
-        V t160 = f_gen_expr(l_g, t159);
-        V l_ov = t160;
-        V t161 = l_ov;
-        V t162 = VP(t161)[0];
-        V t163 = vstr_cat(vow_s[945], t162);
-        V t164 = vstr_cat(t163, vow_s[953]);
-        V t165 = l_fi;
-        V t166 = vint_to_str(t165);
-        V t167 = vstr_cat(t164, t166);
-        V t168 = vstr_cat(t167, vow_s[228]);
-        V t169 = f_bind(l_g, t168);
-        V t170 = f_plain_val(t169);
-        vdrop(t169);
-        vdrop(t168);
-        vdrop(t167);
-        vdrop(t166);
-        vdrop(t164);
-        vdrop(t163);
+        V t202 = l_o;
+        V t203 = f_gen_expr(l_g, t202);
+        V l_ov = t203;
+        V t204 = l_ov;
+        V t205 = VP(t204)[0];
+        V t206 = vstr_cat(vow_s[966], t205);
+        V t207 = vstr_cat(t206, vow_s[974]);
+        V t208 = l_fi;
+        V t209 = vint_to_str(t208);
+        V t210 = vstr_cat(t207, t209);
+        V t211 = vstr_cat(t210, vow_s[228]);
+        V t212 = f_bind(l_g, t211);
+        V t213 = f_plain_val(t212);
+        vdrop(t212);
+        vdrop(t211);
+        vdrop(t210);
+        vdrop(t209);
+        vdrop(t207);
+        vdrop(t206);
         vdrop(l_ov);
         vdrop(l_sn);
         vdrop(t3);
-        return t170;
+        return t213;
         vdrop(l_ov);
         vdrop(l_sn);
     } else if (t4 == 12) {
         V l_o = VP(t3)[1];
         V l_args = VP(t3)[2];
-        V t171 = l_o;
-        V t172 = f_gen_expr(l_g, t171);
-        V l_ov = t172;
+        V t214 = l_o;
+        V t215 = f_gen_expr(l_g, t214);
+        V l_ov = t215;
         vdup(vow_s[20]);
         V l_sn = vow_s[20];
-        V t173 = (*l_g);
-        V t174 = VP(t173)[0];
-        V t175 = l_o;
-        V t176 = f_type_of(t174, t175);
-        V t177 = t176;
-        V t178 = VP(t177)[0];
-        if (t178 == 8) {
-            V l_n = VP(t177)[1];
-            V t179 = l_n;
-            vdup(t179);
+        V t216 = (*l_g);
+        V t217 = VP(t216)[0];
+        V t218 = l_o;
+        V t219 = f_type_of(t217, t218);
+        V t220 = t219;
+        V t221 = VP(t220)[0];
+        if (t221 == 8) {
+            V l_n = VP(t220)[1];
+            V t222 = l_n;
+            vdup(t222);
             vdrop(l_sn);
-            l_sn = t179;
+            l_sn = t222;
         } else {
         }
-        vdrop(t177);
-        V t180 = (*l_g);
-        V t181 = VP(t180)[0];
-        V t182 = l_sn;
-        V t183 = f_struct_fields(t181, t182);
-        V l_fields = t183;
-        V t184 = vlist_empty(1);
-        V l_vals = t184;
-        V t185 = l_args;
-        vdup(t185);
-        V t186 = t185;
-        for (int64_t t187 = 0; t187 < VL(t186)->len; t187++) {
-            V l_a = VB(VL(t186)->buf)->items[t187];
-            V t188 = l_a;
-            V t189 = VP(t188)[2];
-            V t190 = f_gen_expr(l_g, t189);
-            V l_v = t190;
-            V t191 = l_v;
-            vdup(t191);
-            V t192 = vlist_push(l_vals, t191);
-            l_vals = t192;
+        vdrop(t220);
+        V t223 = (*l_g);
+        V t224 = VP(t223)[0];
+        V t225 = l_sn;
+        V t226 = f_struct_fields(t224, t225);
+        V l_fields = t226;
+        V t227 = vlist_empty(1);
+        V l_vals = t227;
+        V t228 = l_args;
+        vdup(t228);
+        V t229 = t228;
+        for (int64_t t230 = 0; t230 < VL(t229)->len; t230++) {
+            V l_a = VB(VL(t229)->buf)->items[t230];
+            V t231 = l_a;
+            V t232 = VP(t231)[2];
+            V t233 = f_gen_expr(l_g, t232);
+            V l_v = t233;
+            V t234 = l_v;
+            vdup(t234);
+            V t235 = vlist_push(l_vals, t234);
+            l_vals = t235;
             vdrop(l_v);
         }
-        vdrop(t186);
-        V t193 = l_ov;
-        V t194 = f_take(l_g, t193, 1);
-        V l_base = t194;
-        V t195 = vlist_empty(1);
-        V l_cs = t195;
-        V t196 = l_args;
-        V t197 = vlist_len(t196);
-        for (V l_i = (V)INT64_C(0); VI(l_i) < VI(t197); l_i = (V)(VI(l_i) + 1)) {
-            V t198 = l_i;
-            V t199 = l_vals;
-            V t200 = vlist_len(t199);
-            V t201 = (V)(VI(t198) < VI(t200));
-            if (t201) {
-                V t202 = l_fields;
-                V t203 = l_args;
-                V t204 = l_i;
-                V t205 = vlist_get(t203, t204);
-                V t206 = VP(t205)[0];
-                V t207 = f_find_field(t202, t206);
-                V l_fi = t207;
+        vdrop(t229);
+        V t236 = l_ov;
+        V t237 = f_take(l_g, t236, 1);
+        V l_base = t237;
+        V t238 = vlist_empty(1);
+        V l_cs = t238;
+        V t239 = l_args;
+        V t240 = vlist_len(t239);
+        for (V l_i = (V)INT64_C(0); VI(l_i) < VI(t240); l_i = (V)(VI(l_i) + 1)) {
+            V t241 = l_i;
+            V t242 = l_vals;
+            V t243 = vlist_len(t242);
+            V t244 = (V)(VI(t241) < VI(t243));
+            if (t244) {
+                V t245 = l_fields;
+                V t246 = l_args;
+                V t247 = l_i;
+                V t248 = vlist_get(t246, t247);
+                V t249 = VP(t248)[0];
+                V t250 = f_find_field(t245, t249);
+                V l_fi = t250;
                 V l_fh = 0;
-                V t208 = l_fi;
-                V t209 = (V)(VI(t208) >= VI((V)INT64_C(0)));
-                V t210 = t209;
-                if (t209) {
-                    V t211 = l_fi;
-                    V t212 = l_fields;
-                    V t213 = vlist_len(t212);
-                    V t214 = (V)(VI(t211) < VI(t213));
-                    t210 = t214;
+                V t251 = l_fi;
+                V t252 = (V)(VI(t251) >= VI((V)INT64_C(0)));
+                V t253 = t252;
+                if (t252) {
+                    V t254 = l_fi;
+                    V t255 = l_fields;
+                    V t256 = vlist_len(t255);
+                    V t257 = (V)(VI(t254) < VI(t256));
+                    t253 = t257;
                 }
-                if (t210) {
-                    V t215 = l_fields;
-                    V t216 = l_fi;
-                    V t217 = vlist_get(t215, t216);
-                    V t218 = VP(t217)[1];
-                    V t219 = VP(t218)[0];
-                    V t220 = f_is_heap(t219);
-                    l_fh = t220;
+                if (t253) {
+                    V t258 = l_fields;
+                    V t259 = l_fi;
+                    V t260 = vlist_get(t258, t259);
+                    V t261 = VP(t260)[1];
+                    V t262 = VP(t261)[0];
+                    V t263 = f_is_heap(t262);
+                    l_fh = t263;
                 }
-                V t221 = l_vals;
-                V t222 = l_i;
-                V t223 = vlist_get(t221, t222);
-                V t224 = l_fh;
-                V t225 = f_take(l_g, t223, t224);
-                V l_c = t225;
-                V t226 = l_c;
-                vdup(t226);
-                V t227 = vlist_push(l_cs, t226);
-                l_cs = t227;
+                V t264 = l_vals;
+                V t265 = l_i;
+                V t266 = vlist_get(t264, t265);
+                V t267 = l_fh;
+                V t268 = f_take(l_g, t266, t267);
+                V l_c = t268;
+                V t269 = l_c;
+                vdup(t269);
+                V t270 = vlist_push(l_cs, t269);
+                l_cs = t270;
                 vdrop(l_c);
             }
         }
-        V t228 = l_base;
-        V t229 = vstr_cat(vow_s[968], t228);
-        V t230 = vstr_cat(t229, vow_s[144]);
-        V t231 = f_owned_tmp(l_g, t230, 1);
-        V l_r = t231;
-        vdrop(t230);
-        vdrop(t229);
-        V t232 = l_args;
-        V t233 = vlist_len(t232);
-        for (V l_i = (V)INT64_C(0); VI(l_i) < VI(t233); l_i = (V)(VI(l_i) + 1)) {
-            V t234 = l_i;
-            V t235 = l_cs;
-            V t236 = vlist_len(t235);
-            V t237 = (V)(VI(t234) < VI(t236));
-            if (t237) {
-                V t238 = l_fields;
-                V t239 = l_args;
-                V t240 = l_i;
-                V t241 = vlist_get(t239, t240);
-                V t242 = VP(t241)[0];
-                V t243 = f_find_field(t238, t242);
-                V l_fi = t243;
-                V t244 = l_fi;
-                V t245 = (V)(VI(t244) >= VI((V)INT64_C(0)));
-                V t246 = t245;
-                if (t245) {
-                    V t247 = l_fi;
-                    V t248 = l_fields;
-                    V t249 = vlist_len(t248);
-                    V t250 = (V)(VI(t247) < VI(t249));
-                    t246 = t250;
+        V t271 = l_base;
+        V t272 = vstr_cat(vow_s[992], t271);
+        V t273 = vstr_cat(t272, vow_s[144]);
+        V t274 = f_owned_tmp(l_g, t273, 1);
+        V l_r = t274;
+        vdrop(t273);
+        vdrop(t272);
+        V t275 = l_args;
+        V t276 = vlist_len(t275);
+        for (V l_i = (V)INT64_C(0); VI(l_i) < VI(t276); l_i = (V)(VI(l_i) + 1)) {
+            V t277 = l_i;
+            V t278 = l_cs;
+            V t279 = vlist_len(t278);
+            V t280 = (V)(VI(t277) < VI(t279));
+            if (t280) {
+                V t281 = l_fields;
+                V t282 = l_args;
+                V t283 = l_i;
+                V t284 = vlist_get(t282, t283);
+                V t285 = VP(t284)[0];
+                V t286 = f_find_field(t281, t285);
+                V l_fi = t286;
+                V t287 = l_fi;
+                V t288 = (V)(VI(t287) >= VI((V)INT64_C(0)));
+                V t289 = t288;
+                if (t288) {
+                    V t290 = l_fi;
+                    V t291 = l_fields;
+                    V t292 = vlist_len(t291);
+                    V t293 = (V)(VI(t290) < VI(t292));
+                    t289 = t293;
                 }
-                V t251 = t246;
-                if (t246) {
-                    V t252 = l_fields;
-                    V t253 = l_fi;
-                    V t254 = vlist_get(t252, t253);
-                    V t255 = VP(t254)[1];
-                    V t256 = VP(t255)[0];
-                    V t257 = f_is_heap(t256);
-                    t251 = t257;
+                V t294 = t289;
+                if (t289) {
+                    V t295 = l_fields;
+                    V t296 = l_fi;
+                    V t297 = vlist_get(t295, t296);
+                    V t298 = VP(t297)[1];
+                    V t299 = VP(t298)[0];
+                    V t300 = f_is_heap(t299);
+                    t294 = t300;
                 }
-                if (t251) {
-                    V t258 = l_r;
-                    V t259 = VP(t258)[0];
-                    V t260 = vstr_cat(vow_s[969], t259);
-                    V t261 = vstr_cat(t260, vow_s[953]);
-                    V t262 = l_fi;
-                    V t263 = vint_to_str(t262);
-                    V t264 = vstr_cat(t261, t263);
-                    V t265 = vstr_cat(t264, vow_s[970]);
-                    V t266 = f_line(l_g, t265);
-                    (void)t266;
-                    vdrop(t265);
-                    vdrop(t264);
-                    vdrop(t263);
-                    vdrop(t261);
-                    vdrop(t260);
+                if (t294) {
+                    V t301 = l_r;
+                    V t302 = VP(t301)[0];
+                    V t303 = vstr_cat(vow_s[993], t302);
+                    V t304 = vstr_cat(t303, vow_s[974]);
+                    V t305 = l_fi;
+                    V t306 = vint_to_str(t305);
+                    V t307 = vstr_cat(t304, t306);
+                    V t308 = vstr_cat(t307, vow_s[994]);
+                    V t309 = f_line(l_g, t308);
+                    (void)t309;
+                    vdrop(t308);
+                    vdrop(t307);
+                    vdrop(t306);
+                    vdrop(t304);
+                    vdrop(t303);
                 }
-                V t267 = l_r;
-                V t268 = VP(t267)[0];
-                V t269 = vstr_cat(vow_s[945], t268);
-                V t270 = vstr_cat(t269, vow_s[953]);
-                V t271 = l_fi;
-                V t272 = vint_to_str(t271);
-                V t273 = vstr_cat(t270, t272);
-                V t274 = vstr_cat(t273, vow_s[971]);
-                V t275 = l_cs;
-                V t276 = l_i;
-                V t277 = vlist_get(t275, t276);
-                V t278 = vstr_cat(t274, t277);
-                V t279 = vstr_cat(t278, vow_s[908]);
-                V t280 = f_line(l_g, t279);
-                (void)t280;
-                vdrop(t279);
-                vdrop(t278);
-                vdrop(t274);
-                vdrop(t273);
-                vdrop(t272);
-                vdrop(t270);
-                vdrop(t269);
+                V t310 = l_r;
+                V t311 = VP(t310)[0];
+                V t312 = vstr_cat(vow_s[966], t311);
+                V t313 = vstr_cat(t312, vow_s[974]);
+                V t314 = l_fi;
+                V t315 = vint_to_str(t314);
+                V t316 = vstr_cat(t313, t315);
+                V t317 = vstr_cat(t316, vow_s[995]);
+                V t318 = l_cs;
+                V t319 = l_i;
+                V t320 = vlist_get(t318, t319);
+                V t321 = vstr_cat(t317, t320);
+                V t322 = vstr_cat(t321, vow_s[929]);
+                V t323 = f_line(l_g, t322);
+                (void)t323;
+                vdrop(t322);
+                vdrop(t321);
+                vdrop(t317);
+                vdrop(t316);
+                vdrop(t315);
+                vdrop(t313);
+                vdrop(t312);
             }
         }
-        V t281 = l_r;
-        vdup(t281);
+        V t324 = l_r;
+        vdup(t324);
         vdrop(l_r);
         vdrop(l_cs);
         vdrop(l_base);
@@ -33660,7 +34688,7 @@ static V f_gen_expr(V * l_g, V l_e) {
         vdrop(l_sn);
         vdrop(l_ov);
         vdrop(t3);
-        return t281;
+        return t324;
         vdrop(l_r);
         vdrop(l_cs);
         vdrop(l_base);
@@ -33671,154 +34699,154 @@ static V f_gen_expr(V * l_g, V l_e) {
     } else if (t4 == 13) {
         V l_op = VP(t3)[1];
         V l_x = VP(t3)[2];
-        V t282 = l_x;
-        V t283 = f_gen_expr(l_g, t282);
-        V l_v = t283;
-        V t284 = l_op;
-        V t285 = vstr_eq(t284, vow_s[202]);
-        if (t285) {
-            V t286 = l_v;
-            V t287 = VP(t286)[0];
-            V t288 = vstr_cat(vow_s[972], t287);
-            V t289 = vstr_cat(t288, vow_s[144]);
-            V t290 = f_bind(l_g, t289);
-            V t291 = f_plain_val(t290);
-            vdrop(t290);
-            vdrop(t289);
-            vdrop(t288);
+        V t325 = l_x;
+        V t326 = f_gen_expr(l_g, t325);
+        V l_v = t326;
+        V t327 = l_op;
+        V t328 = (V)vstr_eq(t327, vow_s[202]);
+        if (t328) {
+            V t329 = l_v;
+            V t330 = VP(t329)[0];
+            V t331 = vstr_cat(vow_s[996], t330);
+            V t332 = vstr_cat(t331, vow_s[144]);
+            V t333 = f_bind(l_g, t332);
+            V t334 = f_plain_val(t333);
+            vdrop(t333);
+            vdrop(t332);
+            vdrop(t331);
             vdrop(l_v);
             vdrop(t3);
-            return t291;
+            return t334;
         }
-        V t292 = l_v;
-        V t293 = VP(t292)[0];
-        V t294 = vstr_cat(vow_s[973], t293);
-        V t295 = f_bind(l_g, t294);
-        V t296 = f_plain_val(t295);
-        vdrop(t295);
-        vdrop(t294);
+        V t335 = l_v;
+        V t336 = VP(t335)[0];
+        V t337 = vstr_cat(vow_s[997], t336);
+        V t338 = f_bind(l_g, t337);
+        V t339 = f_plain_val(t338);
+        vdrop(t338);
+        vdrop(t337);
         vdrop(l_v);
         vdrop(t3);
-        return t296;
+        return t339;
         vdrop(l_v);
     } else if (t4 == 14) {
         V l_op = VP(t3)[1];
         V l_l = VP(t3)[2];
         V l_r = VP(t3)[3];
-        V t297 = l_op;
-        V t298 = l_l;
-        V t299 = l_r;
-        V t300 = f_gen_binary(l_g, t297, t298, t299);
+        V t340 = l_op;
+        V t341 = l_l;
+        V t342 = l_r;
+        V t343 = f_gen_binary(l_g, t340, t341, t342);
         vdrop(t3);
-        return t300;
+        return t343;
     } else if (t4 == 15) {
         V l_q = VP(t3)[1];
         V l_v = VP(t3)[2];
         V l_lo = VP(t3)[3];
         V l_hi = VP(t3)[4];
         V l_body = VP(t3)[5];
-        V t301 = l_lo;
-        V t302 = f_gen_expr(l_g, t301);
-        V l_a = t302;
-        V t303 = l_hi;
-        V t304 = f_gen_expr(l_g, t303);
-        V l_b = t304;
-        V t305 = l_q;
-        V t306 = vstr_eq(t305, vow_s[238]);
-        V l_is_forall = t306;
-        vdup(vow_s[715]);
-        V l_init = vow_s[715];
-        V t307 = l_is_forall;
-        if (t307) {
-            vdup(vow_s[957]);
+        V t344 = l_lo;
+        V t345 = f_gen_expr(l_g, t344);
+        V l_a = t345;
+        V t346 = l_hi;
+        V t347 = f_gen_expr(l_g, t346);
+        V l_b = t347;
+        V t348 = l_q;
+        V t349 = (V)vstr_eq(t348, vow_s[238]);
+        V l_is_forall = t349;
+        vdup(vow_s[702]);
+        V l_init = vow_s[702];
+        V t350 = l_is_forall;
+        if (t350) {
+            vdup(vow_s[978]);
             vdrop(l_init);
-            l_init = vow_s[957];
+            l_init = vow_s[978];
         }
-        V t308 = l_init;
-        V t309 = f_bind(l_g, t308);
-        V l_t = t309;
-        V t310 = l_v;
-        V t311 = vstr_cat(vow_s[913], t310);
-        V l_lv = t311;
-        V t312 = l_lv;
-        V t313 = vstr_cat(vow_s[923], t312);
-        V t314 = vstr_cat(t313, vow_s[845]);
-        V t315 = l_a;
-        V t316 = VP(t315)[0];
-        V t317 = vstr_cat(t314, t316);
-        V t318 = vstr_cat(t317, vow_s[924]);
-        V t319 = l_lv;
-        V t320 = vstr_cat(t318, t319);
-        V t321 = vstr_cat(t320, vow_s[925]);
-        V t322 = l_b;
-        V t323 = VP(t322)[0];
-        V t324 = vstr_cat(t321, t323);
-        V t325 = vstr_cat(t324, vow_s[926]);
-        V t326 = l_lv;
-        V t327 = vstr_cat(t325, t326);
-        V t328 = vstr_cat(t327, vow_s[927]);
-        V t329 = l_lv;
-        V t330 = vstr_cat(t328, t329);
-        V t331 = vstr_cat(t330, vow_s[928]);
-        V t332 = f_line(l_g, t331);
-        (void)t332;
-        vdrop(t331);
-        vdrop(t330);
-        vdrop(t328);
-        vdrop(t327);
-        vdrop(t325);
-        vdrop(t324);
-        vdrop(t321);
-        vdrop(t320);
-        vdrop(t318);
-        vdrop(t317);
-        vdrop(t314);
-        vdrop(t313);
-        V t333 = f_indent(l_g);
-        (void)t333;
-        V t334 = f_push_frame(l_g);
-        (void)t334;
-        V t335 = l_body;
-        V t336 = f_gen_expr(l_g, t335);
-        V l_bv = t336;
-        V t337 = f_pop_frame(l_g);
-        (void)t337;
-        V t338 = l_is_forall;
-        if (t338) {
-            V t339 = l_bv;
-            V t340 = VP(t339)[0];
-            V t341 = vstr_cat(vow_s[921], t340);
-            V t342 = vstr_cat(t341, vow_s[974]);
-            V t343 = l_t;
-            V t344 = vstr_cat(t342, t343);
-            V t345 = vstr_cat(t344, vow_s[975]);
-            V t346 = f_line(l_g, t345);
-            (void)t346;
-            vdrop(t345);
-            vdrop(t344);
-            vdrop(t342);
-            vdrop(t341);
+        V t351 = l_init;
+        V t352 = f_bind(l_g, t351);
+        V l_t = t352;
+        V t353 = l_v;
+        V t354 = vstr_cat(vow_s[934], t353);
+        V l_lv = t354;
+        V t355 = l_lv;
+        V t356 = vstr_cat(vow_s[944], t355);
+        V t357 = vstr_cat(t356, vow_s[865]);
+        V t358 = l_a;
+        V t359 = VP(t358)[0];
+        V t360 = vstr_cat(t357, t359);
+        V t361 = vstr_cat(t360, vow_s[945]);
+        V t362 = l_lv;
+        V t363 = vstr_cat(t361, t362);
+        V t364 = vstr_cat(t363, vow_s[946]);
+        V t365 = l_b;
+        V t366 = VP(t365)[0];
+        V t367 = vstr_cat(t364, t366);
+        V t368 = vstr_cat(t367, vow_s[947]);
+        V t369 = l_lv;
+        V t370 = vstr_cat(t368, t369);
+        V t371 = vstr_cat(t370, vow_s[948]);
+        V t372 = l_lv;
+        V t373 = vstr_cat(t371, t372);
+        V t374 = vstr_cat(t373, vow_s[949]);
+        V t375 = f_line(l_g, t374);
+        (void)t375;
+        vdrop(t374);
+        vdrop(t373);
+        vdrop(t371);
+        vdrop(t370);
+        vdrop(t368);
+        vdrop(t367);
+        vdrop(t364);
+        vdrop(t363);
+        vdrop(t361);
+        vdrop(t360);
+        vdrop(t357);
+        vdrop(t356);
+        V t376 = f_indent(l_g);
+        (void)t376;
+        V t377 = f_push_frame(l_g);
+        (void)t377;
+        V t378 = l_body;
+        V t379 = f_gen_expr(l_g, t378);
+        V l_bv = t379;
+        V t380 = f_pop_frame(l_g);
+        (void)t380;
+        V t381 = l_is_forall;
+        if (t381) {
+            V t382 = l_bv;
+            V t383 = VP(t382)[0];
+            V t384 = vstr_cat(vow_s[942], t383);
+            V t385 = vstr_cat(t384, vow_s[998]);
+            V t386 = l_t;
+            V t387 = vstr_cat(t385, t386);
+            V t388 = vstr_cat(t387, vow_s[999]);
+            V t389 = f_line(l_g, t388);
+            (void)t389;
+            vdrop(t388);
+            vdrop(t387);
+            vdrop(t385);
+            vdrop(t384);
         } else {
-            V t347 = l_bv;
-            V t348 = VP(t347)[0];
-            V t349 = vstr_cat(vow_s[943], t348);
-            V t350 = vstr_cat(t349, vow_s[974]);
-            V t351 = l_t;
-            V t352 = vstr_cat(t350, t351);
-            V t353 = vstr_cat(t352, vow_s[976]);
-            V t354 = f_line(l_g, t353);
-            (void)t354;
-            vdrop(t353);
-            vdrop(t352);
-            vdrop(t350);
-            vdrop(t349);
+            V t390 = l_bv;
+            V t391 = VP(t390)[0];
+            V t392 = vstr_cat(vow_s[964], t391);
+            V t393 = vstr_cat(t392, vow_s[998]);
+            V t394 = l_t;
+            V t395 = vstr_cat(t393, t394);
+            V t396 = vstr_cat(t395, vow_s[1000]);
+            V t397 = f_line(l_g, t396);
+            (void)t397;
+            vdrop(t396);
+            vdrop(t395);
+            vdrop(t393);
+            vdrop(t392);
         }
-        V t355 = f_dedent(l_g);
-        (void)t355;
-        V t356 = f_line(l_g, vow_s[243]);
-        (void)t356;
-        V t357 = l_t;
-        V t358 = f_plain_val(t357);
+        V t398 = f_dedent(l_g);
+        (void)t398;
+        V t399 = f_line(l_g, vow_s[243]);
+        (void)t399;
+        V t400 = l_t;
+        V t401 = f_plain_val(t400);
         vdrop(l_bv);
         vdrop(l_lv);
         vdrop(l_t);
@@ -33826,7 +34854,7 @@ static V f_gen_expr(V * l_g, V l_e) {
         vdrop(l_b);
         vdrop(l_a);
         vdrop(t3);
-        return t358;
+        return t401;
         vdrop(l_bv);
         vdrop(l_lv);
         vdrop(l_t);
@@ -33842,17 +34870,17 @@ static V f_gen_expr(V * l_g, V l_e) {
 
 static V f_gen_binary(V * l_g, V l_op, V l_l, V l_r) {
     V t1 = l_op;
-    V t2 = vstr_eq(t1, vow_s[216]);
+    V t2 = (V)vstr_eq(t1, vow_s[216]);
     V t3 = t2;
     if (!t3) {
         V t4 = l_op;
-        V t5 = vstr_eq(t4, vow_s[217]);
+        V t5 = (V)vstr_eq(t4, vow_s[217]);
         t3 = t5;
     }
     V t6 = t3;
     if (!t6) {
         V t7 = l_op;
-        V t8 = vstr_eq(t7, vow_s[218]);
+        V t8 = (V)vstr_eq(t7, vow_s[218]);
         t6 = t8;
     }
     if (t6) {
@@ -33864,11 +34892,11 @@ static V f_gen_binary(V * l_g, V l_op, V l_l, V l_r) {
         vdup(t12);
         V l_init = t12;
         V t13 = l_op;
-        V t14 = vstr_eq(t13, vow_s[218]);
+        V t14 = (V)vstr_eq(t13, vow_s[218]);
         if (t14) {
-            vdup(vow_s[957]);
+            vdup(vow_s[978]);
             vdrop(l_init);
-            l_init = vow_s[957];
+            l_init = vow_s[978];
         }
         V t15 = l_init;
         V t16 = f_bind(l_g, t15);
@@ -33878,16 +34906,16 @@ static V f_gen_binary(V * l_g, V l_op, V l_l, V l_r) {
         vdup(t18);
         V l_guard = t18;
         V t19 = l_op;
-        V t20 = vstr_eq(t19, vow_s[217]);
+        V t20 = (V)vstr_eq(t19, vow_s[217]);
         if (t20) {
             V t21 = l_t;
-            V t22 = vstr_cat(vow_s[977], t21);
+            V t22 = vstr_cat(vow_s[1001], t21);
             vdrop(l_guard);
             l_guard = t22;
         }
         V t23 = l_guard;
-        V t24 = vstr_cat(vow_s[943], t23);
-        V t25 = vstr_cat(t24, vow_s[917]);
+        V t24 = vstr_cat(vow_s[964], t23);
+        V t25 = vstr_cat(t24, vow_s[938]);
         V t26 = f_line(l_g, t25);
         (void)t26;
         vdrop(t25);
@@ -33900,11 +34928,11 @@ static V f_gen_binary(V * l_g, V l_op, V l_l, V l_r) {
         V t30 = f_gen_expr(l_g, t29);
         V l_b = t30;
         V t31 = l_t;
-        V t32 = vstr_cat(t31, vow_s[845]);
+        V t32 = vstr_cat(t31, vow_s[865]);
         V t33 = l_b;
         V t34 = VP(t33)[0];
         V t35 = vstr_cat(t32, t34);
-        V t36 = vstr_cat(t35, vow_s[908]);
+        V t36 = vstr_cat(t35, vow_s[929]);
         V t37 = f_line(l_g, t36);
         (void)t37;
         vdrop(t36);
@@ -33941,7 +34969,7 @@ static V f_gen_binary(V * l_g, V l_op, V l_l, V l_r) {
     V t49 = l_l;
     V t50 = f_type_of(t48, t49);
     V t51 = f_ty_show(t50);
-    V t52 = vstr_eq(t51, vow_s[448]);
+    V t52 = (V)vstr_eq(t51, vow_s[448]);
     V l_is_str = t52;
     vdrop(t51);
     vdrop(t50);
@@ -33953,7 +34981,7 @@ static V f_gen_binary(V * l_g, V l_op, V l_l, V l_r) {
         if (t55) {
             V t56 = l_a;
             V t57 = VP(t56)[0];
-            V t58 = vstr_cat(vow_s[978], t57);
+            V t58 = vstr_cat(vow_s[1002], t57);
             V t59 = vstr_cat(t58, vow_s[54]);
             V t60 = l_b;
             V t61 = VP(t60)[0];
@@ -33973,7 +35001,7 @@ static V f_gen_binary(V * l_g, V l_op, V l_l, V l_r) {
         V t66 = f_take(l_g, t65, 1);
         V l_ac = t66;
         V t67 = l_ac;
-        V t68 = vstr_cat(vow_s[979], t67);
+        V t68 = vstr_cat(vow_s[1003], t67);
         V t69 = vstr_cat(t68, vow_s[54]);
         V t70 = l_b;
         V t71 = VP(t70)[0];
@@ -33993,7 +35021,7 @@ static V f_gen_binary(V * l_g, V l_op, V l_l, V l_r) {
     } else if (vstr_eq(t54, vow_s[208])) {
         V t75 = l_a;
         V t76 = VP(t75)[0];
-        V t77 = vstr_cat(vow_s[980], t76);
+        V t77 = vstr_cat(vow_s[1004], t76);
         V t78 = vstr_cat(t77, vow_s[54]);
         V t79 = l_b;
         V t80 = VP(t79)[0];
@@ -34013,7 +35041,7 @@ static V f_gen_binary(V * l_g, V l_op, V l_l, V l_r) {
     } else if (vstr_eq(t54, vow_s[202])) {
         V t85 = l_a;
         V t86 = VP(t85)[0];
-        V t87 = vstr_cat(vow_s[981], t86);
+        V t87 = vstr_cat(vow_s[1005], t86);
         V t88 = vstr_cat(t87, vow_s[54]);
         V t89 = l_b;
         V t90 = VP(t89)[0];
@@ -34033,7 +35061,7 @@ static V f_gen_binary(V * l_g, V l_op, V l_l, V l_r) {
     } else if (vstr_eq(t54, vow_s[209])) {
         V t95 = l_a;
         V t96 = VP(t95)[0];
-        V t97 = vstr_cat(vow_s[982], t96);
+        V t97 = vstr_cat(vow_s[1006], t96);
         V t98 = vstr_cat(t97, vow_s[54]);
         V t99 = l_b;
         V t100 = VP(t99)[0];
@@ -34053,7 +35081,7 @@ static V f_gen_binary(V * l_g, V l_op, V l_l, V l_r) {
     } else if (vstr_eq(t54, vow_s[85])) {
         V t105 = l_a;
         V t106 = VP(t105)[0];
-        V t107 = vstr_cat(vow_s[983], t106);
+        V t107 = vstr_cat(vow_s[1007], t106);
         V t108 = vstr_cat(t107, vow_s[54]);
         V t109 = l_b;
         V t110 = VP(t109)[0];
@@ -34073,7 +35101,7 @@ static V f_gen_binary(V * l_g, V l_op, V l_l, V l_r) {
     } else if (vstr_eq(t54, vow_s[210])) {
         V t115 = l_a;
         V t116 = VP(t115)[0];
-        V t117 = vstr_cat(vow_s[984], t116);
+        V t117 = vstr_cat(vow_s[1008], t116);
         V t118 = vstr_cat(t117, vow_s[54]);
         V t119 = l_b;
         V t120 = VP(t119)[0];
@@ -34091,118 +35119,370 @@ static V f_gen_binary(V * l_g, V l_op, V l_l, V l_r) {
         vdrop(l_a);
         return t124;
     } else if (vstr_eq(t54, vow_s[212])) {
-        V t125 = l_is_str;
-        if (t125) {
-            V t126 = l_a;
-            V t127 = VP(t126)[0];
-            V t128 = vstr_cat(vow_s[949], t127);
-            V t129 = vstr_cat(t128, vow_s[54]);
-            V t130 = l_b;
-            V t131 = VP(t130)[0];
-            V t132 = vstr_cat(t129, t131);
-            V t133 = vstr_cat(t132, vow_s[144]);
-            V t134 = f_bind(l_g, t133);
-            V t135 = f_plain_val(t134);
-            vdrop(t134);
-            vdrop(t133);
-            vdrop(t132);
-            vdrop(t129);
-            vdrop(t128);
-            vdrop(t54);
-            vdrop(l_b);
-            vdrop(l_a);
-            return t135;
-        }
-        V t136 = l_a;
-        V t137 = VP(t136)[0];
-        V t138 = vstr_cat(vow_s[985], t137);
-        V t139 = vstr_cat(t138, vow_s[950]);
-        V t140 = l_b;
-        V t141 = VP(t140)[0];
-        V t142 = vstr_cat(t139, t141);
-        V t143 = vstr_cat(t142, vow_s[144]);
-        V t144 = f_bind(l_g, t143);
-        V t145 = f_plain_val(t144);
-        vdrop(t144);
-        vdrop(t143);
-        vdrop(t142);
-        vdrop(t139);
-        vdrop(t138);
+        V t125 = (*l_g);
+        V t126 = VP(t125)[0];
+        V t127 = l_l;
+        V t128 = f_type_of(t126, t127);
+        V l_t = t128;
+        V t129 = l_t;
+        V t130 = l_a;
+        V t131 = VP(t130)[0];
+        V t132 = l_b;
+        V t133 = VP(t132)[0];
+        V t134 = f_c_eq(l_g, t129, t131, t133);
+        V l_cmp = t134;
+        V t135 = l_cmp;
+        V t136 = vstr_cat(vow_s[1009], t135);
+        V t137 = f_bind(l_g, t136);
+        V t138 = f_plain_val(t137);
+        vdrop(t137);
+        vdrop(t136);
+        vdrop(l_cmp);
+        vdrop(l_t);
         vdrop(t54);
         vdrop(l_b);
         vdrop(l_a);
-        return t145;
+        return t138;
+        vdrop(l_cmp);
+        vdrop(l_t);
     } else if (vstr_eq(t54, vow_s[213])) {
-        V t146 = l_is_str;
-        if (t146) {
-            V t147 = l_a;
-            V t148 = VP(t147)[0];
-            V t149 = vstr_cat(vow_s[986], t148);
-            V t150 = vstr_cat(t149, vow_s[54]);
-            V t151 = l_b;
-            V t152 = VP(t151)[0];
-            V t153 = vstr_cat(t150, t152);
-            V t154 = vstr_cat(t153, vow_s[144]);
-            V t155 = f_bind(l_g, t154);
-            V t156 = f_plain_val(t155);
-            vdrop(t155);
-            vdrop(t154);
-            vdrop(t153);
-            vdrop(t150);
-            vdrop(t149);
-            vdrop(t54);
-            vdrop(l_b);
-            vdrop(l_a);
-            return t156;
-        }
-        V t157 = l_a;
-        V t158 = VP(t157)[0];
-        V t159 = vstr_cat(vow_s[987], t158);
-        V t160 = vstr_cat(t159, vow_s[950]);
-        V t161 = l_b;
-        V t162 = VP(t161)[0];
-        V t163 = vstr_cat(t160, t162);
-        V t164 = vstr_cat(t163, vow_s[144]);
-        V t165 = f_bind(l_g, t164);
-        V t166 = f_plain_val(t165);
-        vdrop(t165);
+        V t139 = (*l_g);
+        V t140 = VP(t139)[0];
+        V t141 = l_l;
+        V t142 = f_type_of(t140, t141);
+        V l_t = t142;
+        V t143 = l_t;
+        V t144 = l_a;
+        V t145 = VP(t144)[0];
+        V t146 = l_b;
+        V t147 = VP(t146)[0];
+        V t148 = f_c_eq(l_g, t143, t145, t147);
+        V l_cmp = t148;
+        V t149 = l_cmp;
+        V t150 = vstr_cat(vow_s[997], t149);
+        V t151 = f_bind(l_g, t150);
+        V t152 = f_plain_val(t151);
+        vdrop(t151);
+        vdrop(t150);
+        vdrop(l_cmp);
+        vdrop(l_t);
+        vdrop(t54);
+        vdrop(l_b);
+        vdrop(l_a);
+        return t152;
+        vdrop(l_cmp);
+        vdrop(l_t);
+    } else {
+        V t153 = l_a;
+        V t154 = VP(t153)[0];
+        V t155 = vstr_cat(vow_s[1010], t154);
+        V t156 = vstr_cat(t155, vow_s[726]);
+        V t157 = l_op;
+        V t158 = vstr_cat(t156, t157);
+        V t159 = vstr_cat(t158, vow_s[1011]);
+        V t160 = l_b;
+        V t161 = VP(t160)[0];
+        V t162 = vstr_cat(t159, t161);
+        V t163 = vstr_cat(t162, vow_s[701]);
+        V t164 = f_bind(l_g, t163);
+        V t165 = f_plain_val(t164);
         vdrop(t164);
         vdrop(t163);
-        vdrop(t160);
+        vdrop(t162);
         vdrop(t159);
+        vdrop(t158);
+        vdrop(t156);
+        vdrop(t155);
         vdrop(t54);
         vdrop(l_b);
         vdrop(l_a);
-        return t166;
-    } else {
-        V t167 = l_a;
-        V t168 = VP(t167)[0];
-        V t169 = vstr_cat(vow_s[988], t168);
-        V t170 = vstr_cat(t169, vow_s[703]);
-        V t171 = l_op;
-        V t172 = vstr_cat(t170, t171);
-        V t173 = vstr_cat(t172, vow_s[989]);
-        V t174 = l_b;
-        V t175 = VP(t174)[0];
-        V t176 = vstr_cat(t173, t175);
-        V t177 = vstr_cat(t176, vow_s[698]);
-        V t178 = f_bind(l_g, t177);
-        V t179 = f_plain_val(t178);
-        vdrop(t178);
-        vdrop(t177);
-        vdrop(t176);
-        vdrop(t173);
-        vdrop(t172);
-        vdrop(t170);
-        vdrop(t169);
-        vdrop(t54);
-        vdrop(l_b);
-        vdrop(l_a);
-        return t179;
+        return t165;
     }
     vdrop(t54);
     vdrop(l_b);
     vdrop(l_a);
+    return 0;
+}
+
+static V f_eq_c_name(V l_t) {
+    V t1 = l_t;
+    V t2 = f_ty_show(t1);
+    V t3 = f_mangle(t2);
+    V t4 = vstr_cat(vow_s[1012], t3);
+    vdrop(t3);
+    vdrop(t2);
+    return t4;
+    return 0;
+}
+
+static V f_c_eq(V * l_g, V l_t, V l_a, V l_b) {
+    V t1 = l_t;
+    V t2 = f_ty_show(t1);
+    V t3 = (V)vstr_eq(t2, vow_s[448]);
+    vdrop(t2);
+    if (t3) {
+        V t4 = l_a;
+        V t5 = vstr_cat(vow_s[970], t4);
+        V t6 = vstr_cat(t5, vow_s[54]);
+        V t7 = l_b;
+        V t8 = vstr_cat(t6, t7);
+        V t9 = vstr_cat(t8, vow_s[144]);
+        vdrop(t8);
+        vdrop(t6);
+        vdrop(t5);
+        return t9;
+    }
+    V t10 = l_t;
+    V t11 = f_simple_eq(t10);
+    if (t11) {
+        V t12 = l_a;
+        V t13 = vstr_cat(vow_s[142], t12);
+        V t14 = vstr_cat(t13, vow_s[971]);
+        V t15 = l_b;
+        V t16 = vstr_cat(t14, t15);
+        V t17 = vstr_cat(t16, vow_s[144]);
+        vdrop(t16);
+        vdrop(t14);
+        vdrop(t13);
+        return t17;
+    }
+    V t18 = l_t;
+    V t19 = f_eq_c_name(t18);
+    V l_name = t19;
+    V l_known = 0;
+    V t20 = (*l_g);
+    V t21 = VP(t20)[17];
+    vdup(t21);
+    V t22 = t21;
+    for (int64_t t23 = 0; t23 < VL(t22)->len; t23++) {
+        V l_x = VB(VL(t22)->buf)->items[t23];
+        V t24 = l_x;
+        V t25 = f_eq_c_name(t24);
+        V t26 = l_name;
+        V t27 = (V)vstr_eq(t25, t26);
+        vdrop(t25);
+        if (t27) {
+            l_known = 1;
+        }
+    }
+    vdrop(t22);
+    V t28 = l_known;
+    V t29 = (V)!t28;
+    if (t29) {
+        V t30 = vow_steal((*l_g), 17);
+        V t31 = l_t;
+        vdup(t31);
+        V t32 = vlist_push(t30, t31);
+        V t33 = vow_with((*l_g));
+        vdrop(VP(t33)[17]);
+        VP(t33)[17] = t32;
+        (*l_g) = t33;
+    }
+    V t34 = l_name;
+    V t35 = vstr_cat(t34, vow_s[142]);
+    V t36 = l_a;
+    V t37 = vstr_cat(t35, t36);
+    V t38 = vstr_cat(t37, vow_s[54]);
+    V t39 = l_b;
+    V t40 = vstr_cat(t38, t39);
+    V t41 = vstr_cat(t40, vow_s[144]);
+    vdrop(t40);
+    vdrop(t38);
+    vdrop(t37);
+    vdrop(t35);
+    vdrop(l_name);
+    return t41;
+    vdrop(l_name);
+    return 0;
+}
+
+static V f_gen_eq_fn(V * l_g, V l_t) {
+    V t1 = vlist_empty(1);
+    V t2 = l_t;
+    V t3 = f_eq_c_name(t2);
+    V t4 = vstr_cat(vow_s[914], t3);
+    V t5 = vstr_cat(t4, vow_s[1013]);
+    t1 = vlist_push(t1, t5);
+    vdup(vow_s[1014]);
+    t1 = vlist_push(t1, vow_s[1014]);
+    V l_out = t1;
+    vdrop(t4);
+    vdrop(t3);
+    V t6 = l_t;
+    vdup(t6);
+    V t7 = t6;
+    V t8 = VP(t7)[0];
+    if (t8 == 8) {
+        V l_n = VP(t7)[1];
+        V t9 = (*l_g);
+        V t10 = VP(t9)[0];
+        V t11 = l_n;
+        V t12 = f_struct_fields(t10, t11);
+        V l_fields = t12;
+        V t13 = l_fields;
+        V t14 = vlist_len(t13);
+        for (V l_i = (V)INT64_C(0); VI(l_i) < VI(t14); l_i = (V)(VI(l_i) + 1)) {
+            V t15 = l_i;
+            V t16 = vint_to_str(t15);
+            V t17 = vstr_cat(vow_s[1015], t16);
+            V t18 = vstr_cat(t17, vow_s[228]);
+            V l_at = t18;
+            vdrop(t17);
+            vdrop(t16);
+            V t19 = l_i;
+            V t20 = vint_to_str(t19);
+            V t21 = vstr_cat(vow_s[1016], t20);
+            V t22 = vstr_cat(t21, vow_s[228]);
+            V l_bt = t22;
+            vdrop(t21);
+            vdrop(t20);
+            V t23 = l_fields;
+            V t24 = l_i;
+            V t25 = vlist_get(t23, t24);
+            V t26 = VP(t25)[1];
+            V t27 = VP(t26)[0];
+            V t28 = l_at;
+            V t29 = l_bt;
+            V t30 = f_c_eq(l_g, t27, t28, t29);
+            V t31 = vstr_cat(vow_s[1017], t30);
+            V t32 = vstr_cat(t31, vow_s[1018]);
+            V t33 = vlist_push(l_out, t32);
+            l_out = t33;
+            vdrop(t31);
+            vdrop(t30);
+            vdrop(l_bt);
+            vdrop(l_at);
+        }
+        vdrop(l_fields);
+    } else if (t8 == 4) {
+        V l_et = VP(t7)[1];
+        vdup(vow_s[1019]);
+        V t34 = vlist_push(l_out, vow_s[1019]);
+        l_out = t34;
+        vdup(vow_s[1020]);
+        V t35 = vlist_push(l_out, vow_s[1020]);
+        l_out = t35;
+        vdup(vow_s[1021]);
+        V l_at = vow_s[1021];
+        vdup(vow_s[1022]);
+        V l_bt = vow_s[1022];
+        V t36 = l_et;
+        V t37 = l_at;
+        V t38 = l_bt;
+        V t39 = f_c_eq(l_g, t36, t37, t38);
+        V t40 = vstr_cat(vow_s[1023], t39);
+        V t41 = vstr_cat(t40, vow_s[1018]);
+        V t42 = vlist_push(l_out, t41);
+        l_out = t42;
+        vdrop(t40);
+        vdrop(t39);
+        vdup(vow_s[1024]);
+        V t43 = vlist_push(l_out, vow_s[1024]);
+        l_out = t43;
+        vdrop(l_bt);
+        vdrop(l_at);
+    } else {
+        V t44 = (*l_g);
+        V t45 = VP(t44)[0];
+        V t46 = l_t;
+        V t47 = f_variants_of(t45, t46);
+        V t48 = t47;
+        V t49 = VP(t48)[0];
+        if (t49 == 1) {
+            V l_vs = VP(t48)[1];
+            vdup(vow_s[1025]);
+            V t50 = vlist_push(l_out, vow_s[1025]);
+            l_out = t50;
+            vdup(vow_s[1026]);
+            V t51 = vlist_push(l_out, vow_s[1026]);
+            l_out = t51;
+            V t52 = l_vs;
+            V t53 = vlist_len(t52);
+            for (V l_i = (V)INT64_C(0); VI(l_i) < VI(t53); l_i = (V)(VI(l_i) + 1)) {
+                V t54 = l_vs;
+                V t55 = l_i;
+                V t56 = vlist_get(t54, t55);
+                V t57 = VP(t56)[1];
+                vdup(t57);
+                V l_fields = t57;
+                V t58 = l_fields;
+                V t59 = vlist_len(t58);
+                V t60 = (V)(VI(t59) > VI((V)INT64_C(0)));
+                if (t60) {
+                    V t61 = l_i;
+                    V t62 = vint_to_str(t61);
+                    V t63 = vstr_cat(vow_s[1027], t62);
+                    V t64 = vstr_cat(t63, vow_s[96]);
+                    V t65 = vlist_push(l_out, t64);
+                    l_out = t65;
+                    vdrop(t63);
+                    vdrop(t62);
+                    V t66 = l_fields;
+                    V t67 = vlist_len(t66);
+                    for (V l_k = (V)INT64_C(0); VI(l_k) < VI(t67); l_k = (V)(VI(l_k) + 1)) {
+                        V t68 = l_k;
+                        V t69 = vadd(t68, (V)INT64_C(1));
+                        V t70 = vint_to_str(t69);
+                        V t71 = vstr_cat(vow_s[1015], t70);
+                        V t72 = vstr_cat(t71, vow_s[228]);
+                        V l_at = t72;
+                        vdrop(t71);
+                        vdrop(t70);
+                        V t73 = l_k;
+                        V t74 = vadd(t73, (V)INT64_C(1));
+                        V t75 = vint_to_str(t74);
+                        V t76 = vstr_cat(vow_s[1016], t75);
+                        V t77 = vstr_cat(t76, vow_s[228]);
+                        V l_bt = t77;
+                        vdrop(t76);
+                        vdrop(t75);
+                        V t78 = l_fields;
+                        V t79 = l_k;
+                        V t80 = vlist_get(t78, t79);
+                        V t81 = VP(t80)[1];
+                        V t82 = VP(t81)[0];
+                        V t83 = l_at;
+                        V t84 = l_bt;
+                        V t85 = f_c_eq(l_g, t82, t83, t84);
+                        V t86 = vstr_cat(vow_s[1023], t85);
+                        V t87 = vstr_cat(t86, vow_s[1018]);
+                        V t88 = vlist_push(l_out, t87);
+                        l_out = t88;
+                        vdrop(t86);
+                        vdrop(t85);
+                        vdrop(l_bt);
+                        vdrop(l_at);
+                    }
+                    vdup(vow_s[1028]);
+                    V t89 = vlist_push(l_out, vow_s[1028]);
+                    l_out = t89;
+                }
+                vdrop(l_fields);
+            }
+            vdup(vow_s[1024]);
+            V t90 = vlist_push(l_out, vow_s[1024]);
+            l_out = t90;
+        } else if (t49 == 0) {
+        } else {
+            vow_panic("unreachable: corrupt enum tag");
+        }
+        vdrop(t48);
+    }
+    vdrop(t7);
+    vdup(vow_s[1029]);
+    V t91 = vlist_push(l_out, vow_s[1029]);
+    l_out = t91;
+    vdup(vow_s[243]);
+    V t92 = vlist_push(l_out, vow_s[243]);
+    l_out = t92;
+    vdup(vow_s[20]);
+    V t93 = vlist_push(l_out, vow_s[20]);
+    l_out = t93;
+    V t94 = l_out;
+    vdup(t94);
+    vdrop(l_out);
+    return t94;
+    vdrop(l_out);
     return 0;
 }
 
@@ -34240,7 +35520,7 @@ static V f_gen_call(V * l_g, V l_e, V l_args) {
     V t12 = t11;
     for (int64_t t13 = 0; t13 < VL(t12)->len; t13++) {
         V l_a = VB(VL(t12)->buf)->items[t13];
-        V t14 = f_plain_val(vow_s[715]);
+        V t14 = f_plain_val(vow_s[702]);
         V l_v = t14;
         V l_done = 0;
         V t15 = l_a;
@@ -34260,14 +35540,14 @@ static V f_gen_call(V * l_g, V l_e, V l_args) {
                 V t25 = f_contains_str(t23, t24);
                 if (t25) {
                     V t26 = l_n;
-                    V t27 = vstr_cat(vow_s[913], t26);
+                    V t27 = vstr_cat(vow_s[934], t26);
                     V t28 = f_plain_val(t27);
                     vdrop(l_v);
                     l_v = t28;
                     vdrop(t27);
                 } else {
                     V t29 = l_n;
-                    V t30 = vstr_cat(vow_s[990], t29);
+                    V t30 = vstr_cat(vow_s[1030], t29);
                     V t31 = f_plain_val(t30);
                     vdrop(l_v);
                     l_v = t31;
@@ -34345,7 +35625,7 @@ static V f_gen_call(V * l_g, V l_e, V l_args) {
     V l_rh = t68;
     V t69 = l_ci;
     V t70 = VP(t69)[0];
-    V t71 = vstr_eq(t70, vow_s[642]);
+    V t71 = (V)vstr_eq(t70, vow_s[645]);
     if (t71) {
         V t72 = vlist_empty(1);
         V l_cs = t72;
@@ -34386,12 +35666,12 @@ static V f_gen_call(V * l_g, V l_e, V l_args) {
     }
     V t89 = l_ci;
     V t90 = VP(t89)[0];
-    V t91 = vstr_eq(t90, vow_s[120]);
+    V t91 = (V)vstr_eq(t90, vow_s[120]);
     V t92 = t91;
     if (!t92) {
         V t93 = l_ci;
         V t94 = VP(t93)[0];
-        V t95 = vstr_eq(t94, vow_s[636]);
+        V t95 = (V)vstr_eq(t94, vow_s[639]);
         t92 = t95;
     }
     if (t92) {
@@ -34400,7 +35680,7 @@ static V f_gen_call(V * l_g, V l_e, V l_args) {
         V l_offset = (V)INT64_C(0);
         V t97 = l_ci;
         V t98 = VP(t97)[0];
-        V t99 = vstr_eq(t98, vow_s[120]);
+        V t99 = (V)vstr_eq(t98, vow_s[120]);
         if (t99) {
             V t100 = (*l_g);
             V t101 = VP(t100)[0];
@@ -34487,7 +35767,7 @@ static V f_gen_call(V * l_g, V l_e, V l_args) {
         V t150 = l_offset;
         V t151 = vadd(t149, t150);
         V t152 = vint_to_str(t151);
-        V t153 = vstr_cat(vow_s[991], t152);
+        V t153 = vstr_cat(vow_s[988], t152);
         V t154 = vstr_cat(t153, vow_s[54]);
         V t155 = l_fields;
         V t156 = l_offset;
@@ -34507,13 +35787,13 @@ static V f_gen_call(V * l_g, V l_e, V l_args) {
         if (t162) {
             V t163 = l_r;
             V t164 = VP(t163)[0];
-            V t165 = vstr_cat(vow_s[945], t164);
-            V t166 = vstr_cat(t165, vow_s[992]);
+            V t165 = vstr_cat(vow_s[966], t164);
+            V t166 = vstr_cat(t165, vow_s[990]);
             V t167 = l_ci;
             V t168 = VP(t167)[2];
             V t169 = vint_to_str(t168);
             V t170 = vstr_cat(t166, t169);
-            V t171 = vstr_cat(t170, vow_s[908]);
+            V t171 = vstr_cat(t170, vow_s[929]);
             V t172 = f_line(l_g, t171);
             (void)t172;
             vdrop(t171);
@@ -34527,19 +35807,19 @@ static V f_gen_call(V * l_g, V l_e, V l_args) {
         for (V l_i = (V)INT64_C(0); VI(l_i) < VI(t174); l_i = (V)(VI(l_i) + 1)) {
             V t175 = l_r;
             V t176 = VP(t175)[0];
-            V t177 = vstr_cat(vow_s[945], t176);
-            V t178 = vstr_cat(t177, vow_s[953]);
+            V t177 = vstr_cat(vow_s[966], t176);
+            V t178 = vstr_cat(t177, vow_s[974]);
             V t179 = l_i;
             V t180 = l_offset;
             V t181 = vadd(t179, t180);
             V t182 = vint_to_str(t181);
             V t183 = vstr_cat(t178, t182);
-            V t184 = vstr_cat(t183, vow_s[971]);
+            V t184 = vstr_cat(t183, vow_s[995]);
             V t185 = l_cs;
             V t186 = l_i;
             V t187 = vlist_get(t185, t186);
             V t188 = vstr_cat(t184, t187);
-            V t189 = vstr_cat(t188, vow_s[908]);
+            V t189 = vstr_cat(t188, vow_s[929]);
             V t190 = f_line(l_g, t189);
             (void)t190;
             vdrop(t189);
@@ -34600,7 +35880,7 @@ static V f_arg_val(V l_p, V l_i) {
         vdup(t10);
         return t10;
     }
-    V t11 = f_plain_val(vow_s[715]);
+    V t11 = f_plain_val(vow_s[702]);
     return t11;
     return 0;
 }
@@ -34645,11 +35925,11 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
     V t25 = t24;
     if (vstr_eq(t25, vow_s[454])) {
         V t26 = l_s0;
-        V t27 = vstr_eq(t26, vow_s[448]);
+        V t27 = (V)vstr_eq(t26, vow_s[448]);
         if (t27) {
             V t28 = l_v0;
             V t29 = VP(t28)[0];
-            V t30 = vstr_cat(vow_s[993], t29);
+            V t30 = vstr_cat(vow_s[1031], t29);
             V t31 = vstr_cat(t30, vow_s[144]);
             V t32 = f_bind(l_g, t31);
             V t33 = f_plain_val(t32);
@@ -34676,7 +35956,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
             if (t36) {
                 V t39 = l_t0;
                 V t40 = f_map_ops(t39);
-                V t41 = vstr_cat(t40, vow_s[994]);
+                V t41 = vstr_cat(t40, vow_s[1032]);
                 V t42 = l_v0;
                 V t43 = VP(t42)[0];
                 V t44 = vstr_cat(t41, t43);
@@ -34700,7 +35980,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
         }
         V t48 = l_v0;
         V t49 = VP(t48)[0];
-        V t50 = vstr_cat(vow_s[995], t49);
+        V t50 = vstr_cat(vow_s[1033], t49);
         V t51 = vstr_cat(t50, vow_s[144]);
         V t52 = f_bind(l_g, t51);
         V t53 = f_plain_val(t52);
@@ -34725,7 +36005,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
         V t59 = f_take(l_g, t56, t58);
         V l_x = t59;
         V t60 = l_l;
-        V t61 = vstr_cat(vow_s[996], t60);
+        V t61 = vstr_cat(vow_s[1034], t60);
         V t62 = vstr_cat(t61, vow_s[54]);
         V t63 = l_x;
         V t64 = vstr_cat(t62, t63);
@@ -34757,7 +36037,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
         V t72 = f_take(l_g, t69, t71);
         V l_x = t72;
         V t73 = l_l;
-        V t74 = vstr_cat(vow_s[997], t73);
+        V t74 = vstr_cat(vow_s[1035], t73);
         V t75 = vstr_cat(t74, vow_s[54]);
         V t76 = l_v1;
         V t77 = VP(t76)[0];
@@ -34787,11 +36067,11 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
         vdrop(l_l);
     } else if (vstr_eq(t25, vow_s[466])) {
         V t84 = l_s0;
-        V t85 = vstr_eq(t84, vow_s[448]);
+        V t85 = (V)vstr_eq(t84, vow_s[448]);
         if (t85) {
             V t86 = l_v0;
             V t87 = VP(t86)[0];
-            V t88 = vstr_cat(vow_s[998], t87);
+            V t88 = vstr_cat(vow_s[1036], t87);
             V t89 = vstr_cat(t88, vow_s[54]);
             V t90 = l_v1;
             V t91 = VP(t90)[0];
@@ -34819,7 +36099,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
         }
         V t99 = l_v0;
         V t100 = VP(t99)[0];
-        V t101 = vstr_cat(vow_s[999], t100);
+        V t101 = vstr_cat(vow_s[1037], t100);
         V t102 = vstr_cat(t101, vow_s[54]);
         V t103 = l_v1;
         V t104 = VP(t103)[0];
@@ -34847,7 +36127,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
     } else if (vstr_eq(t25, vow_s[470])) {
         V t112 = l_v0;
         V t113 = VP(t112)[0];
-        V t114 = vstr_cat(vow_s[1000], t113);
+        V t114 = vstr_cat(vow_s[1038], t113);
         V t115 = vstr_cat(t114, vow_s[54]);
         V t116 = l_v1;
         V t117 = VP(t116)[0];
@@ -34869,7 +36149,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
     } else if (vstr_eq(t25, vow_s[473])) {
         V t121 = l_v0;
         V t122 = VP(t121)[0];
-        V t123 = vstr_cat(vow_s[1001], t122);
+        V t123 = vstr_cat(vow_s[1039], t122);
         V t124 = vstr_cat(t123, vow_s[144]);
         V t125 = f_owned_tmp(l_g, t124, 1);
         vdrop(t124);
@@ -34885,7 +36165,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
     } else if (vstr_eq(t25, vow_s[475])) {
         V t126 = l_v0;
         V t127 = VP(t126)[0];
-        V t128 = vstr_cat(vow_s[1002], t127);
+        V t128 = vstr_cat(vow_s[1040], t127);
         V t129 = vstr_cat(t128, vow_s[144]);
         V t130 = f_owned_tmp(l_g, t129, 1);
         vdrop(t129);
@@ -34901,7 +36181,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
     } else if (vstr_eq(t25, vow_s[477])) {
         V t131 = l_v0;
         V t132 = VP(t131)[0];
-        V t133 = vstr_cat(vow_s[1003], t132);
+        V t133 = vstr_cat(vow_s[1041], t132);
         V t134 = vstr_cat(t133, vow_s[144]);
         V t135 = f_owned_tmp(l_g, t134, 1);
         vdrop(t134);
@@ -34917,7 +36197,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
     } else if (vstr_eq(t25, vow_s[69])) {
         V t136 = l_v0;
         V t137 = VP(t136)[0];
-        V t138 = vstr_cat(vow_s[1004], t137);
+        V t138 = vstr_cat(vow_s[1042], t137);
         V t139 = vstr_cat(t138, vow_s[144]);
         V t140 = f_owned_tmp(l_g, t139, 1);
         vdrop(t139);
@@ -34974,7 +36254,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
         V l_x = t161;
         V t162 = l_t0;
         V t163 = f_map_ops(t162);
-        V t164 = vstr_cat(t163, vow_s[1005]);
+        V t164 = vstr_cat(t163, vow_s[1043]);
         V t165 = l_m;
         V t166 = vstr_cat(t164, t165);
         V t167 = vstr_cat(t166, vow_s[54]);
@@ -35017,7 +36297,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
     } else if (vstr_eq(t25, vow_s[482])) {
         V t178 = l_t0;
         V t179 = f_map_ops(t178);
-        V t180 = vstr_cat(t179, vow_s[1006]);
+        V t180 = vstr_cat(t179, vow_s[1044]);
         V t181 = l_v0;
         V t182 = VP(t181)[0];
         V t183 = vstr_cat(t180, t182);
@@ -35051,7 +36331,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
     } else if (vstr_eq(t25, vow_s[483])) {
         V t194 = l_t0;
         V t195 = f_map_ops(t194);
-        V t196 = vstr_cat(t195, vow_s[1007]);
+        V t196 = vstr_cat(t195, vow_s[1045]);
         V t197 = l_v0;
         V t198 = VP(t197)[0];
         V t199 = vstr_cat(t196, t198);
@@ -35087,7 +36367,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
     } else if (vstr_eq(t25, vow_s[484])) {
         V t211 = l_t0;
         V t212 = f_map_ops(t211);
-        V t213 = vstr_cat(t212, vow_s[1008]);
+        V t213 = vstr_cat(t212, vow_s[1046]);
         V t214 = l_v0;
         V t215 = VP(t214)[0];
         V t216 = vstr_cat(t213, t215);
@@ -35115,13 +36395,13 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
     } else if (vstr_eq(t25, vow_s[485])) {
         V t223 = l_v0;
         V t224 = VP(t223)[0];
-        V t225 = vstr_cat(vow_s[1009], t224);
-        V t226 = vstr_cat(t225, vow_s[1010]);
+        V t225 = vstr_cat(vow_s[1047], t224);
+        V t226 = vstr_cat(t225, vow_s[1048]);
         V t227 = f_line(l_g, t226);
         (void)t227;
         vdrop(t226);
         vdrop(t225);
-        V t228 = f_plain_val(vow_s[715]);
+        V t228 = f_plain_val(vow_s[702]);
         vdrop(t25);
         vdrop(l_rt);
         vdrop(l_s0);
@@ -35133,13 +36413,13 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
     } else if (vstr_eq(t25, vow_s[500])) {
         V t229 = l_v0;
         V t230 = VP(t229)[0];
-        V t231 = vstr_cat(vow_s[1011], t230);
-        V t232 = vstr_cat(t231, vow_s[895]);
+        V t231 = vstr_cat(vow_s[1049], t230);
+        V t232 = vstr_cat(t231, vow_s[915]);
         V t233 = f_line(l_g, t232);
         (void)t233;
         vdrop(t232);
         vdrop(t231);
-        V t234 = f_plain_val(vow_s[715]);
+        V t234 = f_plain_val(vow_s[702]);
         vdrop(t25);
         vdrop(l_rt);
         vdrop(l_s0);
@@ -35151,7 +36431,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
     } else if (vstr_eq(t25, vow_s[487])) {
         V t235 = l_v0;
         V t236 = VP(t235)[0];
-        V t237 = vstr_cat(vow_s[1012], t236);
+        V t237 = vstr_cat(vow_s[1050], t236);
         V t238 = vstr_cat(t237, vow_s[144]);
         V t239 = f_bind(l_g, t238);
         V t240 = f_plain_val(t239);
@@ -35169,7 +36449,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
     } else if (vstr_eq(t25, vow_s[488])) {
         V t241 = l_v0;
         V t242 = VP(t241)[0];
-        V t243 = vstr_cat(vow_s[1013], t242);
+        V t243 = vstr_cat(vow_s[1051], t242);
         V t244 = vstr_cat(t243, vow_s[144]);
         V t245 = f_bind(l_g, t244);
         V t246 = f_plain_val(t245);
@@ -35187,7 +36467,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
     } else if (vstr_eq(t25, vow_s[489])) {
         V t247 = l_v0;
         V t248 = VP(t247)[0];
-        V t249 = vstr_cat(vow_s[1014], t248);
+        V t249 = vstr_cat(vow_s[1052], t248);
         V t250 = vstr_cat(t249, vow_s[144]);
         V t251 = f_owned_tmp(l_g, t250, 1);
         vdrop(t250);
@@ -35203,7 +36483,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
     } else if (vstr_eq(t25, vow_s[491])) {
         V t252 = l_v0;
         V t253 = VP(t252)[0];
-        V t254 = vstr_cat(vow_s[1015], t253);
+        V t254 = vstr_cat(vow_s[1053], t253);
         V t255 = vstr_cat(t254, vow_s[54]);
         V t256 = l_v1;
         V t257 = VP(t256)[0];
@@ -35225,7 +36505,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
         vdrop(l_v0);
         return t261;
     } else if (vstr_eq(t25, vow_s[493])) {
-        V t262 = f_owned_tmp(l_g, vow_s[1016], 1);
+        V t262 = f_owned_tmp(l_g, vow_s[1054], 1);
         vdrop(t25);
         vdrop(l_rt);
         vdrop(l_s0);
@@ -35237,7 +36517,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
     } else if (vstr_eq(t25, vow_s[494])) {
         V t263 = l_v0;
         V t264 = VP(t263)[0];
-        V t265 = vstr_cat(vow_s[1017], t264);
+        V t265 = vstr_cat(vow_s[1055], t264);
         V t266 = vstr_cat(t265, vow_s[144]);
         V t267 = f_bind(l_g, t266);
         V t268 = f_plain_val(t267);
@@ -35255,7 +36535,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
     } else if (vstr_eq(t25, vow_s[495])) {
         V t269 = l_v0;
         V t270 = VP(t269)[0];
-        V t271 = vstr_cat(vow_s[1018], t270);
+        V t271 = vstr_cat(vow_s[1056], t270);
         V t272 = vstr_cat(t271, vow_s[144]);
         V t273 = f_owned_tmp(l_g, t272, 1);
         vdrop(t272);
@@ -35271,7 +36551,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
     } else if (vstr_eq(t25, vow_s[496])) {
         V t274 = l_v0;
         V t275 = VP(t274)[0];
-        V t276 = vstr_cat(vow_s[1019], t275);
+        V t276 = vstr_cat(vow_s[1057], t275);
         V t277 = vstr_cat(t276, vow_s[144]);
         V t278 = f_owned_tmp(l_g, t277, 1);
         vdrop(t277);
@@ -35287,7 +36567,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
     } else if (vstr_eq(t25, vow_s[81])) {
         V t279 = l_v0;
         V t280 = VP(t279)[0];
-        V t281 = vstr_cat(vow_s[1020], t280);
+        V t281 = vstr_cat(vow_s[1058], t280);
         V t282 = vstr_cat(t281, vow_s[54]);
         V t283 = l_v1;
         V t284 = VP(t283)[0];
@@ -35309,8 +36589,8 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
     } else if (vstr_eq(t25, vow_s[459])) {
         V t288 = l_v0;
         V t289 = VP(t288)[0];
-        V t290 = vstr_cat(vow_s[1021], t289);
-        V t291 = vstr_cat(t290, vow_s[1022]);
+        V t290 = vstr_cat(vow_s[1059], t289);
+        V t291 = vstr_cat(t290, vow_s[1060]);
         V t292 = f_bind(l_g, t291);
         V t293 = f_plain_val(t292);
         vdrop(t292);
@@ -35327,8 +36607,8 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
     } else if (vstr_eq(t25, vow_s[460])) {
         V t294 = l_v0;
         V t295 = VP(t294)[0];
-        V t296 = vstr_cat(vow_s[1021], t295);
-        V t297 = vstr_cat(t296, vow_s[1023]);
+        V t296 = vstr_cat(vow_s[1059], t295);
+        V t297 = vstr_cat(t296, vow_s[1061]);
         V t298 = f_bind(l_g, t297);
         V t299 = f_plain_val(t298);
         vdrop(t298);
@@ -35349,7 +36629,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
         V l_d = t302;
         V t303 = l_v0;
         V t304 = VP(t303)[0];
-        V t305 = vstr_cat(vow_s[1024], t304);
+        V t305 = vstr_cat(vow_s[1062], t304);
         V t306 = vstr_cat(t305, vow_s[54]);
         V t307 = l_d;
         V t308 = vstr_cat(t306, t307);
@@ -35378,7 +36658,7 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
         return t315;
         vdrop(l_d);
     } else {
-        V t316 = f_plain_val(vow_s[715]);
+        V t316 = f_plain_val(vow_s[702]);
         vdrop(t25);
         vdrop(l_rt);
         vdrop(l_s0);
@@ -35399,8 +36679,8 @@ static V f_gen_builtin(V * l_g, V l_e, V l_name, V l_p, V l_pe) {
 }
 
 static V f_verifier_version(void) {
-    vdup(vow_s[1025]);
-    return vow_s[1025];
+    vdup(vow_s[1063]);
+    return vow_s[1063];
     return 0;
 }
 
@@ -35414,7 +36694,7 @@ static V f_calls_in_expr(V l_e, V l_info, V * l_out) {
         V l_ci = VP(t4)[1];
         V t6 = l_ci;
         V t7 = VP(t6)[0];
-        V t8 = vstr_eq(t7, vow_s[642]);
+        V t8 = (V)vstr_eq(t7, vow_s[645]);
         if (t8) {
             V t9 = l_info;
             V t10 = VP(t9)[12];
@@ -36115,1038 +37395,1038 @@ static V f_hash_program(V l_items, V l_info) {
 }
 
 static V f_runtime_header(void) {
-    V t1 = vstr_cat(vow_s[1026], vow_s[259]);
-    V t2 = vstr_cat(t1, vow_s[1027]);
-    V t3 = vstr_cat(t2, vow_s[1028]);
-    V t4 = vstr_cat(t3, vow_s[1029]);
-    V t5 = vstr_cat(t4, vow_s[1030]);
-    V t6 = vstr_cat(t5, vow_s[1031]);
+    V t1 = vstr_cat(vow_s[1064], vow_s[259]);
+    V t2 = vstr_cat(t1, vow_s[1065]);
+    V t3 = vstr_cat(t2, vow_s[1066]);
+    V t4 = vstr_cat(t3, vow_s[1067]);
+    V t5 = vstr_cat(t4, vow_s[1068]);
+    V t6 = vstr_cat(t5, vow_s[1069]);
     V t7 = vstr_cat(t6, vow_s[259]);
-    V t8 = vstr_cat(t7, vow_s[1032]);
-    V t9 = vstr_cat(t8, vow_s[1033]);
-    V t10 = vstr_cat(t9, vow_s[1034]);
-    V t11 = vstr_cat(t10, vow_s[1035]);
-    V t12 = vstr_cat(t11, vow_s[1036]);
-    V t13 = vstr_cat(t12, vow_s[1037]);
-    V t14 = vstr_cat(t13, vow_s[1038]);
-    V t15 = vstr_cat(t14, vow_s[1039]);
+    V t8 = vstr_cat(t7, vow_s[1070]);
+    V t9 = vstr_cat(t8, vow_s[1071]);
+    V t10 = vstr_cat(t9, vow_s[1072]);
+    V t11 = vstr_cat(t10, vow_s[1073]);
+    V t12 = vstr_cat(t11, vow_s[1074]);
+    V t13 = vstr_cat(t12, vow_s[1075]);
+    V t14 = vstr_cat(t13, vow_s[1076]);
+    V t15 = vstr_cat(t14, vow_s[1077]);
     V t16 = vstr_cat(t15, vow_s[259]);
-    V t17 = vstr_cat(t16, vow_s[1040]);
-    V t18 = vstr_cat(t17, vow_s[1041]);
-    V t19 = vstr_cat(t18, vow_s[1042]);
-    V t20 = vstr_cat(t19, vow_s[1043]);
-    V t21 = vstr_cat(t20, vow_s[1044]);
-    V t22 = vstr_cat(t21, vow_s[1045]);
+    V t17 = vstr_cat(t16, vow_s[1078]);
+    V t18 = vstr_cat(t17, vow_s[1079]);
+    V t19 = vstr_cat(t18, vow_s[1080]);
+    V t20 = vstr_cat(t19, vow_s[1081]);
+    V t21 = vstr_cat(t20, vow_s[1082]);
+    V t22 = vstr_cat(t21, vow_s[1083]);
     V t23 = vstr_cat(t22, vow_s[73]);
-    V t24 = vstr_cat(t23, vow_s[1046]);
-    V t25 = vstr_cat(t24, vow_s[1047]);
-    V t26 = vstr_cat(t25, vow_s[1048]);
-    V t27 = vstr_cat(t26, vow_s[1049]);
-    V t28 = vstr_cat(t27, vow_s[1050]);
-    V t29 = vstr_cat(t28, vow_s[1051]);
-    V t30 = vstr_cat(t29, vow_s[1052]);
-    V t31 = vstr_cat(t30, vow_s[1053]);
-    V t32 = vstr_cat(t31, vow_s[1054]);
-    V t33 = vstr_cat(t32, vow_s[1055]);
-    V t34 = vstr_cat(t33, vow_s[1056]);
-    V t35 = vstr_cat(t34, vow_s[1057]);
+    V t24 = vstr_cat(t23, vow_s[1084]);
+    V t25 = vstr_cat(t24, vow_s[1085]);
+    V t26 = vstr_cat(t25, vow_s[1086]);
+    V t27 = vstr_cat(t26, vow_s[1087]);
+    V t28 = vstr_cat(t27, vow_s[1088]);
+    V t29 = vstr_cat(t28, vow_s[1089]);
+    V t30 = vstr_cat(t29, vow_s[1090]);
+    V t31 = vstr_cat(t30, vow_s[1091]);
+    V t32 = vstr_cat(t31, vow_s[1092]);
+    V t33 = vstr_cat(t32, vow_s[1093]);
+    V t34 = vstr_cat(t33, vow_s[1094]);
+    V t35 = vstr_cat(t34, vow_s[1095]);
     V t36 = vstr_cat(t35, vow_s[73]);
-    V t37 = vstr_cat(t36, vow_s[1058]);
+    V t37 = vstr_cat(t36, vow_s[1096]);
     V t38 = vstr_cat(t37, vow_s[73]);
-    V t39 = vstr_cat(t38, vow_s[1059]);
-    V t40 = vstr_cat(t39, vow_s[1060]);
+    V t39 = vstr_cat(t38, vow_s[1097]);
+    V t40 = vstr_cat(t39, vow_s[1098]);
     V t41 = vstr_cat(t40, vow_s[73]);
-    V t42 = vstr_cat(t41, vow_s[1061]);
-    V t43 = vstr_cat(t42, vow_s[1062]);
-    V t44 = vstr_cat(t43, vow_s[1063]);
-    V t45 = vstr_cat(t44, vow_s[1064]);
-    V t46 = vstr_cat(t45, vow_s[1065]);
+    V t42 = vstr_cat(t41, vow_s[1099]);
+    V t43 = vstr_cat(t42, vow_s[1100]);
+    V t44 = vstr_cat(t43, vow_s[1101]);
+    V t45 = vstr_cat(t44, vow_s[1102]);
+    V t46 = vstr_cat(t45, vow_s[1103]);
     V t47 = vstr_cat(t46, vow_s[73]);
-    V t48 = vstr_cat(t47, vow_s[1066]);
-    V t49 = vstr_cat(t48, vow_s[1067]);
-    V t50 = vstr_cat(t49, vow_s[1068]);
-    V t51 = vstr_cat(t50, vow_s[1069]);
-    V t52 = vstr_cat(t51, vow_s[1070]);
-    V t53 = vstr_cat(t52, vow_s[1071]);
-    V t54 = vstr_cat(t53, vow_s[1072]);
-    V t55 = vstr_cat(t54, vow_s[1048]);
+    V t48 = vstr_cat(t47, vow_s[1104]);
+    V t49 = vstr_cat(t48, vow_s[1105]);
+    V t50 = vstr_cat(t49, vow_s[1106]);
+    V t51 = vstr_cat(t50, vow_s[1107]);
+    V t52 = vstr_cat(t51, vow_s[1108]);
+    V t53 = vstr_cat(t52, vow_s[1109]);
+    V t54 = vstr_cat(t53, vow_s[1110]);
+    V t55 = vstr_cat(t54, vow_s[1086]);
     V t56 = vstr_cat(t55, vow_s[73]);
-    V t57 = vstr_cat(t56, vow_s[1073]);
+    V t57 = vstr_cat(t56, vow_s[1111]);
     V t58 = vstr_cat(t57, vow_s[73]);
-    V t59 = vstr_cat(t58, vow_s[1074]);
+    V t59 = vstr_cat(t58, vow_s[1112]);
     V t60 = vstr_cat(t59, vow_s[73]);
-    V t61 = vstr_cat(t60, vow_s[1075]);
-    V t62 = vstr_cat(t61, vow_s[1076]);
-    V t63 = vstr_cat(t62, vow_s[1077]);
-    V t64 = vstr_cat(t63, vow_s[1078]);
-    V t65 = vstr_cat(t64, vow_s[1079]);
-    V t66 = vstr_cat(t65, vow_s[1080]);
-    V t67 = vstr_cat(t66, vow_s[1081]);
+    V t61 = vstr_cat(t60, vow_s[1113]);
+    V t62 = vstr_cat(t61, vow_s[1114]);
+    V t63 = vstr_cat(t62, vow_s[1115]);
+    V t64 = vstr_cat(t63, vow_s[1116]);
+    V t65 = vstr_cat(t64, vow_s[1117]);
+    V t66 = vstr_cat(t65, vow_s[1118]);
+    V t67 = vstr_cat(t66, vow_s[1119]);
     V t68 = vstr_cat(t67, vow_s[73]);
-    V t69 = vstr_cat(t68, vow_s[1082]);
+    V t69 = vstr_cat(t68, vow_s[1120]);
     V t70 = vstr_cat(t69, vow_s[73]);
-    V t71 = vstr_cat(t70, vow_s[1083]);
+    V t71 = vstr_cat(t70, vow_s[1121]);
     V t72 = vstr_cat(t71, vow_s[73]);
-    V t73 = vstr_cat(t72, vow_s[1084]);
-    V t74 = vstr_cat(t73, vow_s[1085]);
-    V t75 = vstr_cat(t74, vow_s[1086]);
-    V t76 = vstr_cat(t75, vow_s[1087]);
-    V t77 = vstr_cat(t76, vow_s[1088]);
+    V t73 = vstr_cat(t72, vow_s[1122]);
+    V t74 = vstr_cat(t73, vow_s[1123]);
+    V t75 = vstr_cat(t74, vow_s[1124]);
+    V t76 = vstr_cat(t75, vow_s[1125]);
+    V t77 = vstr_cat(t76, vow_s[1126]);
     V t78 = vstr_cat(t77, vow_s[73]);
-    V t79 = vstr_cat(t78, vow_s[1089]);
-    V t80 = vstr_cat(t79, vow_s[1090]);
-    V t81 = vstr_cat(t80, vow_s[1091]);
-    V t82 = vstr_cat(t81, vow_s[1092]);
-    V t83 = vstr_cat(t82, vow_s[1093]);
-    V t84 = vstr_cat(t83, vow_s[1094]);
-    V t85 = vstr_cat(t84, vow_s[1095]);
-    V t86 = vstr_cat(t85, vow_s[1096]);
-    V t87 = vstr_cat(t86, vow_s[1097]);
-    V t88 = vstr_cat(t87, vow_s[1098]);
-    V t89 = vstr_cat(t88, vow_s[1099]);
-    V t90 = vstr_cat(t89, vow_s[1100]);
-    V t91 = vstr_cat(t90, vow_s[1096]);
-    V t92 = vstr_cat(t91, vow_s[1101]);
-    V t93 = vstr_cat(t92, vow_s[1102]);
-    V t94 = vstr_cat(t93, vow_s[1103]);
-    V t95 = vstr_cat(t94, vow_s[1104]);
-    V t96 = vstr_cat(t95, vow_s[1105]);
-    V t97 = vstr_cat(t96, vow_s[1106]);
-    V t98 = vstr_cat(t97, vow_s[1107]);
-    V t99 = vstr_cat(t98, vow_s[1108]);
-    V t100 = vstr_cat(t99, vow_s[1065]);
+    V t79 = vstr_cat(t78, vow_s[1127]);
+    V t80 = vstr_cat(t79, vow_s[1128]);
+    V t81 = vstr_cat(t80, vow_s[1129]);
+    V t82 = vstr_cat(t81, vow_s[1130]);
+    V t83 = vstr_cat(t82, vow_s[1131]);
+    V t84 = vstr_cat(t83, vow_s[1132]);
+    V t85 = vstr_cat(t84, vow_s[1133]);
+    V t86 = vstr_cat(t85, vow_s[1134]);
+    V t87 = vstr_cat(t86, vow_s[1135]);
+    V t88 = vstr_cat(t87, vow_s[1136]);
+    V t89 = vstr_cat(t88, vow_s[1137]);
+    V t90 = vstr_cat(t89, vow_s[1138]);
+    V t91 = vstr_cat(t90, vow_s[1134]);
+    V t92 = vstr_cat(t91, vow_s[1139]);
+    V t93 = vstr_cat(t92, vow_s[1140]);
+    V t94 = vstr_cat(t93, vow_s[1141]);
+    V t95 = vstr_cat(t94, vow_s[1142]);
+    V t96 = vstr_cat(t95, vow_s[1143]);
+    V t97 = vstr_cat(t96, vow_s[1144]);
+    V t98 = vstr_cat(t97, vow_s[1145]);
+    V t99 = vstr_cat(t98, vow_s[1146]);
+    V t100 = vstr_cat(t99, vow_s[1103]);
     V t101 = vstr_cat(t100, vow_s[73]);
-    V t102 = vstr_cat(t101, vow_s[1109]);
-    V t103 = vstr_cat(t102, vow_s[1110]);
-    V t104 = vstr_cat(t103, vow_s[1111]);
-    V t105 = vstr_cat(t104, vow_s[1112]);
-    V t106 = vstr_cat(t105, vow_s[1113]);
-    V t107 = vstr_cat(t106, vow_s[1068]);
-    V t108 = vstr_cat(t107, vow_s[1090]);
-    V t109 = vstr_cat(t108, vow_s[1091]);
-    V t110 = vstr_cat(t109, vow_s[1114]);
-    V t111 = vstr_cat(t110, vow_s[1115]);
-    V t112 = vstr_cat(t111, vow_s[1116]);
-    V t113 = vstr_cat(t112, vow_s[1117]);
-    V t114 = vstr_cat(t113, vow_s[1105]);
-    V t115 = vstr_cat(t114, vow_s[1048]);
-    V t116 = vstr_cat(t115, vow_s[1065]);
+    V t102 = vstr_cat(t101, vow_s[1147]);
+    V t103 = vstr_cat(t102, vow_s[1148]);
+    V t104 = vstr_cat(t103, vow_s[1149]);
+    V t105 = vstr_cat(t104, vow_s[1150]);
+    V t106 = vstr_cat(t105, vow_s[1151]);
+    V t107 = vstr_cat(t106, vow_s[1106]);
+    V t108 = vstr_cat(t107, vow_s[1128]);
+    V t109 = vstr_cat(t108, vow_s[1129]);
+    V t110 = vstr_cat(t109, vow_s[1152]);
+    V t111 = vstr_cat(t110, vow_s[1153]);
+    V t112 = vstr_cat(t111, vow_s[1154]);
+    V t113 = vstr_cat(t112, vow_s[1155]);
+    V t114 = vstr_cat(t113, vow_s[1143]);
+    V t115 = vstr_cat(t114, vow_s[1086]);
+    V t116 = vstr_cat(t115, vow_s[1103]);
     V t117 = vstr_cat(t116, vow_s[73]);
-    V t118 = vstr_cat(t117, vow_s[1118]);
+    V t118 = vstr_cat(t117, vow_s[1156]);
     V t119 = vstr_cat(t118, vow_s[73]);
-    V t120 = vstr_cat(t119, vow_s[1119]);
-    V t121 = vstr_cat(t120, vow_s[1120]);
-    V t122 = vstr_cat(t121, vow_s[1121]);
-    V t123 = vstr_cat(t122, vow_s[1122]);
-    V t124 = vstr_cat(t123, vow_s[1123]);
-    V t125 = vstr_cat(t124, vow_s[1124]);
-    V t126 = vstr_cat(t125, vow_s[1125]);
-    V t127 = vstr_cat(t126, vow_s[1126]);
-    V t128 = vstr_cat(t127, vow_s[1127]);
-    V t129 = vstr_cat(t128, vow_s[1065]);
+    V t120 = vstr_cat(t119, vow_s[1157]);
+    V t121 = vstr_cat(t120, vow_s[1158]);
+    V t122 = vstr_cat(t121, vow_s[1159]);
+    V t123 = vstr_cat(t122, vow_s[1160]);
+    V t124 = vstr_cat(t123, vow_s[1161]);
+    V t125 = vstr_cat(t124, vow_s[1162]);
+    V t126 = vstr_cat(t125, vow_s[1163]);
+    V t127 = vstr_cat(t126, vow_s[1164]);
+    V t128 = vstr_cat(t127, vow_s[1165]);
+    V t129 = vstr_cat(t128, vow_s[1103]);
     V t130 = vstr_cat(t129, vow_s[73]);
-    V t131 = vstr_cat(t130, vow_s[1128]);
-    V t132 = vstr_cat(t131, vow_s[1129]);
-    V t133 = vstr_cat(t132, vow_s[1130]);
-    V t134 = vstr_cat(t133, vow_s[1131]);
-    V t135 = vstr_cat(t134, vow_s[1065]);
+    V t131 = vstr_cat(t130, vow_s[1166]);
+    V t132 = vstr_cat(t131, vow_s[1167]);
+    V t133 = vstr_cat(t132, vow_s[1168]);
+    V t134 = vstr_cat(t133, vow_s[1169]);
+    V t135 = vstr_cat(t134, vow_s[1103]);
     V t136 = vstr_cat(t135, vow_s[73]);
-    V t137 = vstr_cat(t136, vow_s[1110]);
-    V t138 = vstr_cat(t137, vow_s[1132]);
-    V t139 = vstr_cat(t138, vow_s[1133]);
-    V t140 = vstr_cat(t139, vow_s[1134]);
-    V t141 = vstr_cat(t140, vow_s[1072]);
-    V t142 = vstr_cat(t141, vow_s[1068]);
-    V t143 = vstr_cat(t142, vow_s[1135]);
-    V t144 = vstr_cat(t143, vow_s[1048]);
+    V t137 = vstr_cat(t136, vow_s[1148]);
+    V t138 = vstr_cat(t137, vow_s[1170]);
+    V t139 = vstr_cat(t138, vow_s[1171]);
+    V t140 = vstr_cat(t139, vow_s[1172]);
+    V t141 = vstr_cat(t140, vow_s[1110]);
+    V t142 = vstr_cat(t141, vow_s[1106]);
+    V t143 = vstr_cat(t142, vow_s[1173]);
+    V t144 = vstr_cat(t143, vow_s[1086]);
     V t145 = vstr_cat(t144, vow_s[73]);
-    V t146 = vstr_cat(t145, vow_s[1136]);
-    V t147 = vstr_cat(t146, vow_s[1137]);
-    V t148 = vstr_cat(t147, vow_s[1138]);
-    V t149 = vstr_cat(t148, vow_s[1139]);
-    V t150 = vstr_cat(t149, vow_s[1140]);
-    V t151 = vstr_cat(t150, vow_s[1105]);
-    V t152 = vstr_cat(t151, vow_s[1131]);
-    V t153 = vstr_cat(t152, vow_s[1065]);
+    V t146 = vstr_cat(t145, vow_s[1174]);
+    V t147 = vstr_cat(t146, vow_s[1175]);
+    V t148 = vstr_cat(t147, vow_s[1176]);
+    V t149 = vstr_cat(t148, vow_s[1177]);
+    V t150 = vstr_cat(t149, vow_s[1178]);
+    V t151 = vstr_cat(t150, vow_s[1143]);
+    V t152 = vstr_cat(t151, vow_s[1169]);
+    V t153 = vstr_cat(t152, vow_s[1103]);
     V t154 = vstr_cat(t153, vow_s[73]);
-    V t155 = vstr_cat(t154, vow_s[1141]);
+    V t155 = vstr_cat(t154, vow_s[1179]);
     V t156 = vstr_cat(t155, vow_s[73]);
-    V t157 = vstr_cat(t156, vow_s[1142]);
-    V t158 = vstr_cat(t157, vow_s[1137]);
-    V t159 = vstr_cat(t158, vow_s[1138]);
-    V t160 = vstr_cat(t159, vow_s[1139]);
-    V t161 = vstr_cat(t160, vow_s[1143]);
-    V t162 = vstr_cat(t161, vow_s[1105]);
-    V t163 = vstr_cat(t162, vow_s[1065]);
+    V t157 = vstr_cat(t156, vow_s[1180]);
+    V t158 = vstr_cat(t157, vow_s[1175]);
+    V t159 = vstr_cat(t158, vow_s[1176]);
+    V t160 = vstr_cat(t159, vow_s[1177]);
+    V t161 = vstr_cat(t160, vow_s[1181]);
+    V t162 = vstr_cat(t161, vow_s[1143]);
+    V t163 = vstr_cat(t162, vow_s[1103]);
     V t164 = vstr_cat(t163, vow_s[73]);
-    V t165 = vstr_cat(t164, vow_s[1144]);
+    V t165 = vstr_cat(t164, vow_s[1182]);
     V t166 = vstr_cat(t165, vow_s[73]);
-    V t167 = vstr_cat(t166, vow_s[1075]);
-    V t168 = vstr_cat(t167, vow_s[1145]);
-    V t169 = vstr_cat(t168, vow_s[1146]);
-    V t170 = vstr_cat(t169, vow_s[1147]);
+    V t167 = vstr_cat(t166, vow_s[1113]);
+    V t168 = vstr_cat(t167, vow_s[1183]);
+    V t169 = vstr_cat(t168, vow_s[1184]);
+    V t170 = vstr_cat(t169, vow_s[1185]);
     V t171 = vstr_cat(t170, vow_s[73]);
-    V t172 = vstr_cat(t171, vow_s[1148]);
+    V t172 = vstr_cat(t171, vow_s[1186]);
     V t173 = vstr_cat(t172, vow_s[73]);
-    V t174 = vstr_cat(t173, vow_s[1149]);
+    V t174 = vstr_cat(t173, vow_s[1187]);
     V t175 = vstr_cat(t174, vow_s[73]);
-    V t176 = vstr_cat(t175, vow_s[1075]);
-    V t177 = vstr_cat(t176, vow_s[1145]);
-    V t178 = vstr_cat(t177, vow_s[1150]);
-    V t179 = vstr_cat(t178, vow_s[1151]);
+    V t176 = vstr_cat(t175, vow_s[1113]);
+    V t177 = vstr_cat(t176, vow_s[1183]);
+    V t178 = vstr_cat(t177, vow_s[1188]);
+    V t179 = vstr_cat(t178, vow_s[1189]);
     V t180 = vstr_cat(t179, vow_s[73]);
-    V t181 = vstr_cat(t180, vow_s[1075]);
-    V t182 = vstr_cat(t181, vow_s[1152]);
-    V t183 = vstr_cat(t182, vow_s[1153]);
-    V t184 = vstr_cat(t183, vow_s[1154]);
-    V t185 = vstr_cat(t184, vow_s[1155]);
+    V t181 = vstr_cat(t180, vow_s[1113]);
+    V t182 = vstr_cat(t181, vow_s[1190]);
+    V t183 = vstr_cat(t182, vow_s[1191]);
+    V t184 = vstr_cat(t183, vow_s[1192]);
+    V t185 = vstr_cat(t184, vow_s[1193]);
     V t186 = vstr_cat(t185, vow_s[73]);
-    V t187 = vstr_cat(t186, vow_s[1156]);
-    V t188 = vstr_cat(t187, vow_s[1157]);
+    V t187 = vstr_cat(t186, vow_s[1194]);
+    V t188 = vstr_cat(t187, vow_s[1195]);
     V t189 = vstr_cat(t188, vow_s[73]);
-    V t190 = vstr_cat(t189, vow_s[1158]);
+    V t190 = vstr_cat(t189, vow_s[1196]);
     V t191 = vstr_cat(t190, vow_s[73]);
-    V t192 = vstr_cat(t191, vow_s[1075]);
-    V t193 = vstr_cat(t192, vow_s[1159]);
-    V t194 = vstr_cat(t193, vow_s[1160]);
-    V t195 = vstr_cat(t194, vow_s[1161]);
+    V t192 = vstr_cat(t191, vow_s[1113]);
+    V t193 = vstr_cat(t192, vow_s[1197]);
+    V t194 = vstr_cat(t193, vow_s[1198]);
+    V t195 = vstr_cat(t194, vow_s[1199]);
     V t196 = vstr_cat(t195, vow_s[73]);
-    V t197 = vstr_cat(t196, vow_s[1162]);
-    V t198 = vstr_cat(t197, vow_s[1163]);
-    V t199 = vstr_cat(t198, vow_s[1164]);
-    V t200 = vstr_cat(t199, vow_s[1165]);
+    V t197 = vstr_cat(t196, vow_s[1200]);
+    V t198 = vstr_cat(t197, vow_s[1201]);
+    V t199 = vstr_cat(t198, vow_s[1202]);
+    V t200 = vstr_cat(t199, vow_s[1203]);
     V t201 = vstr_cat(t200, vow_s[73]);
-    V t202 = vstr_cat(t201, vow_s[1166]);
-    V t203 = vstr_cat(t202, vow_s[1167]);
+    V t202 = vstr_cat(t201, vow_s[1204]);
+    V t203 = vstr_cat(t202, vow_s[1205]);
     V t204 = vstr_cat(t203, vow_s[73]);
-    V t205 = vstr_cat(t204, vow_s[1075]);
-    V t206 = vstr_cat(t205, vow_s[1168]);
-    V t207 = vstr_cat(t206, vow_s[1152]);
-    V t208 = vstr_cat(t207, vow_s[1169]);
+    V t205 = vstr_cat(t204, vow_s[1113]);
+    V t206 = vstr_cat(t205, vow_s[1206]);
+    V t207 = vstr_cat(t206, vow_s[1190]);
+    V t208 = vstr_cat(t207, vow_s[1207]);
     V t209 = vstr_cat(t208, vow_s[73]);
-    V t210 = vstr_cat(t209, vow_s[1170]);
-    V t211 = vstr_cat(t210, vow_s[1171]);
-    V t212 = vstr_cat(t211, vow_s[1172]);
-    V t213 = vstr_cat(t212, vow_s[1173]);
+    V t210 = vstr_cat(t209, vow_s[1208]);
+    V t211 = vstr_cat(t210, vow_s[1209]);
+    V t212 = vstr_cat(t211, vow_s[1210]);
+    V t213 = vstr_cat(t212, vow_s[1211]);
     V t214 = vstr_cat(t213, vow_s[73]);
-    V t215 = vstr_cat(t214, vow_s[1174]);
-    V t216 = vstr_cat(t215, vow_s[1175]);
-    V t217 = vstr_cat(t216, vow_s[1176]);
-    V t218 = vstr_cat(t217, vow_s[1177]);
-    V t219 = vstr_cat(t218, vow_s[1178]);
-    V t220 = vstr_cat(t219, vow_s[1179]);
-    V t221 = vstr_cat(t220, vow_s[1180]);
-    V t222 = vstr_cat(t221, vow_s[1181]);
-    V t223 = vstr_cat(t222, vow_s[1105]);
-    V t224 = vstr_cat(t223, vow_s[1065]);
+    V t215 = vstr_cat(t214, vow_s[1212]);
+    V t216 = vstr_cat(t215, vow_s[1213]);
+    V t217 = vstr_cat(t216, vow_s[1214]);
+    V t218 = vstr_cat(t217, vow_s[1215]);
+    V t219 = vstr_cat(t218, vow_s[1216]);
+    V t220 = vstr_cat(t219, vow_s[1217]);
+    V t221 = vstr_cat(t220, vow_s[1218]);
+    V t222 = vstr_cat(t221, vow_s[1219]);
+    V t223 = vstr_cat(t222, vow_s[1143]);
+    V t224 = vstr_cat(t223, vow_s[1103]);
     V t225 = vstr_cat(t224, vow_s[73]);
-    V t226 = vstr_cat(t225, vow_s[1182]);
-    V t227 = vstr_cat(t226, vow_s[1183]);
-    V t228 = vstr_cat(t227, vow_s[1184]);
-    V t229 = vstr_cat(t228, vow_s[1185]);
+    V t226 = vstr_cat(t225, vow_s[1220]);
+    V t227 = vstr_cat(t226, vow_s[1221]);
+    V t228 = vstr_cat(t227, vow_s[1222]);
+    V t229 = vstr_cat(t228, vow_s[1223]);
     V t230 = vstr_cat(t229, vow_s[73]);
-    V t231 = vstr_cat(t230, vow_s[1186]);
-    V t232 = vstr_cat(t231, vow_s[1187]);
-    V t233 = vstr_cat(t232, vow_s[1188]);
-    V t234 = vstr_cat(t233, vow_s[1189]);
-    V t235 = vstr_cat(t234, vow_s[1190]);
-    V t236 = vstr_cat(t235, vow_s[1105]);
-    V t237 = vstr_cat(t236, vow_s[1191]);
-    V t238 = vstr_cat(t237, vow_s[1065]);
+    V t231 = vstr_cat(t230, vow_s[1224]);
+    V t232 = vstr_cat(t231, vow_s[1225]);
+    V t233 = vstr_cat(t232, vow_s[1226]);
+    V t234 = vstr_cat(t233, vow_s[1227]);
+    V t235 = vstr_cat(t234, vow_s[1228]);
+    V t236 = vstr_cat(t235, vow_s[1143]);
+    V t237 = vstr_cat(t236, vow_s[1229]);
+    V t238 = vstr_cat(t237, vow_s[1103]);
     V t239 = vstr_cat(t238, vow_s[73]);
-    V t240 = vstr_cat(t239, vow_s[1192]);
-    V t241 = vstr_cat(t240, vow_s[1193]);
-    V t242 = vstr_cat(t241, vow_s[1194]);
-    V t243 = vstr_cat(t242, vow_s[1195]);
-    V t244 = vstr_cat(t243, vow_s[1196]);
-    V t245 = vstr_cat(t244, vow_s[1065]);
+    V t240 = vstr_cat(t239, vow_s[1230]);
+    V t241 = vstr_cat(t240, vow_s[1231]);
+    V t242 = vstr_cat(t241, vow_s[1232]);
+    V t243 = vstr_cat(t242, vow_s[1233]);
+    V t244 = vstr_cat(t243, vow_s[1234]);
+    V t245 = vstr_cat(t244, vow_s[1103]);
     V t246 = vstr_cat(t245, vow_s[73]);
-    V t247 = vstr_cat(t246, vow_s[1197]);
-    V t248 = vstr_cat(t247, vow_s[1198]);
-    V t249 = vstr_cat(t248, vow_s[1199]);
-    V t250 = vstr_cat(t249, vow_s[1200]);
-    V t251 = vstr_cat(t250, vow_s[1065]);
+    V t247 = vstr_cat(t246, vow_s[1235]);
+    V t248 = vstr_cat(t247, vow_s[1236]);
+    V t249 = vstr_cat(t248, vow_s[1237]);
+    V t250 = vstr_cat(t249, vow_s[1238]);
+    V t251 = vstr_cat(t250, vow_s[1103]);
     V t252 = vstr_cat(t251, vow_s[73]);
-    V t253 = vstr_cat(t252, vow_s[1201]);
-    V t254 = vstr_cat(t253, vow_s[1202]);
-    V t255 = vstr_cat(t254, vow_s[1203]);
-    V t256 = vstr_cat(t255, vow_s[1204]);
-    V t257 = vstr_cat(t256, vow_s[1205]);
-    V t258 = vstr_cat(t257, vow_s[1206]);
-    V t259 = vstr_cat(t258, vow_s[1207]);
-    V t260 = vstr_cat(t259, vow_s[1208]);
-    V t261 = vstr_cat(t260, vow_s[1209]);
-    V t262 = vstr_cat(t261, vow_s[1210]);
-    V t263 = vstr_cat(t262, vow_s[1211]);
-    V t264 = vstr_cat(t263, vow_s[1212]);
-    V t265 = vstr_cat(t264, vow_s[1213]);
-    V t266 = vstr_cat(t265, vow_s[1214]);
-    V t267 = vstr_cat(t266, vow_s[1215]);
-    V t268 = vstr_cat(t267, vow_s[1211]);
-    V t269 = vstr_cat(t268, vow_s[1216]);
-    V t270 = vstr_cat(t269, vow_s[1217]);
-    V t271 = vstr_cat(t270, vow_s[1218]);
-    V t272 = vstr_cat(t271, vow_s[1219]);
-    V t273 = vstr_cat(t272, vow_s[1220]);
-    V t274 = vstr_cat(t273, vow_s[1211]);
-    V t275 = vstr_cat(t274, vow_s[1221]);
-    V t276 = vstr_cat(t275, vow_s[1222]);
-    V t277 = vstr_cat(t276, vow_s[1223]);
-    V t278 = vstr_cat(t277, vow_s[1224]);
-    V t279 = vstr_cat(t278, vow_s[1225]);
-    V t280 = vstr_cat(t279, vow_s[1226]);
-    V t281 = vstr_cat(t280, vow_s[1211]);
-    V t282 = vstr_cat(t281, vow_s[1227]);
-    V t283 = vstr_cat(t282, vow_s[1096]);
-    V t284 = vstr_cat(t283, vow_s[1228]);
-    V t285 = vstr_cat(t284, vow_s[1105]);
-    V t286 = vstr_cat(t285, vow_s[1065]);
+    V t253 = vstr_cat(t252, vow_s[1239]);
+    V t254 = vstr_cat(t253, vow_s[1240]);
+    V t255 = vstr_cat(t254, vow_s[1241]);
+    V t256 = vstr_cat(t255, vow_s[1242]);
+    V t257 = vstr_cat(t256, vow_s[1243]);
+    V t258 = vstr_cat(t257, vow_s[1244]);
+    V t259 = vstr_cat(t258, vow_s[1245]);
+    V t260 = vstr_cat(t259, vow_s[1246]);
+    V t261 = vstr_cat(t260, vow_s[1247]);
+    V t262 = vstr_cat(t261, vow_s[1248]);
+    V t263 = vstr_cat(t262, vow_s[1249]);
+    V t264 = vstr_cat(t263, vow_s[1250]);
+    V t265 = vstr_cat(t264, vow_s[1251]);
+    V t266 = vstr_cat(t265, vow_s[1252]);
+    V t267 = vstr_cat(t266, vow_s[1253]);
+    V t268 = vstr_cat(t267, vow_s[1249]);
+    V t269 = vstr_cat(t268, vow_s[1254]);
+    V t270 = vstr_cat(t269, vow_s[1255]);
+    V t271 = vstr_cat(t270, vow_s[1256]);
+    V t272 = vstr_cat(t271, vow_s[1257]);
+    V t273 = vstr_cat(t272, vow_s[1258]);
+    V t274 = vstr_cat(t273, vow_s[1249]);
+    V t275 = vstr_cat(t274, vow_s[1259]);
+    V t276 = vstr_cat(t275, vow_s[1260]);
+    V t277 = vstr_cat(t276, vow_s[1261]);
+    V t278 = vstr_cat(t277, vow_s[1262]);
+    V t279 = vstr_cat(t278, vow_s[1263]);
+    V t280 = vstr_cat(t279, vow_s[1264]);
+    V t281 = vstr_cat(t280, vow_s[1249]);
+    V t282 = vstr_cat(t281, vow_s[1265]);
+    V t283 = vstr_cat(t282, vow_s[1134]);
+    V t284 = vstr_cat(t283, vow_s[1266]);
+    V t285 = vstr_cat(t284, vow_s[1143]);
+    V t286 = vstr_cat(t285, vow_s[1103]);
     V t287 = vstr_cat(t286, vow_s[73]);
-    V t288 = vstr_cat(t287, vow_s[1229]);
-    V t289 = vstr_cat(t288, vow_s[1230]);
-    V t290 = vstr_cat(t289, vow_s[1231]);
-    V t291 = vstr_cat(t290, vow_s[1065]);
+    V t288 = vstr_cat(t287, vow_s[1267]);
+    V t289 = vstr_cat(t288, vow_s[1268]);
+    V t290 = vstr_cat(t289, vow_s[1269]);
+    V t291 = vstr_cat(t290, vow_s[1103]);
     V t292 = vstr_cat(t291, vow_s[73]);
-    V t293 = vstr_cat(t292, vow_s[1232]);
+    V t293 = vstr_cat(t292, vow_s[1270]);
     V t294 = vstr_cat(t293, vow_s[73]);
-    V t295 = vstr_cat(t294, vow_s[1233]);
-    V t296 = vstr_cat(t295, vow_s[1234]);
-    V t297 = vstr_cat(t296, vow_s[1235]);
-    V t298 = vstr_cat(t297, vow_s[1236]);
-    V t299 = vstr_cat(t298, vow_s[1065]);
-    V t300 = vstr_cat(t299, vow_s[1237]);
-    V t301 = vstr_cat(t300, vow_s[1234]);
-    V t302 = vstr_cat(t301, vow_s[1238]);
-    V t303 = vstr_cat(t302, vow_s[1236]);
-    V t304 = vstr_cat(t303, vow_s[1065]);
-    V t305 = vstr_cat(t304, vow_s[1239]);
-    V t306 = vstr_cat(t305, vow_s[1234]);
-    V t307 = vstr_cat(t306, vow_s[1240]);
-    V t308 = vstr_cat(t307, vow_s[1236]);
-    V t309 = vstr_cat(t308, vow_s[1065]);
-    V t310 = vstr_cat(t309, vow_s[1241]);
-    V t311 = vstr_cat(t310, vow_s[1242]);
-    V t312 = vstr_cat(t311, vow_s[1243]);
-    V t313 = vstr_cat(t312, vow_s[1065]);
-    V t314 = vstr_cat(t313, vow_s[1244]);
-    V t315 = vstr_cat(t314, vow_s[1245]);
-    V t316 = vstr_cat(t315, vow_s[1246]);
-    V t317 = vstr_cat(t316, vow_s[1247]);
-    V t318 = vstr_cat(t317, vow_s[1248]);
-    V t319 = vstr_cat(t318, vow_s[1249]);
-    V t320 = vstr_cat(t319, vow_s[1250]);
-    V t321 = vstr_cat(t320, vow_s[1065]);
-    V t322 = vstr_cat(t321, vow_s[1251]);
-    V t323 = vstr_cat(t322, vow_s[1246]);
-    V t324 = vstr_cat(t323, vow_s[1252]);
-    V t325 = vstr_cat(t324, vow_s[1253]);
-    V t326 = vstr_cat(t325, vow_s[1254]);
-    V t327 = vstr_cat(t326, vow_s[1236]);
-    V t328 = vstr_cat(t327, vow_s[1065]);
+    V t295 = vstr_cat(t294, vow_s[1271]);
+    V t296 = vstr_cat(t295, vow_s[1272]);
+    V t297 = vstr_cat(t296, vow_s[1273]);
+    V t298 = vstr_cat(t297, vow_s[1274]);
+    V t299 = vstr_cat(t298, vow_s[1103]);
+    V t300 = vstr_cat(t299, vow_s[1275]);
+    V t301 = vstr_cat(t300, vow_s[1272]);
+    V t302 = vstr_cat(t301, vow_s[1276]);
+    V t303 = vstr_cat(t302, vow_s[1274]);
+    V t304 = vstr_cat(t303, vow_s[1103]);
+    V t305 = vstr_cat(t304, vow_s[1277]);
+    V t306 = vstr_cat(t305, vow_s[1272]);
+    V t307 = vstr_cat(t306, vow_s[1278]);
+    V t308 = vstr_cat(t307, vow_s[1274]);
+    V t309 = vstr_cat(t308, vow_s[1103]);
+    V t310 = vstr_cat(t309, vow_s[1279]);
+    V t311 = vstr_cat(t310, vow_s[1280]);
+    V t312 = vstr_cat(t311, vow_s[1281]);
+    V t313 = vstr_cat(t312, vow_s[1103]);
+    V t314 = vstr_cat(t313, vow_s[1282]);
+    V t315 = vstr_cat(t314, vow_s[1283]);
+    V t316 = vstr_cat(t315, vow_s[1284]);
+    V t317 = vstr_cat(t316, vow_s[1285]);
+    V t318 = vstr_cat(t317, vow_s[1286]);
+    V t319 = vstr_cat(t318, vow_s[1287]);
+    V t320 = vstr_cat(t319, vow_s[1288]);
+    V t321 = vstr_cat(t320, vow_s[1103]);
+    V t322 = vstr_cat(t321, vow_s[1289]);
+    V t323 = vstr_cat(t322, vow_s[1284]);
+    V t324 = vstr_cat(t323, vow_s[1290]);
+    V t325 = vstr_cat(t324, vow_s[1291]);
+    V t326 = vstr_cat(t325, vow_s[1292]);
+    V t327 = vstr_cat(t326, vow_s[1274]);
+    V t328 = vstr_cat(t327, vow_s[1103]);
     V t329 = vstr_cat(t328, vow_s[73]);
-    V t330 = vstr_cat(t329, vow_s[1255]);
+    V t330 = vstr_cat(t329, vow_s[1293]);
     V t331 = vstr_cat(t330, vow_s[73]);
-    V t332 = vstr_cat(t331, vow_s[1256]);
-    V t333 = vstr_cat(t332, vow_s[1257]);
-    V t334 = vstr_cat(t333, vow_s[1258]);
-    V t335 = vstr_cat(t334, vow_s[1259]);
-    V t336 = vstr_cat(t335, vow_s[1260]);
-    V t337 = vstr_cat(t336, vow_s[1261]);
-    V t338 = vstr_cat(t337, vow_s[1065]);
+    V t332 = vstr_cat(t331, vow_s[1294]);
+    V t333 = vstr_cat(t332, vow_s[1295]);
+    V t334 = vstr_cat(t333, vow_s[1296]);
+    V t335 = vstr_cat(t334, vow_s[1297]);
+    V t336 = vstr_cat(t335, vow_s[1298]);
+    V t337 = vstr_cat(t336, vow_s[1299]);
+    V t338 = vstr_cat(t337, vow_s[1103]);
     V t339 = vstr_cat(t338, vow_s[73]);
-    V t340 = vstr_cat(t339, vow_s[1262]);
+    V t340 = vstr_cat(t339, vow_s[1300]);
     V t341 = vstr_cat(t340, vow_s[73]);
-    V t342 = vstr_cat(t341, vow_s[1263]);
-    V t343 = vstr_cat(t342, vow_s[1264]);
-    V t344 = vstr_cat(t343, vow_s[1257]);
-    V t345 = vstr_cat(t344, vow_s[1258]);
-    V t346 = vstr_cat(t345, vow_s[1265]);
-    V t347 = vstr_cat(t346, vow_s[1266]);
-    V t348 = vstr_cat(t347, vow_s[1260]);
-    V t349 = vstr_cat(t348, vow_s[1261]);
-    V t350 = vstr_cat(t349, vow_s[1065]);
+    V t342 = vstr_cat(t341, vow_s[1301]);
+    V t343 = vstr_cat(t342, vow_s[1302]);
+    V t344 = vstr_cat(t343, vow_s[1295]);
+    V t345 = vstr_cat(t344, vow_s[1296]);
+    V t346 = vstr_cat(t345, vow_s[1303]);
+    V t347 = vstr_cat(t346, vow_s[1304]);
+    V t348 = vstr_cat(t347, vow_s[1298]);
+    V t349 = vstr_cat(t348, vow_s[1299]);
+    V t350 = vstr_cat(t349, vow_s[1103]);
     V t351 = vstr_cat(t350, vow_s[73]);
-    V t352 = vstr_cat(t351, vow_s[1267]);
-    V t353 = vstr_cat(t352, vow_s[1268]);
-    V t354 = vstr_cat(t353, vow_s[1065]);
+    V t352 = vstr_cat(t351, vow_s[1305]);
+    V t353 = vstr_cat(t352, vow_s[1306]);
+    V t354 = vstr_cat(t353, vow_s[1103]);
     V t355 = vstr_cat(t354, vow_s[73]);
-    V t356 = vstr_cat(t355, vow_s[1269]);
-    V t357 = vstr_cat(t356, vow_s[1270]);
-    V t358 = vstr_cat(t357, vow_s[1271]);
-    V t359 = vstr_cat(t358, vow_s[1272]);
-    V t360 = vstr_cat(t359, vow_s[1273]);
-    V t361 = vstr_cat(t360, vow_s[1065]);
+    V t356 = vstr_cat(t355, vow_s[1307]);
+    V t357 = vstr_cat(t356, vow_s[1308]);
+    V t358 = vstr_cat(t357, vow_s[1309]);
+    V t359 = vstr_cat(t358, vow_s[1310]);
+    V t360 = vstr_cat(t359, vow_s[1311]);
+    V t361 = vstr_cat(t360, vow_s[1103]);
     V t362 = vstr_cat(t361, vow_s[73]);
-    V t363 = vstr_cat(t362, vow_s[1274]);
-    V t364 = vstr_cat(t363, vow_s[1275]);
-    V t365 = vstr_cat(t364, vow_s[1276]);
-    V t366 = vstr_cat(t365, vow_s[1065]);
+    V t363 = vstr_cat(t362, vow_s[1312]);
+    V t364 = vstr_cat(t363, vow_s[1313]);
+    V t365 = vstr_cat(t364, vow_s[1314]);
+    V t366 = vstr_cat(t365, vow_s[1103]);
     V t367 = vstr_cat(t366, vow_s[73]);
-    V t368 = vstr_cat(t367, vow_s[1277]);
-    V t369 = vstr_cat(t368, vow_s[1278]);
-    V t370 = vstr_cat(t369, vow_s[1279]);
-    V t371 = vstr_cat(t370, vow_s[1065]);
+    V t368 = vstr_cat(t367, vow_s[1315]);
+    V t369 = vstr_cat(t368, vow_s[1316]);
+    V t370 = vstr_cat(t369, vow_s[1317]);
+    V t371 = vstr_cat(t370, vow_s[1103]);
     V t372 = vstr_cat(t371, vow_s[73]);
-    V t373 = vstr_cat(t372, vow_s[1280]);
-    V t374 = vstr_cat(t373, vow_s[1281]);
-    V t375 = vstr_cat(t374, vow_s[1282]);
-    V t376 = vstr_cat(t375, vow_s[1283]);
-    V t377 = vstr_cat(t376, vow_s[1065]);
+    V t373 = vstr_cat(t372, vow_s[1318]);
+    V t374 = vstr_cat(t373, vow_s[1319]);
+    V t375 = vstr_cat(t374, vow_s[1320]);
+    V t376 = vstr_cat(t375, vow_s[1321]);
+    V t377 = vstr_cat(t376, vow_s[1103]);
     V t378 = vstr_cat(t377, vow_s[73]);
-    V t379 = vstr_cat(t378, vow_s[1284]);
-    V t380 = vstr_cat(t379, vow_s[1285]);
-    V t381 = vstr_cat(t380, vow_s[1286]);
-    V t382 = vstr_cat(t381, vow_s[1287]);
-    V t383 = vstr_cat(t382, vow_s[1065]);
+    V t379 = vstr_cat(t378, vow_s[1322]);
+    V t380 = vstr_cat(t379, vow_s[1323]);
+    V t381 = vstr_cat(t380, vow_s[1324]);
+    V t382 = vstr_cat(t381, vow_s[1325]);
+    V t383 = vstr_cat(t382, vow_s[1103]);
     V t384 = vstr_cat(t383, vow_s[73]);
-    V t385 = vstr_cat(t384, vow_s[1288]);
-    V t386 = vstr_cat(t385, vow_s[1289]);
-    V t387 = vstr_cat(t386, vow_s[1290]);
-    V t388 = vstr_cat(t387, vow_s[1291]);
-    V t389 = vstr_cat(t388, vow_s[1292]);
-    V t390 = vstr_cat(t389, vow_s[1105]);
-    V t391 = vstr_cat(t390, vow_s[1293]);
-    V t392 = vstr_cat(t391, vow_s[1294]);
-    V t393 = vstr_cat(t392, vow_s[1295]);
-    V t394 = vstr_cat(t393, vow_s[1065]);
+    V t385 = vstr_cat(t384, vow_s[1326]);
+    V t386 = vstr_cat(t385, vow_s[1327]);
+    V t387 = vstr_cat(t386, vow_s[1328]);
+    V t388 = vstr_cat(t387, vow_s[1329]);
+    V t389 = vstr_cat(t388, vow_s[1330]);
+    V t390 = vstr_cat(t389, vow_s[1143]);
+    V t391 = vstr_cat(t390, vow_s[1331]);
+    V t392 = vstr_cat(t391, vow_s[1332]);
+    V t393 = vstr_cat(t392, vow_s[1333]);
+    V t394 = vstr_cat(t393, vow_s[1103]);
     V t395 = vstr_cat(t394, vow_s[73]);
-    V t396 = vstr_cat(t395, vow_s[1296]);
+    V t396 = vstr_cat(t395, vow_s[1334]);
     V t397 = vstr_cat(t396, vow_s[73]);
-    V t398 = vstr_cat(t397, vow_s[1297]);
-    V t399 = vstr_cat(t398, vow_s[1298]);
-    V t400 = vstr_cat(t399, vow_s[1299]);
-    V t401 = vstr_cat(t400, vow_s[1300]);
-    V t402 = vstr_cat(t401, vow_s[1301]);
-    V t403 = vstr_cat(t402, vow_s[1065]);
+    V t398 = vstr_cat(t397, vow_s[1335]);
+    V t399 = vstr_cat(t398, vow_s[1336]);
+    V t400 = vstr_cat(t399, vow_s[1337]);
+    V t401 = vstr_cat(t400, vow_s[1338]);
+    V t402 = vstr_cat(t401, vow_s[1339]);
+    V t403 = vstr_cat(t402, vow_s[1103]);
     V t404 = vstr_cat(t403, vow_s[73]);
-    V t405 = vstr_cat(t404, vow_s[1302]);
-    V t406 = vstr_cat(t405, vow_s[1303]);
-    V t407 = vstr_cat(t406, vow_s[1304]);
-    V t408 = vstr_cat(t407, vow_s[1305]);
-    V t409 = vstr_cat(t408, vow_s[1306]);
-    V t410 = vstr_cat(t409, vow_s[1307]);
-    V t411 = vstr_cat(t410, vow_s[1308]);
-    V t412 = vstr_cat(t411, vow_s[1309]);
-    V t413 = vstr_cat(t412, vow_s[1310]);
-    V t414 = vstr_cat(t413, vow_s[1311]);
-    V t415 = vstr_cat(t414, vow_s[1301]);
-    V t416 = vstr_cat(t415, vow_s[1065]);
+    V t405 = vstr_cat(t404, vow_s[1340]);
+    V t406 = vstr_cat(t405, vow_s[1341]);
+    V t407 = vstr_cat(t406, vow_s[1342]);
+    V t408 = vstr_cat(t407, vow_s[1343]);
+    V t409 = vstr_cat(t408, vow_s[1344]);
+    V t410 = vstr_cat(t409, vow_s[1345]);
+    V t411 = vstr_cat(t410, vow_s[1346]);
+    V t412 = vstr_cat(t411, vow_s[1347]);
+    V t413 = vstr_cat(t412, vow_s[1348]);
+    V t414 = vstr_cat(t413, vow_s[1349]);
+    V t415 = vstr_cat(t414, vow_s[1339]);
+    V t416 = vstr_cat(t415, vow_s[1103]);
     V t417 = vstr_cat(t416, vow_s[73]);
-    V t418 = vstr_cat(t417, vow_s[1312]);
-    V t419 = vstr_cat(t418, vow_s[1313]);
-    V t420 = vstr_cat(t419, vow_s[1314]);
-    V t421 = vstr_cat(t420, vow_s[1315]);
-    V t422 = vstr_cat(t421, vow_s[1316]);
-    V t423 = vstr_cat(t422, vow_s[1317]);
-    V t424 = vstr_cat(t423, vow_s[1318]);
-    V t425 = vstr_cat(t424, vow_s[1105]);
-    V t426 = vstr_cat(t425, vow_s[1319]);
-    V t427 = vstr_cat(t426, vow_s[1065]);
+    V t418 = vstr_cat(t417, vow_s[1350]);
+    V t419 = vstr_cat(t418, vow_s[1351]);
+    V t420 = vstr_cat(t419, vow_s[1352]);
+    V t421 = vstr_cat(t420, vow_s[1353]);
+    V t422 = vstr_cat(t421, vow_s[1354]);
+    V t423 = vstr_cat(t422, vow_s[1355]);
+    V t424 = vstr_cat(t423, vow_s[1356]);
+    V t425 = vstr_cat(t424, vow_s[1143]);
+    V t426 = vstr_cat(t425, vow_s[1357]);
+    V t427 = vstr_cat(t426, vow_s[1103]);
     V t428 = vstr_cat(t427, vow_s[73]);
-    V t429 = vstr_cat(t428, vow_s[1320]);
-    V t430 = vstr_cat(t429, vow_s[1321]);
-    V t431 = vstr_cat(t430, vow_s[1322]);
-    V t432 = vstr_cat(t431, vow_s[1301]);
-    V t433 = vstr_cat(t432, vow_s[1065]);
+    V t429 = vstr_cat(t428, vow_s[1358]);
+    V t430 = vstr_cat(t429, vow_s[1359]);
+    V t431 = vstr_cat(t430, vow_s[1360]);
+    V t432 = vstr_cat(t431, vow_s[1339]);
+    V t433 = vstr_cat(t432, vow_s[1103]);
     V t434 = vstr_cat(t433, vow_s[73]);
-    V t435 = vstr_cat(t434, vow_s[1323]);
+    V t435 = vstr_cat(t434, vow_s[1361]);
     V t436 = vstr_cat(t435, vow_s[73]);
-    V t437 = vstr_cat(t436, vow_s[1324]);
-    V t438 = vstr_cat(t437, vow_s[1325]);
-    V t439 = vstr_cat(t438, vow_s[1326]);
-    V t440 = vstr_cat(t439, vow_s[1065]);
+    V t437 = vstr_cat(t436, vow_s[1362]);
+    V t438 = vstr_cat(t437, vow_s[1363]);
+    V t439 = vstr_cat(t438, vow_s[1364]);
+    V t440 = vstr_cat(t439, vow_s[1103]);
     V t441 = vstr_cat(t440, vow_s[73]);
-    V t442 = vstr_cat(t441, vow_s[1327]);
-    V t443 = vstr_cat(t442, vow_s[1328]);
-    V t444 = vstr_cat(t443, vow_s[1329]);
-    V t445 = vstr_cat(t444, vow_s[1330]);
-    V t446 = vstr_cat(t445, vow_s[1331]);
-    V t447 = vstr_cat(t446, vow_s[1301]);
-    V t448 = vstr_cat(t447, vow_s[1065]);
+    V t442 = vstr_cat(t441, vow_s[1365]);
+    V t443 = vstr_cat(t442, vow_s[1366]);
+    V t444 = vstr_cat(t443, vow_s[1367]);
+    V t445 = vstr_cat(t444, vow_s[1368]);
+    V t446 = vstr_cat(t445, vow_s[1369]);
+    V t447 = vstr_cat(t446, vow_s[1339]);
+    V t448 = vstr_cat(t447, vow_s[1103]);
     V t449 = vstr_cat(t448, vow_s[73]);
-    V t450 = vstr_cat(t449, vow_s[1332]);
-    V t451 = vstr_cat(t450, vow_s[1333]);
-    V t452 = vstr_cat(t451, vow_s[1334]);
-    V t453 = vstr_cat(t452, vow_s[1335]);
-    V t454 = vstr_cat(t453, vow_s[1336]);
-    V t455 = vstr_cat(t454, vow_s[1337]);
-    V t456 = vstr_cat(t455, vow_s[1338]);
-    V t457 = vstr_cat(t456, vow_s[1096]);
-    V t458 = vstr_cat(t457, vow_s[1339]);
-    V t459 = vstr_cat(t458, vow_s[1105]);
-    V t460 = vstr_cat(t459, vow_s[1340]);
-    V t461 = vstr_cat(t460, vow_s[1065]);
+    V t450 = vstr_cat(t449, vow_s[1370]);
+    V t451 = vstr_cat(t450, vow_s[1371]);
+    V t452 = vstr_cat(t451, vow_s[1372]);
+    V t453 = vstr_cat(t452, vow_s[1373]);
+    V t454 = vstr_cat(t453, vow_s[1374]);
+    V t455 = vstr_cat(t454, vow_s[1375]);
+    V t456 = vstr_cat(t455, vow_s[1376]);
+    V t457 = vstr_cat(t456, vow_s[1134]);
+    V t458 = vstr_cat(t457, vow_s[1377]);
+    V t459 = vstr_cat(t458, vow_s[1143]);
+    V t460 = vstr_cat(t459, vow_s[1378]);
+    V t461 = vstr_cat(t460, vow_s[1103]);
     V t462 = vstr_cat(t461, vow_s[73]);
-    V t463 = vstr_cat(t462, vow_s[1341]);
-    V t464 = vstr_cat(t463, vow_s[1342]);
-    V t465 = vstr_cat(t464, vow_s[1343]);
-    V t466 = vstr_cat(t465, vow_s[1344]);
-    V t467 = vstr_cat(t466, vow_s[1345]);
-    V t468 = vstr_cat(t467, vow_s[1346]);
-    V t469 = vstr_cat(t468, vow_s[1347]);
-    V t470 = vstr_cat(t469, vow_s[1348]);
-    V t471 = vstr_cat(t470, vow_s[1105]);
-    V t472 = vstr_cat(t471, vow_s[1349]);
-    V t473 = vstr_cat(t472, vow_s[1350]);
-    V t474 = vstr_cat(t473, vow_s[1351]);
-    V t475 = vstr_cat(t474, vow_s[1352]);
-    V t476 = vstr_cat(t475, vow_s[1353]);
-    V t477 = vstr_cat(t476, vow_s[1105]);
-    V t478 = vstr_cat(t477, vow_s[1354]);
-    V t479 = vstr_cat(t478, vow_s[1065]);
+    V t463 = vstr_cat(t462, vow_s[1379]);
+    V t464 = vstr_cat(t463, vow_s[1380]);
+    V t465 = vstr_cat(t464, vow_s[1381]);
+    V t466 = vstr_cat(t465, vow_s[1382]);
+    V t467 = vstr_cat(t466, vow_s[1383]);
+    V t468 = vstr_cat(t467, vow_s[1384]);
+    V t469 = vstr_cat(t468, vow_s[1385]);
+    V t470 = vstr_cat(t469, vow_s[1386]);
+    V t471 = vstr_cat(t470, vow_s[1143]);
+    V t472 = vstr_cat(t471, vow_s[1387]);
+    V t473 = vstr_cat(t472, vow_s[1388]);
+    V t474 = vstr_cat(t473, vow_s[1389]);
+    V t475 = vstr_cat(t474, vow_s[1390]);
+    V t476 = vstr_cat(t475, vow_s[1391]);
+    V t477 = vstr_cat(t476, vow_s[1143]);
+    V t478 = vstr_cat(t477, vow_s[1392]);
+    V t479 = vstr_cat(t478, vow_s[1103]);
     V t480 = vstr_cat(t479, vow_s[73]);
-    V t481 = vstr_cat(t480, vow_s[1355]);
+    V t481 = vstr_cat(t480, vow_s[1393]);
     V t482 = vstr_cat(t481, vow_s[73]);
-    V t483 = vstr_cat(t482, vow_s[1356]);
-    V t484 = vstr_cat(t483, vow_s[1357]);
-    V t485 = vstr_cat(t484, vow_s[1358]);
-    V t486 = vstr_cat(t485, vow_s[1359]);
-    V t487 = vstr_cat(t486, vow_s[1360]);
-    V t488 = vstr_cat(t487, vow_s[1361]);
-    V t489 = vstr_cat(t488, vow_s[1065]);
+    V t483 = vstr_cat(t482, vow_s[1394]);
+    V t484 = vstr_cat(t483, vow_s[1395]);
+    V t485 = vstr_cat(t484, vow_s[1396]);
+    V t486 = vstr_cat(t485, vow_s[1397]);
+    V t487 = vstr_cat(t486, vow_s[1398]);
+    V t488 = vstr_cat(t487, vow_s[1399]);
+    V t489 = vstr_cat(t488, vow_s[1103]);
     V t490 = vstr_cat(t489, vow_s[73]);
-    V t491 = vstr_cat(t490, vow_s[1362]);
-    V t492 = vstr_cat(t491, vow_s[1363]);
-    V t493 = vstr_cat(t492, vow_s[1364]);
-    V t494 = vstr_cat(t493, vow_s[1365]);
-    V t495 = vstr_cat(t494, vow_s[1366]);
-    V t496 = vstr_cat(t495, vow_s[1065]);
+    V t491 = vstr_cat(t490, vow_s[1400]);
+    V t492 = vstr_cat(t491, vow_s[1401]);
+    V t493 = vstr_cat(t492, vow_s[1402]);
+    V t494 = vstr_cat(t493, vow_s[1403]);
+    V t495 = vstr_cat(t494, vow_s[1404]);
+    V t496 = vstr_cat(t495, vow_s[1103]);
     V t497 = vstr_cat(t496, vow_s[73]);
-    V t498 = vstr_cat(t497, vow_s[1367]);
+    V t498 = vstr_cat(t497, vow_s[1405]);
     V t499 = vstr_cat(t498, vow_s[73]);
-    V t500 = vstr_cat(t499, vow_s[1368]);
+    V t500 = vstr_cat(t499, vow_s[1406]);
     V t501 = vstr_cat(t500, vow_s[73]);
-    V t502 = vstr_cat(t501, vow_s[1369]);
-    V t503 = vstr_cat(t502, vow_s[1370]);
-    V t504 = vstr_cat(t503, vow_s[1371]);
-    V t505 = vstr_cat(t504, vow_s[1372]);
-    V t506 = vstr_cat(t505, vow_s[1065]);
+    V t502 = vstr_cat(t501, vow_s[1407]);
+    V t503 = vstr_cat(t502, vow_s[1408]);
+    V t504 = vstr_cat(t503, vow_s[1409]);
+    V t505 = vstr_cat(t504, vow_s[1410]);
+    V t506 = vstr_cat(t505, vow_s[1103]);
     V t507 = vstr_cat(t506, vow_s[73]);
-    V t508 = vstr_cat(t507, vow_s[1373]);
-    V t509 = vstr_cat(t508, vow_s[1374]);
-    V t510 = vstr_cat(t509, vow_s[1375]);
-    V t511 = vstr_cat(t510, vow_s[1376]);
-    V t512 = vstr_cat(t511, vow_s[1377]);
-    V t513 = vstr_cat(t512, vow_s[1378]);
-    V t514 = vstr_cat(t513, vow_s[1379]);
-    V t515 = vstr_cat(t514, vow_s[1380]);
-    V t516 = vstr_cat(t515, vow_s[1381]);
-    V t517 = vstr_cat(t516, vow_s[1382]);
-    V t518 = vstr_cat(t517, vow_s[1383]);
-    V t519 = vstr_cat(t518, vow_s[1384]);
-    V t520 = vstr_cat(t519, vow_s[1385]);
-    V t521 = vstr_cat(t520, vow_s[1096]);
-    V t522 = vstr_cat(t521, vow_s[1386]);
-    V t523 = vstr_cat(t522, vow_s[1387]);
-    V t524 = vstr_cat(t523, vow_s[1339]);
-    V t525 = vstr_cat(t524, vow_s[1105]);
-    V t526 = vstr_cat(t525, vow_s[1388]);
-    V t527 = vstr_cat(t526, vow_s[1389]);
-    V t528 = vstr_cat(t527, vow_s[1390]);
-    V t529 = vstr_cat(t528, vow_s[1391]);
-    V t530 = vstr_cat(t529, vow_s[1392]);
-    V t531 = vstr_cat(t530, vow_s[1393]);
-    V t532 = vstr_cat(t531, vow_s[1394]);
-    V t533 = vstr_cat(t532, vow_s[1395]);
-    V t534 = vstr_cat(t533, vow_s[1396]);
-    V t535 = vstr_cat(t534, vow_s[1397]);
-    V t536 = vstr_cat(t535, vow_s[1096]);
-    V t537 = vstr_cat(t536, vow_s[1105]);
-    V t538 = vstr_cat(t537, vow_s[1398]);
-    V t539 = vstr_cat(t538, vow_s[1399]);
-    V t540 = vstr_cat(t539, vow_s[1400]);
-    V t541 = vstr_cat(t540, vow_s[1401]);
-    V t542 = vstr_cat(t541, vow_s[1402]);
-    V t543 = vstr_cat(t542, vow_s[1403]);
-    V t544 = vstr_cat(t543, vow_s[1404]);
-    V t545 = vstr_cat(t544, vow_s[1105]);
-    V t546 = vstr_cat(t545, vow_s[1405]);
-    V t547 = vstr_cat(t546, vow_s[1406]);
-    V t548 = vstr_cat(t547, vow_s[1301]);
-    V t549 = vstr_cat(t548, vow_s[1065]);
+    V t508 = vstr_cat(t507, vow_s[1411]);
+    V t509 = vstr_cat(t508, vow_s[1412]);
+    V t510 = vstr_cat(t509, vow_s[1413]);
+    V t511 = vstr_cat(t510, vow_s[1414]);
+    V t512 = vstr_cat(t511, vow_s[1415]);
+    V t513 = vstr_cat(t512, vow_s[1416]);
+    V t514 = vstr_cat(t513, vow_s[1417]);
+    V t515 = vstr_cat(t514, vow_s[1418]);
+    V t516 = vstr_cat(t515, vow_s[1419]);
+    V t517 = vstr_cat(t516, vow_s[1420]);
+    V t518 = vstr_cat(t517, vow_s[1421]);
+    V t519 = vstr_cat(t518, vow_s[1422]);
+    V t520 = vstr_cat(t519, vow_s[1423]);
+    V t521 = vstr_cat(t520, vow_s[1134]);
+    V t522 = vstr_cat(t521, vow_s[1424]);
+    V t523 = vstr_cat(t522, vow_s[1425]);
+    V t524 = vstr_cat(t523, vow_s[1377]);
+    V t525 = vstr_cat(t524, vow_s[1143]);
+    V t526 = vstr_cat(t525, vow_s[1426]);
+    V t527 = vstr_cat(t526, vow_s[1427]);
+    V t528 = vstr_cat(t527, vow_s[1428]);
+    V t529 = vstr_cat(t528, vow_s[1429]);
+    V t530 = vstr_cat(t529, vow_s[1430]);
+    V t531 = vstr_cat(t530, vow_s[1431]);
+    V t532 = vstr_cat(t531, vow_s[1432]);
+    V t533 = vstr_cat(t532, vow_s[1433]);
+    V t534 = vstr_cat(t533, vow_s[1434]);
+    V t535 = vstr_cat(t534, vow_s[1435]);
+    V t536 = vstr_cat(t535, vow_s[1134]);
+    V t537 = vstr_cat(t536, vow_s[1143]);
+    V t538 = vstr_cat(t537, vow_s[1436]);
+    V t539 = vstr_cat(t538, vow_s[1437]);
+    V t540 = vstr_cat(t539, vow_s[1438]);
+    V t541 = vstr_cat(t540, vow_s[1439]);
+    V t542 = vstr_cat(t541, vow_s[1440]);
+    V t543 = vstr_cat(t542, vow_s[1441]);
+    V t544 = vstr_cat(t543, vow_s[1442]);
+    V t545 = vstr_cat(t544, vow_s[1143]);
+    V t546 = vstr_cat(t545, vow_s[1443]);
+    V t547 = vstr_cat(t546, vow_s[1444]);
+    V t548 = vstr_cat(t547, vow_s[1339]);
+    V t549 = vstr_cat(t548, vow_s[1103]);
     V t550 = vstr_cat(t549, vow_s[73]);
-    V t551 = vstr_cat(t550, vow_s[1407]);
-    V t552 = vstr_cat(t551, vow_s[1408]);
-    V t553 = vstr_cat(t552, vow_s[1409]);
-    V t554 = vstr_cat(t553, vow_s[1376]);
-    V t555 = vstr_cat(t554, vow_s[1377]);
-    V t556 = vstr_cat(t555, vow_s[1378]);
-    V t557 = vstr_cat(t556, vow_s[1410]);
-    V t558 = vstr_cat(t557, vow_s[1411]);
-    V t559 = vstr_cat(t558, vow_s[1412]);
-    V t560 = vstr_cat(t559, vow_s[1413]);
-    V t561 = vstr_cat(t560, vow_s[1404]);
-    V t562 = vstr_cat(t561, vow_s[1105]);
-    V t563 = vstr_cat(t562, vow_s[1379]);
-    V t564 = vstr_cat(t563, vow_s[1414]);
-    V t565 = vstr_cat(t564, vow_s[1415]);
-    V t566 = vstr_cat(t565, vow_s[1416]);
-    V t567 = vstr_cat(t566, vow_s[1417]);
-    V t568 = vstr_cat(t567, vow_s[1418]);
-    V t569 = vstr_cat(t568, vow_s[1419]);
-    V t570 = vstr_cat(t569, vow_s[1420]);
-    V t571 = vstr_cat(t570, vow_s[1421]);
-    V t572 = vstr_cat(t571, vow_s[1406]);
-    V t573 = vstr_cat(t572, vow_s[1301]);
-    V t574 = vstr_cat(t573, vow_s[1065]);
+    V t551 = vstr_cat(t550, vow_s[1445]);
+    V t552 = vstr_cat(t551, vow_s[1446]);
+    V t553 = vstr_cat(t552, vow_s[1447]);
+    V t554 = vstr_cat(t553, vow_s[1414]);
+    V t555 = vstr_cat(t554, vow_s[1415]);
+    V t556 = vstr_cat(t555, vow_s[1416]);
+    V t557 = vstr_cat(t556, vow_s[1448]);
+    V t558 = vstr_cat(t557, vow_s[1449]);
+    V t559 = vstr_cat(t558, vow_s[1450]);
+    V t560 = vstr_cat(t559, vow_s[1451]);
+    V t561 = vstr_cat(t560, vow_s[1442]);
+    V t562 = vstr_cat(t561, vow_s[1143]);
+    V t563 = vstr_cat(t562, vow_s[1417]);
+    V t564 = vstr_cat(t563, vow_s[1452]);
+    V t565 = vstr_cat(t564, vow_s[1453]);
+    V t566 = vstr_cat(t565, vow_s[1454]);
+    V t567 = vstr_cat(t566, vow_s[1455]);
+    V t568 = vstr_cat(t567, vow_s[1456]);
+    V t569 = vstr_cat(t568, vow_s[1457]);
+    V t570 = vstr_cat(t569, vow_s[1458]);
+    V t571 = vstr_cat(t570, vow_s[1459]);
+    V t572 = vstr_cat(t571, vow_s[1444]);
+    V t573 = vstr_cat(t572, vow_s[1339]);
+    V t574 = vstr_cat(t573, vow_s[1103]);
     V t575 = vstr_cat(t574, vow_s[73]);
-    V t576 = vstr_cat(t575, vow_s[1422]);
-    V t577 = vstr_cat(t576, vow_s[1423]);
-    V t578 = vstr_cat(t577, vow_s[1424]);
-    V t579 = vstr_cat(t578, vow_s[1377]);
-    V t580 = vstr_cat(t579, vow_s[1425]);
-    V t581 = vstr_cat(t580, vow_s[1414]);
-    V t582 = vstr_cat(t581, vow_s[1389]);
-    V t583 = vstr_cat(t582, vow_s[1426]);
-    V t584 = vstr_cat(t583, vow_s[1427]);
-    V t585 = vstr_cat(t584, vow_s[1428]);
-    V t586 = vstr_cat(t585, vow_s[1105]);
-    V t587 = vstr_cat(t586, vow_s[1420]);
-    V t588 = vstr_cat(t587, vow_s[1429]);
-    V t589 = vstr_cat(t588, vow_s[1065]);
+    V t576 = vstr_cat(t575, vow_s[1460]);
+    V t577 = vstr_cat(t576, vow_s[1461]);
+    V t578 = vstr_cat(t577, vow_s[1462]);
+    V t579 = vstr_cat(t578, vow_s[1415]);
+    V t580 = vstr_cat(t579, vow_s[1463]);
+    V t581 = vstr_cat(t580, vow_s[1452]);
+    V t582 = vstr_cat(t581, vow_s[1427]);
+    V t583 = vstr_cat(t582, vow_s[1464]);
+    V t584 = vstr_cat(t583, vow_s[1465]);
+    V t585 = vstr_cat(t584, vow_s[1466]);
+    V t586 = vstr_cat(t585, vow_s[1143]);
+    V t587 = vstr_cat(t586, vow_s[1458]);
+    V t588 = vstr_cat(t587, vow_s[1467]);
+    V t589 = vstr_cat(t588, vow_s[1103]);
     V t590 = vstr_cat(t589, vow_s[73]);
-    V t591 = vstr_cat(t590, vow_s[1430]);
-    V t592 = vstr_cat(t591, vow_s[1431]);
-    V t593 = vstr_cat(t592, vow_s[1432]);
-    V t594 = vstr_cat(t593, vow_s[1433]);
-    V t595 = vstr_cat(t594, vow_s[1434]);
-    V t596 = vstr_cat(t595, vow_s[1435]);
-    V t597 = vstr_cat(t596, vow_s[1105]);
-    V t598 = vstr_cat(t597, vow_s[1436]);
-    V t599 = vstr_cat(t598, vow_s[1065]);
+    V t591 = vstr_cat(t590, vow_s[1468]);
+    V t592 = vstr_cat(t591, vow_s[1469]);
+    V t593 = vstr_cat(t592, vow_s[1470]);
+    V t594 = vstr_cat(t593, vow_s[1471]);
+    V t595 = vstr_cat(t594, vow_s[1472]);
+    V t596 = vstr_cat(t595, vow_s[1473]);
+    V t597 = vstr_cat(t596, vow_s[1143]);
+    V t598 = vstr_cat(t597, vow_s[1474]);
+    V t599 = vstr_cat(t598, vow_s[1103]);
     V t600 = vstr_cat(t599, vow_s[73]);
-    V t601 = vstr_cat(t600, vow_s[1437]);
-    V t602 = vstr_cat(t601, vow_s[1438]);
-    V t603 = vstr_cat(t602, vow_s[1439]);
-    V t604 = vstr_cat(t603, vow_s[1440]);
-    V t605 = vstr_cat(t604, vow_s[1441]);
-    V t606 = vstr_cat(t605, vow_s[1257]);
-    V t607 = vstr_cat(t606, vow_s[1258]);
-    V t608 = vstr_cat(t607, vow_s[1442]);
-    V t609 = vstr_cat(t608, vow_s[1443]);
-    V t610 = vstr_cat(t609, vow_s[1444]);
-    V t611 = vstr_cat(t610, vow_s[1445]);
-    V t612 = vstr_cat(t611, vow_s[1446]);
-    V t613 = vstr_cat(t612, vow_s[1096]);
-    V t614 = vstr_cat(t613, vow_s[1447]);
-    V t615 = vstr_cat(t614, vow_s[1448]);
-    V t616 = vstr_cat(t615, vow_s[1449]);
-    V t617 = vstr_cat(t616, vow_s[1105]);
-    V t618 = vstr_cat(t617, vow_s[1450]);
-    V t619 = vstr_cat(t618, vow_s[1261]);
-    V t620 = vstr_cat(t619, vow_s[1065]);
+    V t601 = vstr_cat(t600, vow_s[1475]);
+    V t602 = vstr_cat(t601, vow_s[1476]);
+    V t603 = vstr_cat(t602, vow_s[1477]);
+    V t604 = vstr_cat(t603, vow_s[1478]);
+    V t605 = vstr_cat(t604, vow_s[1479]);
+    V t606 = vstr_cat(t605, vow_s[1295]);
+    V t607 = vstr_cat(t606, vow_s[1296]);
+    V t608 = vstr_cat(t607, vow_s[1480]);
+    V t609 = vstr_cat(t608, vow_s[1481]);
+    V t610 = vstr_cat(t609, vow_s[1482]);
+    V t611 = vstr_cat(t610, vow_s[1483]);
+    V t612 = vstr_cat(t611, vow_s[1484]);
+    V t613 = vstr_cat(t612, vow_s[1134]);
+    V t614 = vstr_cat(t613, vow_s[1485]);
+    V t615 = vstr_cat(t614, vow_s[1486]);
+    V t616 = vstr_cat(t615, vow_s[1487]);
+    V t617 = vstr_cat(t616, vow_s[1143]);
+    V t618 = vstr_cat(t617, vow_s[1488]);
+    V t619 = vstr_cat(t618, vow_s[1299]);
+    V t620 = vstr_cat(t619, vow_s[1103]);
     V t621 = vstr_cat(t620, vow_s[73]);
-    V t622 = vstr_cat(t621, vow_s[1451]);
+    V t622 = vstr_cat(t621, vow_s[1489]);
     V t623 = vstr_cat(t622, vow_s[73]);
-    V t624 = vstr_cat(t623, vow_s[1452]);
-    V t625 = vstr_cat(t624, vow_s[1453]);
+    V t624 = vstr_cat(t623, vow_s[1490]);
+    V t625 = vstr_cat(t624, vow_s[1491]);
     V t626 = vstr_cat(t625, vow_s[73]);
-    V t627 = vstr_cat(t626, vow_s[1454]);
-    V t628 = vstr_cat(t627, vow_s[1455]);
-    V t629 = vstr_cat(t628, vow_s[1456]);
-    V t630 = vstr_cat(t629, vow_s[1065]);
+    V t627 = vstr_cat(t626, vow_s[1492]);
+    V t628 = vstr_cat(t627, vow_s[1493]);
+    V t629 = vstr_cat(t628, vow_s[1494]);
+    V t630 = vstr_cat(t629, vow_s[1103]);
     V t631 = vstr_cat(t630, vow_s[73]);
-    V t632 = vstr_cat(t631, vow_s[1457]);
-    V t633 = vstr_cat(t632, vow_s[1458]);
-    V t634 = vstr_cat(t633, vow_s[1459]);
-    V t635 = vstr_cat(t634, vow_s[1460]);
-    V t636 = vstr_cat(t635, vow_s[1461]);
-    V t637 = vstr_cat(t636, vow_s[1462]);
-    V t638 = vstr_cat(t637, vow_s[1463]);
-    V t639 = vstr_cat(t638, vow_s[1464]);
-    V t640 = vstr_cat(t639, vow_s[1465]);
-    V t641 = vstr_cat(t640, vow_s[1466]);
-    V t642 = vstr_cat(t641, vow_s[1467]);
-    V t643 = vstr_cat(t642, vow_s[1065]);
+    V t632 = vstr_cat(t631, vow_s[1495]);
+    V t633 = vstr_cat(t632, vow_s[1496]);
+    V t634 = vstr_cat(t633, vow_s[1497]);
+    V t635 = vstr_cat(t634, vow_s[1498]);
+    V t636 = vstr_cat(t635, vow_s[1499]);
+    V t637 = vstr_cat(t636, vow_s[1500]);
+    V t638 = vstr_cat(t637, vow_s[1501]);
+    V t639 = vstr_cat(t638, vow_s[1502]);
+    V t640 = vstr_cat(t639, vow_s[1503]);
+    V t641 = vstr_cat(t640, vow_s[1504]);
+    V t642 = vstr_cat(t641, vow_s[1505]);
+    V t643 = vstr_cat(t642, vow_s[1103]);
     V t644 = vstr_cat(t643, vow_s[73]);
-    V t645 = vstr_cat(t644, vow_s[1468]);
-    V t646 = vstr_cat(t645, vow_s[1469]);
-    V t647 = vstr_cat(t646, vow_s[1470]);
-    V t648 = vstr_cat(t647, vow_s[1471]);
-    V t649 = vstr_cat(t648, vow_s[1472]);
-    V t650 = vstr_cat(t649, vow_s[1065]);
+    V t645 = vstr_cat(t644, vow_s[1506]);
+    V t646 = vstr_cat(t645, vow_s[1507]);
+    V t647 = vstr_cat(t646, vow_s[1508]);
+    V t648 = vstr_cat(t647, vow_s[1509]);
+    V t649 = vstr_cat(t648, vow_s[1510]);
+    V t650 = vstr_cat(t649, vow_s[1103]);
     V t651 = vstr_cat(t650, vow_s[73]);
-    V t652 = vstr_cat(t651, vow_s[1473]);
-    V t653 = vstr_cat(t652, vow_s[1474]);
-    V t654 = vstr_cat(t653, vow_s[1475]);
-    V t655 = vstr_cat(t654, vow_s[1476]);
-    V t656 = vstr_cat(t655, vow_s[1477]);
-    V t657 = vstr_cat(t656, vow_s[1469]);
-    V t658 = vstr_cat(t657, vow_s[1478]);
-    V t659 = vstr_cat(t658, vow_s[1479]);
-    V t660 = vstr_cat(t659, vow_s[1480]);
-    V t661 = vstr_cat(t660, vow_s[1481]);
-    V t662 = vstr_cat(t661, vow_s[1065]);
+    V t652 = vstr_cat(t651, vow_s[1511]);
+    V t653 = vstr_cat(t652, vow_s[1512]);
+    V t654 = vstr_cat(t653, vow_s[1513]);
+    V t655 = vstr_cat(t654, vow_s[1514]);
+    V t656 = vstr_cat(t655, vow_s[1515]);
+    V t657 = vstr_cat(t656, vow_s[1507]);
+    V t658 = vstr_cat(t657, vow_s[1516]);
+    V t659 = vstr_cat(t658, vow_s[1517]);
+    V t660 = vstr_cat(t659, vow_s[1518]);
+    V t661 = vstr_cat(t660, vow_s[1519]);
+    V t662 = vstr_cat(t661, vow_s[1103]);
     V t663 = vstr_cat(t662, vow_s[73]);
-    V t664 = vstr_cat(t663, vow_s[1482]);
-    V t665 = vstr_cat(t664, vow_s[1483]);
-    V t666 = vstr_cat(t665, vow_s[1484]);
-    V t667 = vstr_cat(t666, vow_s[1485]);
-    V t668 = vstr_cat(t667, vow_s[1486]);
-    V t669 = vstr_cat(t668, vow_s[1487]);
-    V t670 = vstr_cat(t669, vow_s[1488]);
-    V t671 = vstr_cat(t670, vow_s[1366]);
-    V t672 = vstr_cat(t671, vow_s[1065]);
+    V t664 = vstr_cat(t663, vow_s[1520]);
+    V t665 = vstr_cat(t664, vow_s[1521]);
+    V t666 = vstr_cat(t665, vow_s[1522]);
+    V t667 = vstr_cat(t666, vow_s[1523]);
+    V t668 = vstr_cat(t667, vow_s[1524]);
+    V t669 = vstr_cat(t668, vow_s[1525]);
+    V t670 = vstr_cat(t669, vow_s[1526]);
+    V t671 = vstr_cat(t670, vow_s[1404]);
+    V t672 = vstr_cat(t671, vow_s[1103]);
     V t673 = vstr_cat(t672, vow_s[73]);
-    V t674 = vstr_cat(t673, vow_s[1489]);
-    V t675 = vstr_cat(t674, vow_s[1490]);
-    V t676 = vstr_cat(t675, vow_s[1491]);
-    V t677 = vstr_cat(t676, vow_s[1486]);
-    V t678 = vstr_cat(t677, vow_s[1492]);
-    V t679 = vstr_cat(t678, vow_s[1493]);
-    V t680 = vstr_cat(t679, vow_s[1301]);
-    V t681 = vstr_cat(t680, vow_s[1065]);
+    V t674 = vstr_cat(t673, vow_s[1527]);
+    V t675 = vstr_cat(t674, vow_s[1528]);
+    V t676 = vstr_cat(t675, vow_s[1529]);
+    V t677 = vstr_cat(t676, vow_s[1524]);
+    V t678 = vstr_cat(t677, vow_s[1530]);
+    V t679 = vstr_cat(t678, vow_s[1531]);
+    V t680 = vstr_cat(t679, vow_s[1339]);
+    V t681 = vstr_cat(t680, vow_s[1103]);
     V t682 = vstr_cat(t681, vow_s[73]);
-    V t683 = vstr_cat(t682, vow_s[1494]);
-    V t684 = vstr_cat(t683, vow_s[1469]);
-    V t685 = vstr_cat(t684, vow_s[1470]);
-    V t686 = vstr_cat(t685, vow_s[1495]);
-    V t687 = vstr_cat(t686, vow_s[1496]);
-    V t688 = vstr_cat(t687, vow_s[1497]);
-    V t689 = vstr_cat(t688, vow_s[1105]);
-    V t690 = vstr_cat(t689, vow_s[1498]);
-    V t691 = vstr_cat(t690, vow_s[1499]);
-    V t692 = vstr_cat(t691, vow_s[1500]);
-    V t693 = vstr_cat(t692, vow_s[1105]);
-    V t694 = vstr_cat(t693, vow_s[1486]);
-    V t695 = vstr_cat(t694, vow_s[1467]);
-    V t696 = vstr_cat(t695, vow_s[1065]);
+    V t683 = vstr_cat(t682, vow_s[1532]);
+    V t684 = vstr_cat(t683, vow_s[1507]);
+    V t685 = vstr_cat(t684, vow_s[1508]);
+    V t686 = vstr_cat(t685, vow_s[1533]);
+    V t687 = vstr_cat(t686, vow_s[1534]);
+    V t688 = vstr_cat(t687, vow_s[1535]);
+    V t689 = vstr_cat(t688, vow_s[1143]);
+    V t690 = vstr_cat(t689, vow_s[1536]);
+    V t691 = vstr_cat(t690, vow_s[1537]);
+    V t692 = vstr_cat(t691, vow_s[1538]);
+    V t693 = vstr_cat(t692, vow_s[1143]);
+    V t694 = vstr_cat(t693, vow_s[1524]);
+    V t695 = vstr_cat(t694, vow_s[1505]);
+    V t696 = vstr_cat(t695, vow_s[1103]);
     V t697 = vstr_cat(t696, vow_s[73]);
-    V t698 = vstr_cat(t697, vow_s[1501]);
-    V t699 = vstr_cat(t698, vow_s[1502]);
-    V t700 = vstr_cat(t699, vow_s[1503]);
-    V t701 = vstr_cat(t700, vow_s[1504]);
-    V t702 = vstr_cat(t701, vow_s[1505]);
-    V t703 = vstr_cat(t702, vow_s[1506]);
-    V t704 = vstr_cat(t703, vow_s[1469]);
-    V t705 = vstr_cat(t704, vow_s[1507]);
-    V t706 = vstr_cat(t705, vow_s[1508]);
-    V t707 = vstr_cat(t706, vow_s[1509]);
-    V t708 = vstr_cat(t707, vow_s[1510]);
-    V t709 = vstr_cat(t708, vow_s[1511]);
-    V t710 = vstr_cat(t709, vow_s[1512]);
-    V t711 = vstr_cat(t710, vow_s[1105]);
-    V t712 = vstr_cat(t711, vow_s[1513]);
-    V t713 = vstr_cat(t712, vow_s[1514]);
+    V t698 = vstr_cat(t697, vow_s[1539]);
+    V t699 = vstr_cat(t698, vow_s[1540]);
+    V t700 = vstr_cat(t699, vow_s[1541]);
+    V t701 = vstr_cat(t700, vow_s[1542]);
+    V t702 = vstr_cat(t701, vow_s[1543]);
+    V t703 = vstr_cat(t702, vow_s[1544]);
+    V t704 = vstr_cat(t703, vow_s[1507]);
+    V t705 = vstr_cat(t704, vow_s[1545]);
+    V t706 = vstr_cat(t705, vow_s[1546]);
+    V t707 = vstr_cat(t706, vow_s[1547]);
+    V t708 = vstr_cat(t707, vow_s[1548]);
+    V t709 = vstr_cat(t708, vow_s[1549]);
+    V t710 = vstr_cat(t709, vow_s[1550]);
+    V t711 = vstr_cat(t710, vow_s[1143]);
+    V t712 = vstr_cat(t711, vow_s[1551]);
+    V t713 = vstr_cat(t712, vow_s[1552]);
     V t714 = vstr_cat(t713, vow_s[437]);
-    V t715 = vstr_cat(t714, vow_s[1515]);
-    V t716 = vstr_cat(t715, vow_s[1516]);
-    V t717 = vstr_cat(t716, vow_s[1065]);
+    V t715 = vstr_cat(t714, vow_s[1553]);
+    V t716 = vstr_cat(t715, vow_s[1554]);
+    V t717 = vstr_cat(t716, vow_s[1103]);
     V t718 = vstr_cat(t717, vow_s[73]);
-    V t719 = vstr_cat(t718, vow_s[1517]);
-    V t720 = vstr_cat(t719, vow_s[1518]);
+    V t719 = vstr_cat(t718, vow_s[1555]);
+    V t720 = vstr_cat(t719, vow_s[1556]);
     V t721 = vstr_cat(t720, vow_s[73]);
-    V t722 = vstr_cat(t721, vow_s[1519]);
+    V t722 = vstr_cat(t721, vow_s[1557]);
     V t723 = vstr_cat(t722, vow_s[73]);
-    V t724 = vstr_cat(t723, vow_s[1520]);
-    V t725 = vstr_cat(t724, vow_s[1521]);
-    V t726 = vstr_cat(t725, vow_s[1522]);
-    V t727 = vstr_cat(t726, vow_s[1523]);
-    V t728 = vstr_cat(t727, vow_s[1524]);
-    V t729 = vstr_cat(t728, vow_s[1525]);
-    V t730 = vstr_cat(t729, vow_s[1105]);
-    V t731 = vstr_cat(t730, vow_s[1526]);
-    V t732 = vstr_cat(t731, vow_s[1065]);
+    V t724 = vstr_cat(t723, vow_s[1558]);
+    V t725 = vstr_cat(t724, vow_s[1559]);
+    V t726 = vstr_cat(t725, vow_s[1560]);
+    V t727 = vstr_cat(t726, vow_s[1561]);
+    V t728 = vstr_cat(t727, vow_s[1562]);
+    V t729 = vstr_cat(t728, vow_s[1563]);
+    V t730 = vstr_cat(t729, vow_s[1143]);
+    V t731 = vstr_cat(t730, vow_s[1564]);
+    V t732 = vstr_cat(t731, vow_s[1103]);
     V t733 = vstr_cat(t732, vow_s[73]);
-    V t734 = vstr_cat(t733, vow_s[1527]);
-    V t735 = vstr_cat(t734, vow_s[1528]);
-    V t736 = vstr_cat(t735, vow_s[1529]);
-    V t737 = vstr_cat(t736, vow_s[1530]);
-    V t738 = vstr_cat(t737, vow_s[1531]);
-    V t739 = vstr_cat(t738, vow_s[1532]);
-    V t740 = vstr_cat(t739, vow_s[1533]);
-    V t741 = vstr_cat(t740, vow_s[1065]);
+    V t734 = vstr_cat(t733, vow_s[1565]);
+    V t735 = vstr_cat(t734, vow_s[1566]);
+    V t736 = vstr_cat(t735, vow_s[1567]);
+    V t737 = vstr_cat(t736, vow_s[1568]);
+    V t738 = vstr_cat(t737, vow_s[1569]);
+    V t739 = vstr_cat(t738, vow_s[1570]);
+    V t740 = vstr_cat(t739, vow_s[1571]);
+    V t741 = vstr_cat(t740, vow_s[1103]);
     V t742 = vstr_cat(t741, vow_s[73]);
-    V t743 = vstr_cat(t742, vow_s[1534]);
+    V t743 = vstr_cat(t742, vow_s[1572]);
     V t744 = vstr_cat(t743, vow_s[73]);
-    V t745 = vstr_cat(t744, vow_s[1535]);
-    V t746 = vstr_cat(t745, vow_s[1536]);
-    V t747 = vstr_cat(t746, vow_s[1537]);
-    V t748 = vstr_cat(t747, vow_s[1538]);
-    V t749 = vstr_cat(t748, vow_s[1539]);
-    V t750 = vstr_cat(t749, vow_s[1540]);
-    V t751 = vstr_cat(t750, vow_s[1065]);
+    V t745 = vstr_cat(t744, vow_s[1573]);
+    V t746 = vstr_cat(t745, vow_s[1574]);
+    V t747 = vstr_cat(t746, vow_s[1575]);
+    V t748 = vstr_cat(t747, vow_s[1576]);
+    V t749 = vstr_cat(t748, vow_s[1577]);
+    V t750 = vstr_cat(t749, vow_s[1578]);
+    V t751 = vstr_cat(t750, vow_s[1103]);
     V t752 = vstr_cat(t751, vow_s[73]);
-    V t753 = vstr_cat(t752, vow_s[1541]);
+    V t753 = vstr_cat(t752, vow_s[1579]);
     V t754 = vstr_cat(t753, vow_s[73]);
-    V t755 = vstr_cat(t754, vow_s[1542]);
+    V t755 = vstr_cat(t754, vow_s[1580]);
     V t756 = vstr_cat(t755, vow_s[73]);
-    V t757 = vstr_cat(t756, vow_s[1543]);
+    V t757 = vstr_cat(t756, vow_s[1581]);
     V t758 = vstr_cat(t757, vow_s[73]);
-    V t759 = vstr_cat(t758, vow_s[1544]);
-    V t760 = vstr_cat(t759, vow_s[1545]);
-    V t761 = vstr_cat(t760, vow_s[1546]);
-    V t762 = vstr_cat(t761, vow_s[1547]);
-    V t763 = vstr_cat(t762, vow_s[1548]);
-    V t764 = vstr_cat(t763, vow_s[1549]);
-    V t765 = vstr_cat(t764, vow_s[1550]);
-    V t766 = vstr_cat(t765, vow_s[1096]);
-    V t767 = vstr_cat(t766, vow_s[1116]);
-    V t768 = vstr_cat(t767, vow_s[1551]);
-    V t769 = vstr_cat(t768, vow_s[1552]);
-    V t770 = vstr_cat(t769, vow_s[1553]);
-    V t771 = vstr_cat(t770, vow_s[1554]);
-    V t772 = vstr_cat(t771, vow_s[1555]);
-    V t773 = vstr_cat(t772, vow_s[1556]);
-    V t774 = vstr_cat(t773, vow_s[1105]);
-    V t775 = vstr_cat(t774, vow_s[1557]);
-    V t776 = vstr_cat(t775, vow_s[1065]);
+    V t759 = vstr_cat(t758, vow_s[1582]);
+    V t760 = vstr_cat(t759, vow_s[1583]);
+    V t761 = vstr_cat(t760, vow_s[1584]);
+    V t762 = vstr_cat(t761, vow_s[1585]);
+    V t763 = vstr_cat(t762, vow_s[1586]);
+    V t764 = vstr_cat(t763, vow_s[1587]);
+    V t765 = vstr_cat(t764, vow_s[1588]);
+    V t766 = vstr_cat(t765, vow_s[1134]);
+    V t767 = vstr_cat(t766, vow_s[1154]);
+    V t768 = vstr_cat(t767, vow_s[1589]);
+    V t769 = vstr_cat(t768, vow_s[1590]);
+    V t770 = vstr_cat(t769, vow_s[1591]);
+    V t771 = vstr_cat(t770, vow_s[1592]);
+    V t772 = vstr_cat(t771, vow_s[1593]);
+    V t773 = vstr_cat(t772, vow_s[1594]);
+    V t774 = vstr_cat(t773, vow_s[1143]);
+    V t775 = vstr_cat(t774, vow_s[1595]);
+    V t776 = vstr_cat(t775, vow_s[1103]);
     V t777 = vstr_cat(t776, vow_s[73]);
-    V t778 = vstr_cat(t777, vow_s[1558]);
+    V t778 = vstr_cat(t777, vow_s[1596]);
     V t779 = vstr_cat(t778, vow_s[73]);
-    V t780 = vstr_cat(t779, vow_s[1559]);
-    V t781 = vstr_cat(t780, vow_s[1560]);
-    V t782 = vstr_cat(t781, vow_s[1561]);
-    V t783 = vstr_cat(t782, vow_s[1562]);
-    V t784 = vstr_cat(t783, vow_s[1563]);
-    V t785 = vstr_cat(t784, vow_s[1564]);
-    V t786 = vstr_cat(t785, vow_s[1065]);
+    V t780 = vstr_cat(t779, vow_s[1597]);
+    V t781 = vstr_cat(t780, vow_s[1598]);
+    V t782 = vstr_cat(t781, vow_s[1599]);
+    V t783 = vstr_cat(t782, vow_s[1600]);
+    V t784 = vstr_cat(t783, vow_s[1601]);
+    V t785 = vstr_cat(t784, vow_s[1602]);
+    V t786 = vstr_cat(t785, vow_s[1103]);
     V t787 = vstr_cat(t786, vow_s[73]);
-    V t788 = vstr_cat(t787, vow_s[1565]);
-    V t789 = vstr_cat(t788, vow_s[1566]);
-    V t790 = vstr_cat(t789, vow_s[1567]);
-    V t791 = vstr_cat(t790, vow_s[1568]);
-    V t792 = vstr_cat(t791, vow_s[1569]);
-    V t793 = vstr_cat(t792, vow_s[1570]);
-    V t794 = vstr_cat(t793, vow_s[1571]);
-    V t795 = vstr_cat(t794, vow_s[1572]);
-    V t796 = vstr_cat(t795, vow_s[1573]);
-    V t797 = vstr_cat(t796, vow_s[1574]);
-    V t798 = vstr_cat(t797, vow_s[1575]);
-    V t799 = vstr_cat(t798, vow_s[1096]);
-    V t800 = vstr_cat(t799, vow_s[1576]);
-    V t801 = vstr_cat(t800, vow_s[1105]);
-    V t802 = vstr_cat(t801, vow_s[1577]);
-    V t803 = vstr_cat(t802, vow_s[1578]);
-    V t804 = vstr_cat(t803, vow_s[1579]);
-    V t805 = vstr_cat(t804, vow_s[1580]);
-    V t806 = vstr_cat(t805, vow_s[1065]);
+    V t788 = vstr_cat(t787, vow_s[1603]);
+    V t789 = vstr_cat(t788, vow_s[1604]);
+    V t790 = vstr_cat(t789, vow_s[1605]);
+    V t791 = vstr_cat(t790, vow_s[1606]);
+    V t792 = vstr_cat(t791, vow_s[1607]);
+    V t793 = vstr_cat(t792, vow_s[1608]);
+    V t794 = vstr_cat(t793, vow_s[1609]);
+    V t795 = vstr_cat(t794, vow_s[1610]);
+    V t796 = vstr_cat(t795, vow_s[1611]);
+    V t797 = vstr_cat(t796, vow_s[1612]);
+    V t798 = vstr_cat(t797, vow_s[1613]);
+    V t799 = vstr_cat(t798, vow_s[1134]);
+    V t800 = vstr_cat(t799, vow_s[1614]);
+    V t801 = vstr_cat(t800, vow_s[1143]);
+    V t802 = vstr_cat(t801, vow_s[1615]);
+    V t803 = vstr_cat(t802, vow_s[1616]);
+    V t804 = vstr_cat(t803, vow_s[1617]);
+    V t805 = vstr_cat(t804, vow_s[1618]);
+    V t806 = vstr_cat(t805, vow_s[1103]);
     V t807 = vstr_cat(t806, vow_s[73]);
-    V t808 = vstr_cat(t807, vow_s[1581]);
-    V t809 = vstr_cat(t808, vow_s[1582]);
-    V t810 = vstr_cat(t809, vow_s[1583]);
-    V t811 = vstr_cat(t810, vow_s[1584]);
-    V t812 = vstr_cat(t811, vow_s[1585]);
-    V t813 = vstr_cat(t812, vow_s[1586]);
-    V t814 = vstr_cat(t813, vow_s[1467]);
-    V t815 = vstr_cat(t814, vow_s[1065]);
+    V t808 = vstr_cat(t807, vow_s[1619]);
+    V t809 = vstr_cat(t808, vow_s[1620]);
+    V t810 = vstr_cat(t809, vow_s[1621]);
+    V t811 = vstr_cat(t810, vow_s[1622]);
+    V t812 = vstr_cat(t811, vow_s[1623]);
+    V t813 = vstr_cat(t812, vow_s[1624]);
+    V t814 = vstr_cat(t813, vow_s[1505]);
+    V t815 = vstr_cat(t814, vow_s[1103]);
     V t816 = vstr_cat(t815, vow_s[73]);
-    V t817 = vstr_cat(t816, vow_s[1587]);
-    V t818 = vstr_cat(t817, vow_s[1588]);
-    V t819 = vstr_cat(t818, vow_s[1589]);
-    V t820 = vstr_cat(t819, vow_s[1590]);
-    V t821 = vstr_cat(t820, vow_s[1591]);
-    V t822 = vstr_cat(t821, vow_s[1592]);
-    V t823 = vstr_cat(t822, vow_s[1593]);
-    V t824 = vstr_cat(t823, vow_s[1594]);
-    V t825 = vstr_cat(t824, vow_s[1595]);
-    V t826 = vstr_cat(t825, vow_s[1596]);
-    V t827 = vstr_cat(t826, vow_s[1597]);
-    V t828 = vstr_cat(t827, vow_s[1598]);
-    V t829 = vstr_cat(t828, vow_s[1599]);
-    V t830 = vstr_cat(t829, vow_s[1600]);
-    V t831 = vstr_cat(t830, vow_s[1601]);
-    V t832 = vstr_cat(t831, vow_s[1096]);
-    V t833 = vstr_cat(t832, vow_s[1602]);
-    V t834 = vstr_cat(t833, vow_s[1603]);
-    V t835 = vstr_cat(t834, vow_s[1105]);
-    V t836 = vstr_cat(t835, vow_s[1604]);
-    V t837 = vstr_cat(t836, vow_s[1605]);
-    V t838 = vstr_cat(t837, vow_s[1564]);
-    V t839 = vstr_cat(t838, vow_s[1065]);
+    V t817 = vstr_cat(t816, vow_s[1625]);
+    V t818 = vstr_cat(t817, vow_s[1626]);
+    V t819 = vstr_cat(t818, vow_s[1627]);
+    V t820 = vstr_cat(t819, vow_s[1628]);
+    V t821 = vstr_cat(t820, vow_s[1629]);
+    V t822 = vstr_cat(t821, vow_s[1630]);
+    V t823 = vstr_cat(t822, vow_s[1631]);
+    V t824 = vstr_cat(t823, vow_s[1632]);
+    V t825 = vstr_cat(t824, vow_s[1633]);
+    V t826 = vstr_cat(t825, vow_s[1634]);
+    V t827 = vstr_cat(t826, vow_s[1635]);
+    V t828 = vstr_cat(t827, vow_s[1636]);
+    V t829 = vstr_cat(t828, vow_s[1637]);
+    V t830 = vstr_cat(t829, vow_s[1638]);
+    V t831 = vstr_cat(t830, vow_s[1639]);
+    V t832 = vstr_cat(t831, vow_s[1134]);
+    V t833 = vstr_cat(t832, vow_s[1640]);
+    V t834 = vstr_cat(t833, vow_s[1641]);
+    V t835 = vstr_cat(t834, vow_s[1143]);
+    V t836 = vstr_cat(t835, vow_s[1642]);
+    V t837 = vstr_cat(t836, vow_s[1643]);
+    V t838 = vstr_cat(t837, vow_s[1602]);
+    V t839 = vstr_cat(t838, vow_s[1103]);
     V t840 = vstr_cat(t839, vow_s[73]);
-    V t841 = vstr_cat(t840, vow_s[1606]);
-    V t842 = vstr_cat(t841, vow_s[1607]);
-    V t843 = vstr_cat(t842, vow_s[1590]);
-    V t844 = vstr_cat(t843, vow_s[1567]);
-    V t845 = vstr_cat(t844, vow_s[1608]);
-    V t846 = vstr_cat(t845, vow_s[1609]);
-    V t847 = vstr_cat(t846, vow_s[1576]);
-    V t848 = vstr_cat(t847, vow_s[1105]);
-    V t849 = vstr_cat(t848, vow_s[1610]);
-    V t850 = vstr_cat(t849, vow_s[1065]);
+    V t841 = vstr_cat(t840, vow_s[1644]);
+    V t842 = vstr_cat(t841, vow_s[1645]);
+    V t843 = vstr_cat(t842, vow_s[1628]);
+    V t844 = vstr_cat(t843, vow_s[1605]);
+    V t845 = vstr_cat(t844, vow_s[1646]);
+    V t846 = vstr_cat(t845, vow_s[1647]);
+    V t847 = vstr_cat(t846, vow_s[1614]);
+    V t848 = vstr_cat(t847, vow_s[1143]);
+    V t849 = vstr_cat(t848, vow_s[1648]);
+    V t850 = vstr_cat(t849, vow_s[1103]);
     V t851 = vstr_cat(t850, vow_s[73]);
-    V t852 = vstr_cat(t851, vow_s[1611]);
-    V t853 = vstr_cat(t852, vow_s[1612]);
-    V t854 = vstr_cat(t853, vow_s[1613]);
-    V t855 = vstr_cat(t854, vow_s[1614]);
-    V t856 = vstr_cat(t855, vow_s[1615]);
-    V t857 = vstr_cat(t856, vow_s[1532]);
-    V t858 = vstr_cat(t857, vow_s[1533]);
-    V t859 = vstr_cat(t858, vow_s[1065]);
+    V t852 = vstr_cat(t851, vow_s[1649]);
+    V t853 = vstr_cat(t852, vow_s[1650]);
+    V t854 = vstr_cat(t853, vow_s[1651]);
+    V t855 = vstr_cat(t854, vow_s[1652]);
+    V t856 = vstr_cat(t855, vow_s[1653]);
+    V t857 = vstr_cat(t856, vow_s[1570]);
+    V t858 = vstr_cat(t857, vow_s[1571]);
+    V t859 = vstr_cat(t858, vow_s[1103]);
     V t860 = vstr_cat(t859, vow_s[73]);
-    V t861 = vstr_cat(t860, vow_s[1616]);
-    V t862 = vstr_cat(t861, vow_s[1617]);
+    V t861 = vstr_cat(t860, vow_s[1654]);
+    V t862 = vstr_cat(t861, vow_s[1655]);
     V t863 = vstr_cat(t862, vow_s[73]);
-    V t864 = vstr_cat(t863, vow_s[1618]);
-    V t865 = vstr_cat(t864, vow_s[1619]);
-    V t866 = vstr_cat(t865, vow_s[1620]);
-    V t867 = vstr_cat(t866, vow_s[1065]);
+    V t864 = vstr_cat(t863, vow_s[1656]);
+    V t865 = vstr_cat(t864, vow_s[1657]);
+    V t866 = vstr_cat(t865, vow_s[1658]);
+    V t867 = vstr_cat(t866, vow_s[1103]);
     V t868 = vstr_cat(t867, vow_s[73]);
-    V t869 = vstr_cat(t868, vow_s[1621]);
-    V t870 = vstr_cat(t869, vow_s[1622]);
-    V t871 = vstr_cat(t870, vow_s[1623]);
-    V t872 = vstr_cat(t871, vow_s[1624]);
-    V t873 = vstr_cat(t872, vow_s[1625]);
-    V t874 = vstr_cat(t873, vow_s[1626]);
-    V t875 = vstr_cat(t874, vow_s[1584]);
-    V t876 = vstr_cat(t875, vow_s[1627]);
-    V t877 = vstr_cat(t876, vow_s[1628]);
-    V t878 = vstr_cat(t877, vow_s[1629]);
-    V t879 = vstr_cat(t878, vow_s[1630]);
-    V t880 = vstr_cat(t879, vow_s[1366]);
-    V t881 = vstr_cat(t880, vow_s[1065]);
+    V t869 = vstr_cat(t868, vow_s[1659]);
+    V t870 = vstr_cat(t869, vow_s[1660]);
+    V t871 = vstr_cat(t870, vow_s[1661]);
+    V t872 = vstr_cat(t871, vow_s[1662]);
+    V t873 = vstr_cat(t872, vow_s[1663]);
+    V t874 = vstr_cat(t873, vow_s[1664]);
+    V t875 = vstr_cat(t874, vow_s[1622]);
+    V t876 = vstr_cat(t875, vow_s[1665]);
+    V t877 = vstr_cat(t876, vow_s[1666]);
+    V t878 = vstr_cat(t877, vow_s[1667]);
+    V t879 = vstr_cat(t878, vow_s[1668]);
+    V t880 = vstr_cat(t879, vow_s[1404]);
+    V t881 = vstr_cat(t880, vow_s[1103]);
     V t882 = vstr_cat(t881, vow_s[73]);
-    V t883 = vstr_cat(t882, vow_s[1631]);
+    V t883 = vstr_cat(t882, vow_s[1669]);
     V t884 = vstr_cat(t883, vow_s[73]);
-    V t885 = vstr_cat(t884, vow_s[1632]);
-    V t886 = vstr_cat(t885, vow_s[1633]);
+    V t885 = vstr_cat(t884, vow_s[1670]);
+    V t886 = vstr_cat(t885, vow_s[1671]);
     V t887 = vstr_cat(t886, vow_s[73]);
-    V t888 = vstr_cat(t887, vow_s[1634]);
-    V t889 = vstr_cat(t888, vow_s[1635]);
-    V t890 = vstr_cat(t889, vow_s[1526]);
-    V t891 = vstr_cat(t890, vow_s[1065]);
+    V t888 = vstr_cat(t887, vow_s[1672]);
+    V t889 = vstr_cat(t888, vow_s[1673]);
+    V t890 = vstr_cat(t889, vow_s[1564]);
+    V t891 = vstr_cat(t890, vow_s[1103]);
     V t892 = vstr_cat(t891, vow_s[73]);
-    V t893 = vstr_cat(t892, vow_s[1636]);
-    V t894 = vstr_cat(t893, vow_s[1062]);
-    V t895 = vstr_cat(t894, vow_s[1637]);
-    V t896 = vstr_cat(t895, vow_s[1526]);
-    V t897 = vstr_cat(t896, vow_s[1065]);
+    V t893 = vstr_cat(t892, vow_s[1674]);
+    V t894 = vstr_cat(t893, vow_s[1100]);
+    V t895 = vstr_cat(t894, vow_s[1675]);
+    V t896 = vstr_cat(t895, vow_s[1564]);
+    V t897 = vstr_cat(t896, vow_s[1103]);
     V t898 = vstr_cat(t897, vow_s[73]);
-    V t899 = vstr_cat(t898, vow_s[1638]);
-    V t900 = vstr_cat(t899, vow_s[1639]);
-    V t901 = vstr_cat(t900, vow_s[1640]);
-    V t902 = vstr_cat(t901, vow_s[1641]);
-    V t903 = vstr_cat(t902, vow_s[1642]);
-    V t904 = vstr_cat(t903, vow_s[1643]);
-    V t905 = vstr_cat(t904, vow_s[1257]);
-    V t906 = vstr_cat(t905, vow_s[1644]);
-    V t907 = vstr_cat(t906, vow_s[1645]);
-    V t908 = vstr_cat(t907, vow_s[1646]);
-    V t909 = vstr_cat(t908, vow_s[1647]);
-    V t910 = vstr_cat(t909, vow_s[1065]);
+    V t899 = vstr_cat(t898, vow_s[1676]);
+    V t900 = vstr_cat(t899, vow_s[1677]);
+    V t901 = vstr_cat(t900, vow_s[1678]);
+    V t902 = vstr_cat(t901, vow_s[1679]);
+    V t903 = vstr_cat(t902, vow_s[1680]);
+    V t904 = vstr_cat(t903, vow_s[1681]);
+    V t905 = vstr_cat(t904, vow_s[1295]);
+    V t906 = vstr_cat(t905, vow_s[1682]);
+    V t907 = vstr_cat(t906, vow_s[1683]);
+    V t908 = vstr_cat(t907, vow_s[1684]);
+    V t909 = vstr_cat(t908, vow_s[1685]);
+    V t910 = vstr_cat(t909, vow_s[1103]);
     V t911 = vstr_cat(t910, vow_s[73]);
-    V t912 = vstr_cat(t911, vow_s[1648]);
-    V t913 = vstr_cat(t912, vow_s[1649]);
-    V t914 = vstr_cat(t913, vow_s[1650]);
-    V t915 = vstr_cat(t914, vow_s[1651]);
-    V t916 = vstr_cat(t915, vow_s[1652]);
-    V t917 = vstr_cat(t916, vow_s[1653]);
-    V t918 = vstr_cat(t917, vow_s[1065]);
+    V t912 = vstr_cat(t911, vow_s[1686]);
+    V t913 = vstr_cat(t912, vow_s[1687]);
+    V t914 = vstr_cat(t913, vow_s[1688]);
+    V t915 = vstr_cat(t914, vow_s[1689]);
+    V t916 = vstr_cat(t915, vow_s[1690]);
+    V t917 = vstr_cat(t916, vow_s[1691]);
+    V t918 = vstr_cat(t917, vow_s[1103]);
     V t919 = vstr_cat(t918, vow_s[73]);
-    V t920 = vstr_cat(t919, vow_s[1654]);
-    V t921 = vstr_cat(t920, vow_s[1655]);
-    V t922 = vstr_cat(t921, vow_s[1656]);
-    V t923 = vstr_cat(t922, vow_s[1657]);
-    V t924 = vstr_cat(t923, vow_s[1658]);
-    V t925 = vstr_cat(t924, vow_s[1659]);
-    V t926 = vstr_cat(t925, vow_s[1660]);
-    V t927 = vstr_cat(t926, vow_s[1661]);
-    V t928 = vstr_cat(t927, vow_s[1662]);
-    V t929 = vstr_cat(t928, vow_s[1663]);
-    V t930 = vstr_cat(t929, vow_s[1664]);
-    V t931 = vstr_cat(t930, vow_s[1096]);
-    V t932 = vstr_cat(t931, vow_s[1105]);
-    V t933 = vstr_cat(t932, vow_s[1665]);
-    V t934 = vstr_cat(t933, vow_s[1666]);
-    V t935 = vstr_cat(t934, vow_s[1667]);
-    V t936 = vstr_cat(t935, vow_s[1668]);
-    V t937 = vstr_cat(t936, vow_s[1653]);
-    V t938 = vstr_cat(t937, vow_s[1065]);
+    V t920 = vstr_cat(t919, vow_s[1692]);
+    V t921 = vstr_cat(t920, vow_s[1693]);
+    V t922 = vstr_cat(t921, vow_s[1694]);
+    V t923 = vstr_cat(t922, vow_s[1695]);
+    V t924 = vstr_cat(t923, vow_s[1696]);
+    V t925 = vstr_cat(t924, vow_s[1697]);
+    V t926 = vstr_cat(t925, vow_s[1698]);
+    V t927 = vstr_cat(t926, vow_s[1699]);
+    V t928 = vstr_cat(t927, vow_s[1700]);
+    V t929 = vstr_cat(t928, vow_s[1701]);
+    V t930 = vstr_cat(t929, vow_s[1702]);
+    V t931 = vstr_cat(t930, vow_s[1134]);
+    V t932 = vstr_cat(t931, vow_s[1143]);
+    V t933 = vstr_cat(t932, vow_s[1703]);
+    V t934 = vstr_cat(t933, vow_s[1704]);
+    V t935 = vstr_cat(t934, vow_s[1705]);
+    V t936 = vstr_cat(t935, vow_s[1706]);
+    V t937 = vstr_cat(t936, vow_s[1691]);
+    V t938 = vstr_cat(t937, vow_s[1103]);
     V t939 = vstr_cat(t938, vow_s[73]);
-    V t940 = vstr_cat(t939, vow_s[1669]);
+    V t940 = vstr_cat(t939, vow_s[1707]);
     V t941 = vstr_cat(t940, vow_s[73]);
-    V t942 = vstr_cat(t941, vow_s[1670]);
-    V t943 = vstr_cat(t942, vow_s[1671]);
-    V t944 = vstr_cat(t943, vow_s[1672]);
-    V t945 = vstr_cat(t944, vow_s[1673]);
-    V t946 = vstr_cat(t945, vow_s[1674]);
-    V t947 = vstr_cat(t946, vow_s[1675]);
-    V t948 = vstr_cat(t947, vow_s[1676]);
-    V t949 = vstr_cat(t948, vow_s[1677]);
-    V t950 = vstr_cat(t949, vow_s[1678]);
-    V t951 = vstr_cat(t950, vow_s[1679]);
-    V t952 = vstr_cat(t951, vow_s[1680]);
-    V t953 = vstr_cat(t952, vow_s[1105]);
-    V t954 = vstr_cat(t953, vow_s[1681]);
-    V t955 = vstr_cat(t954, vow_s[1682]);
-    V t956 = vstr_cat(t955, vow_s[1683]);
-    V t957 = vstr_cat(t956, vow_s[1684]);
-    V t958 = vstr_cat(t957, vow_s[1685]);
-    V t959 = vstr_cat(t958, vow_s[1686]);
-    V t960 = vstr_cat(t959, vow_s[1065]);
+    V t942 = vstr_cat(t941, vow_s[1708]);
+    V t943 = vstr_cat(t942, vow_s[1709]);
+    V t944 = vstr_cat(t943, vow_s[1710]);
+    V t945 = vstr_cat(t944, vow_s[1711]);
+    V t946 = vstr_cat(t945, vow_s[1712]);
+    V t947 = vstr_cat(t946, vow_s[1713]);
+    V t948 = vstr_cat(t947, vow_s[1714]);
+    V t949 = vstr_cat(t948, vow_s[1715]);
+    V t950 = vstr_cat(t949, vow_s[1716]);
+    V t951 = vstr_cat(t950, vow_s[1717]);
+    V t952 = vstr_cat(t951, vow_s[1718]);
+    V t953 = vstr_cat(t952, vow_s[1143]);
+    V t954 = vstr_cat(t953, vow_s[1719]);
+    V t955 = vstr_cat(t954, vow_s[1720]);
+    V t956 = vstr_cat(t955, vow_s[1721]);
+    V t957 = vstr_cat(t956, vow_s[1722]);
+    V t958 = vstr_cat(t957, vow_s[1723]);
+    V t959 = vstr_cat(t958, vow_s[1724]);
+    V t960 = vstr_cat(t959, vow_s[1103]);
     V t961 = vstr_cat(t960, vow_s[73]);
-    V t962 = vstr_cat(t961, vow_s[1687]);
-    V t963 = vstr_cat(t962, vow_s[1683]);
-    V t964 = vstr_cat(t963, vow_s[1688]);
-    V t965 = vstr_cat(t964, vow_s[1366]);
-    V t966 = vstr_cat(t965, vow_s[1065]);
+    V t962 = vstr_cat(t961, vow_s[1725]);
+    V t963 = vstr_cat(t962, vow_s[1721]);
+    V t964 = vstr_cat(t963, vow_s[1726]);
+    V t965 = vstr_cat(t964, vow_s[1404]);
+    V t966 = vstr_cat(t965, vow_s[1103]);
     V t967 = vstr_cat(t966, vow_s[73]);
-    V t968 = vstr_cat(t967, vow_s[1689]);
-    V t969 = vstr_cat(t968, vow_s[1690]);
-    V t970 = vstr_cat(t969, vow_s[1691]);
-    V t971 = vstr_cat(t970, vow_s[1692]);
-    V t972 = vstr_cat(t971, vow_s[1065]);
+    V t968 = vstr_cat(t967, vow_s[1727]);
+    V t969 = vstr_cat(t968, vow_s[1728]);
+    V t970 = vstr_cat(t969, vow_s[1729]);
+    V t971 = vstr_cat(t970, vow_s[1730]);
+    V t972 = vstr_cat(t971, vow_s[1103]);
     V t973 = vstr_cat(t972, vow_s[73]);
-    V t974 = vstr_cat(t973, vow_s[1693]);
-    V t975 = vstr_cat(t974, vow_s[1062]);
-    V t976 = vstr_cat(t975, vow_s[1694]);
-    V t977 = vstr_cat(t976, vow_s[1065]);
+    V t974 = vstr_cat(t973, vow_s[1731]);
+    V t975 = vstr_cat(t974, vow_s[1100]);
+    V t976 = vstr_cat(t975, vow_s[1732]);
+    V t977 = vstr_cat(t976, vow_s[1103]);
     V t978 = vstr_cat(t977, vow_s[73]);
-    V t979 = vstr_cat(t978, vow_s[1695]);
-    V t980 = vstr_cat(t979, vow_s[1696]);
-    V t981 = vstr_cat(t980, vow_s[1697]);
-    V t982 = vstr_cat(t981, vow_s[1698]);
-    V t983 = vstr_cat(t982, vow_s[1699]);
-    V t984 = vstr_cat(t983, vow_s[1700]);
-    V t985 = vstr_cat(t984, vow_s[1701]);
-    V t986 = vstr_cat(t985, vow_s[1702]);
-    V t987 = vstr_cat(t986, vow_s[1703]);
-    V t988 = vstr_cat(t987, vow_s[1704]);
-    V t989 = vstr_cat(t988, vow_s[1705]);
-    V t990 = vstr_cat(t989, vow_s[1105]);
-    V t991 = vstr_cat(t990, vow_s[1706]);
-    V t992 = vstr_cat(t991, vow_s[1707]);
-    V t993 = vstr_cat(t992, vow_s[1708]);
-    V t994 = vstr_cat(t993, vow_s[1709]);
-    V t995 = vstr_cat(t994, vow_s[1704]);
-    V t996 = vstr_cat(t995, vow_s[1705]);
-    V t997 = vstr_cat(t996, vow_s[1105]);
-    V t998 = vstr_cat(t997, vow_s[1710]);
-    V t999 = vstr_cat(t998, vow_s[1062]);
-    V t1000 = vstr_cat(t999, vow_s[1711]);
-    V t1001 = vstr_cat(t1000, vow_s[1712]);
-    V t1002 = vstr_cat(t1001, vow_s[1713]);
-    V t1003 = vstr_cat(t1002, vow_s[1714]);
-    V t1004 = vstr_cat(t1003, vow_s[1715]);
-    V t1005 = vstr_cat(t1004, vow_s[1716]);
-    V t1006 = vstr_cat(t1005, vow_s[1709]);
-    V t1007 = vstr_cat(t1006, vow_s[1717]);
-    V t1008 = vstr_cat(t1007, vow_s[1718]);
-    V t1009 = vstr_cat(t1008, vow_s[1719]);
-    V t1010 = vstr_cat(t1009, vow_s[1720]);
-    V t1011 = vstr_cat(t1010, vow_s[1721]);
-    V t1012 = vstr_cat(t1011, vow_s[1105]);
-    V t1013 = vstr_cat(t1012, vow_s[1722]);
-    V t1014 = vstr_cat(t1013, vow_s[1723]);
-    V t1015 = vstr_cat(t1014, vow_s[1724]);
-    V t1016 = vstr_cat(t1015, vow_s[1725]);
-    V t1017 = vstr_cat(t1016, vow_s[1726]);
-    V t1018 = vstr_cat(t1017, vow_s[1727]);
-    V t1019 = vstr_cat(t1018, vow_s[1728]);
-    V t1020 = vstr_cat(t1019, vow_s[1729]);
-    V t1021 = vstr_cat(t1020, vow_s[1730]);
-    V t1022 = vstr_cat(t1021, vow_s[1105]);
-    V t1023 = vstr_cat(t1022, vow_s[1731]);
-    V t1024 = vstr_cat(t1023, vow_s[1732]);
-    V t1025 = vstr_cat(t1024, vow_s[1733]);
-    V t1026 = vstr_cat(t1025, vow_s[1734]);
-    V t1027 = vstr_cat(t1026, vow_s[1735]);
-    V t1028 = vstr_cat(t1027, vow_s[1736]);
-    V t1029 = vstr_cat(t1028, vow_s[1737]);
-    V t1030 = vstr_cat(t1029, vow_s[1065]);
+    V t979 = vstr_cat(t978, vow_s[1733]);
+    V t980 = vstr_cat(t979, vow_s[1734]);
+    V t981 = vstr_cat(t980, vow_s[1735]);
+    V t982 = vstr_cat(t981, vow_s[1736]);
+    V t983 = vstr_cat(t982, vow_s[1737]);
+    V t984 = vstr_cat(t983, vow_s[1738]);
+    V t985 = vstr_cat(t984, vow_s[1739]);
+    V t986 = vstr_cat(t985, vow_s[1740]);
+    V t987 = vstr_cat(t986, vow_s[1741]);
+    V t988 = vstr_cat(t987, vow_s[1742]);
+    V t989 = vstr_cat(t988, vow_s[1743]);
+    V t990 = vstr_cat(t989, vow_s[1143]);
+    V t991 = vstr_cat(t990, vow_s[1744]);
+    V t992 = vstr_cat(t991, vow_s[1745]);
+    V t993 = vstr_cat(t992, vow_s[1746]);
+    V t994 = vstr_cat(t993, vow_s[1747]);
+    V t995 = vstr_cat(t994, vow_s[1742]);
+    V t996 = vstr_cat(t995, vow_s[1743]);
+    V t997 = vstr_cat(t996, vow_s[1143]);
+    V t998 = vstr_cat(t997, vow_s[1748]);
+    V t999 = vstr_cat(t998, vow_s[1100]);
+    V t1000 = vstr_cat(t999, vow_s[1749]);
+    V t1001 = vstr_cat(t1000, vow_s[1750]);
+    V t1002 = vstr_cat(t1001, vow_s[1751]);
+    V t1003 = vstr_cat(t1002, vow_s[1752]);
+    V t1004 = vstr_cat(t1003, vow_s[1753]);
+    V t1005 = vstr_cat(t1004, vow_s[1754]);
+    V t1006 = vstr_cat(t1005, vow_s[1747]);
+    V t1007 = vstr_cat(t1006, vow_s[1755]);
+    V t1008 = vstr_cat(t1007, vow_s[1756]);
+    V t1009 = vstr_cat(t1008, vow_s[1757]);
+    V t1010 = vstr_cat(t1009, vow_s[1758]);
+    V t1011 = vstr_cat(t1010, vow_s[1759]);
+    V t1012 = vstr_cat(t1011, vow_s[1143]);
+    V t1013 = vstr_cat(t1012, vow_s[1760]);
+    V t1014 = vstr_cat(t1013, vow_s[1761]);
+    V t1015 = vstr_cat(t1014, vow_s[1762]);
+    V t1016 = vstr_cat(t1015, vow_s[1763]);
+    V t1017 = vstr_cat(t1016, vow_s[1764]);
+    V t1018 = vstr_cat(t1017, vow_s[1765]);
+    V t1019 = vstr_cat(t1018, vow_s[1766]);
+    V t1020 = vstr_cat(t1019, vow_s[1767]);
+    V t1021 = vstr_cat(t1020, vow_s[1768]);
+    V t1022 = vstr_cat(t1021, vow_s[1143]);
+    V t1023 = vstr_cat(t1022, vow_s[1769]);
+    V t1024 = vstr_cat(t1023, vow_s[1770]);
+    V t1025 = vstr_cat(t1024, vow_s[1771]);
+    V t1026 = vstr_cat(t1025, vow_s[1772]);
+    V t1027 = vstr_cat(t1026, vow_s[1773]);
+    V t1028 = vstr_cat(t1027, vow_s[1774]);
+    V t1029 = vstr_cat(t1028, vow_s[1775]);
+    V t1030 = vstr_cat(t1029, vow_s[1103]);
     V t1031 = vstr_cat(t1030, vow_s[73]);
-    V t1032 = vstr_cat(t1031, vow_s[1048]);
+    V t1032 = vstr_cat(t1031, vow_s[1086]);
     V t1033 = vstr_cat(t1032, vow_s[20]);
     vdrop(t1032);
     vdrop(t1031);
@@ -38725,1206 +40005,1244 @@ int main(int argc, char **argv) {
     vow_s[535] = vow_immortal(vstr_new("type alias '", 12));
     vow_s[536] = vow_immortal(vstr_new("' is defined in terms of itself", 31));
     vow_s[537] = vow_immortal(vstr_new("duplicate variant '", 19));
-    vow_s[538] = vow_immortal(vstr_new("main", 4));
-    vow_s[539] = vow_immortal(vstr_new("the program has no 'fn main()'", 30));
-    vow_s[540] = vow_immortal(vstr_new("'main' must take no parameters and return Unit", 46));
-    vow_s[541] = vow_immortal(vstr_new("duplicate parameter '", 21));
-    vow_s[542] = vow_immortal(vstr_new("unknown effect '", 16));
-    vow_s[543] = vow_immortal(vstr_new("' (expected console, fs or proc)", 32));
-    vow_s[544] = vow_immortal(vstr_new("only function parameters can be inout", 37));
-    vow_s[545] = vow_immortal(vstr_new("duplicate field '", 17));
-    vow_s[546] = vow_immortal(vstr_new("a specification", 15));
-    vow_s[547] = vow_immortal(vstr_new("a 'decreases' measure", 21));
-    vow_s[548] = vow_immortal(vstr_new("' can finish without returning a ", 33));
-    vow_s[549] = vow_immortal(vstr_new("unreachable statement", 21));
-    vow_s[550] = vow_immortal(vstr_new("the value of '", 14));
-    vow_s[551] = vow_immortal(vstr_new("_", 1));
-    vow_s[552] = vow_immortal(vstr_new("use 'let _ = ...' to discard a value", 36));
-    vow_s[553] = vow_immortal(vstr_new("cannot bind a Unit value", 24));
-    vow_s[554] = vow_immortal(vstr_new("unknown variable '", 18));
-    vow_s[555] = vow_immortal(vstr_new("' is not a var and cannot be reassigned", 39));
-    vow_s[556] = vow_immortal(vstr_new("the new value of '", 18));
-    vow_s[557] = vow_immortal(vstr_new("this function must return a ", 28));
-    vow_s[558] = vow_immortal(vstr_new("this function returns Unit; use a bare 'return'", 47));
-    vow_s[559] = vow_immortal(vstr_new("the returned value", 18));
-    vow_s[560] = vow_immortal(vstr_new("an if condition", 15));
-    vow_s[561] = vow_immortal(vstr_new("a while condition", 17));
-    vow_s[562] = vow_immortal(vstr_new("a range bound", 13));
-    vow_s[563] = vow_immortal(vstr_new("'for ... in' needs a List, but this is ", 39));
-    vow_s[564] = vow_immortal(vstr_new("'break' and 'continue' must be inside a loop", 44));
-    vow_s[565] = vow_immortal(vstr_new("the ", 4));
-    vow_s[566] = vow_immortal(vstr_new(" result of this call is ignored; bind it with 'let'", 51));
-    vow_s[567] = vow_immortal(vstr_new("this pattern does not match a ", 30));
-    vow_s[568] = vow_immortal(vstr_new("duplicate case", 14));
-    vow_s[569] = vow_immortal(vstr_new("a match on ", 11));
-    vow_s[570] = vow_immortal(vstr_new(" needs an 'else' arm", 20));
-    vow_s[571] = vow_immortal(vstr_new("cannot match on a value of type ", 32));
-    vow_s[572] = vow_immortal(vstr_new(" has no variant '", 17));
-    vow_s[573] = vow_immortal(vstr_new("duplicate case '", 16));
-    vow_s[574] = vow_immortal(vstr_new("field '", 7));
-    vow_s[575] = vow_immortal(vstr_new("' is bound twice", 16));
-    vow_s[576] = vow_immortal(vstr_new("variant '", 9));
-    vow_s[577] = vow_immortal(vstr_new("' has no field '", 16));
-    vow_s[578] = vow_immortal(vstr_new("expected a variant of ", 22));
-    vow_s[579] = vow_immortal(vstr_new("every variant is already covered; remove the 'else' arm", 55));
-    vow_s[580] = vow_immortal(vstr_new("match is not exhaustive; missing ", 33));
-    vow_s[581] = vow_immortal(vstr_new("'try' in a function that returns ", 33));
-    vow_s[582] = vow_immortal(vstr_new(" needs ", 7));
-    vow_s[583] = vow_immortal(vstr_new(" is not allowed in a specification", 34));
-    vow_s[584] = vow_immortal(vstr_new(" uses '", 7));
-    vow_s[585] = vow_immortal(vstr_new("', but the enclosing function does not declare it", 49));
-    vow_s[586] = vow_immortal(vstr_new("add 'uses ", 10));
-    vow_s[587] = vow_immortal(vstr_new("' to the function signature", 27));
-    vow_s[588] = vow_immortal(vstr_new("parameter of '", 14));
-    vow_s[589] = vow_immortal(vstr_new("' is inout; pass a var with 'inout'", 35));
-    vow_s[590] = vow_immortal(vstr_new("' is not inout", 14));
-    vow_s[591] = vow_immortal(vstr_new("' must be a var to be passed inout", 34));
-    vow_s[592] = vow_immortal(vstr_new("' is passed inout more than once in this call", 45));
-    vow_s[593] = vow_immortal(vstr_new("' is passed inout to '", 22));
-    vow_s[594] = vow_immortal(vstr_new("' and also modified by this argument; use separate statements", 61));
-    vow_s[595] = vow_immortal(vstr_new(" takes no inout arguments", 25));
-    vow_s[596] = vow_immortal(vstr_new("arguments to ", 13));
-    vow_s[597] = vow_immortal(vstr_new(" must be named", 14));
-    vow_s[598] = vow_immortal(vstr_new(" has no parameter '", 19));
-    vow_s[599] = vow_immortal(vstr_new("argument '", 10));
-    vow_s[600] = vow_immortal(vstr_new("' is given twice", 16));
-    vow_s[601] = vow_immortal(vstr_new("missing argument '", 18));
-    vow_s[602] = vow_immortal(vstr_new("' for ", 6));
-    vow_s[603] = vow_immortal(vstr_new("' is a type, not a value", 24));
-    vow_s[604] = vow_immortal(vstr_new("'it' is only available inside a 'where' refinement", 50));
-    vow_s[605] = vow_immortal(vstr_new("'result' is only available inside 'ensures'", 43));
-    vow_s[606] = vow_immortal(vstr_new("a hole", 6));
-    vow_s[607] = vow_immortal(vstr_new(" has no field '", 15));
-    vow_s[608] = vow_immortal(vstr_new(" has no fields", 14));
-    vow_s[609] = vow_immortal(vstr_new("an index", 8));
-    vow_s[610] = vow_immortal(vstr_new("cannot index a ", 15));
-    vow_s[611] = vow_immortal(vstr_new("a list literal", 14));
-    vow_s[612] = vow_immortal(vstr_new("cannot infer the element type of '[]'; add a type annotation", 60));
-    vow_s[613] = vow_immortal(vstr_new("a list element", 14));
-    vow_s[614] = vow_immortal(vstr_new("a map literal", 13));
-    vow_s[615] = vow_immortal(vstr_new("cannot infer the type of '{}'; add a type annotation", 52));
-    vow_s[616] = vow_immortal(vstr_new("'with'", 6));
-    vow_s[617] = vow_immortal(vstr_new("'with' needs a struct, but this is ", 35));
-    vow_s[618] = vow_immortal(vstr_new("'with' takes no inout arguments", 31));
-    vow_s[619] = vow_immortal(vstr_new("' is updated twice", 18));
-    vow_s[620] = vow_immortal(vstr_new("the operand of '", 16));
-    vow_s[621] = vow_immortal(vstr_new("a quantifier bound", 18));
-    vow_s[622] = vow_immortal(vstr_new("the body of '", 13));
-    vow_s[623] = vow_immortal(vstr_new("the operands of '", 17));
-    vow_s[624] = vow_immortal(vstr_new("cannot compare ", 15));
-    vow_s[625] = vow_immortal(vstr_new(" with ", 6));
-    vow_s[626] = vow_immortal(vstr_new("' works on Int, Bool and String, not ", 37));
-    vow_s[627] = vow_immortal(vstr_new("; use match instead", 19));
-    vow_s[628] = vow_immortal(vstr_new("'++'", 4));
-    vow_s[629] = vow_immortal(vstr_new("the right side of '++'", 22));
-    vow_s[630] = vow_immortal(vstr_new("'++' joins Strings or Lists, not ", 33));
-    vow_s[631] = vow_immortal(vstr_new("cannot infer the type of this Option; add a type annotation", 59));
-    vow_s[632] = vow_immortal(vstr_new("' has fields; construct it with ", 32));
-    vow_s[633] = vow_immortal(vstr_new("(...)", 5));
-    vow_s[634] = vow_immortal(vstr_new("' has no fields; write ", 23));
-    vow_s[635] = vow_immortal(vstr_new(" without parentheses", 20));
-    vow_s[636] = vow_immortal(vstr_new("variant", 7));
-    vow_s[637] = vow_immortal(vstr_new("constructing a value", 20));
-    vow_s[638] = vow_immortal(vstr_new("only named functions can be called", 34));
-    vow_s[639] = vow_immortal(vstr_new("' is not allowed in a specification (only len, value_or, is_some and is_none are)", 81));
-    vow_s[640] = vow_immortal(vstr_new("builtin", 7));
-    vow_s[641] = vow_immortal(vstr_new("' cannot be used in a specification: only pure, non-recursive functions whose whole body is 'return <expression>' can", 117));
-    vow_s[642] = vow_immortal(vstr_new("user", 4));
-    vow_s[643] = vow_immortal(vstr_new("struct '", 8));
-    vow_s[644] = vow_immortal(vstr_new("' is an enum; construct a variant with ", 39));
-    vow_s[645] = vow_immortal(vstr_new(".Variant(...)", 13));
-    vow_s[646] = vow_immortal(vstr_new("unknown function '", 18));
-    vow_s[647] = vow_immortal(vstr_new("cannot infer the type parameter ", 32));
-    vow_s[648] = vow_immortal(vstr_new(" of ", 4));
-    vow_s[649] = vow_immortal(vstr_new("add a type annotation to the variable this value is bound to", 60));
-    vow_s[650] = vow_immortal(vstr_new(" '", 2));
-    vow_s[651] = vow_immortal(vstr_new("the error passed on by 'try' (the function's error type)", 56));
-    vow_s[652] = vow_immortal(vstr_new("' is generic and cannot be used in a specification", 50));
-    vow_s[653] = vow_immortal(vstr_new("argument", 8));
-    vow_s[654] = vow_immortal(vstr_new("field", 5));
-    vow_s[655] = vow_immortal(vstr_new("'len' needs a List, String or Map, not ", 39));
-    vow_s[656] = vow_immortal(vstr_new("the pushed item", 15));
-    vow_s[657] = vow_immortal(vstr_new("'push' needs a List, not ", 25));
-    vow_s[658] = vow_immortal(vstr_new("'at'", 4));
-    vow_s[659] = vow_immortal(vstr_new("the new element", 15));
-    vow_s[660] = vow_immortal(vstr_new("'set_at' needs a List, not ", 27));
-    vow_s[661] = vow_immortal(vstr_new("'from'", 6));
-    vow_s[662] = vow_immortal(vstr_new("'to'", 4));
-    vow_s[663] = vow_immortal(vstr_new("'slice' needs a List or String, not ", 36));
-    vow_s[664] = vow_immortal(vstr_new("'parts'", 7));
-    vow_s[665] = vow_immortal(vstr_new("'sep'", 5));
-    vow_s[666] = vow_immortal(vstr_new("the argument", 12));
-    vow_s[667] = vow_immortal(vstr_new("the character code", 18));
-    vow_s[668] = vow_immortal(vstr_new("the message", 11));
-    vow_s[669] = vow_immortal(vstr_new("the path", 8));
-    vow_s[670] = vow_immortal(vstr_new("the contents", 12));
-    vow_s[671] = vow_immortal(vstr_new("the variable name", 17));
-    vow_s[672] = vow_immortal(vstr_new("'argv'", 6));
-    vow_s[673] = vow_immortal(vstr_new("'input'", 7));
-    vow_s[674] = vow_immortal(vstr_new("the exit code", 13));
-    vow_s[675] = vow_immortal(vstr_new("the default", 11));
-    vow_s[676] = vow_immortal(vstr_new("'value_or' needs an Option, not ", 32));
-    vow_s[677] = vow_immortal(vstr_new("' needs an Option, not ", 23));
-    vow_s[678] = vow_immortal(vstr_new("' needs a Map, not ", 19));
-    vow_s[679] = vow_immortal(vstr_new("the key", 7));
-    vow_s[680] = vow_immortal(vstr_new("the value", 9));
-    vow_s[681] = vow_immortal(vstr_new("(declare-sort Val 0)", 20));
-    vow_s[682] = vow_immortal(vstr_new("(declare-fun len (Val) Int)", 27));
-    vow_s[683] = vow_immortal(vstr_new("(declare-fun byte (Val Int) Int)", 32));
-    vow_s[684] = vow_immortal(vstr_new("(declare-fun tag (Val) Int)", 27));
-    vow_s[685] = vow_immortal(vstr_new("(declare-fun elem_Int (Val Int) Int)", 36));
-    vow_s[686] = vow_immortal(vstr_new("(declare-fun elem_Bool (Val Int) Bool)", 38));
-    vow_s[687] = vow_immortal(vstr_new("(declare-fun elem_Val (Val Int) Val)", 36));
-    vow_s[688] = vow_immortal(vstr_new("(assert (forall ((x Val)) (! (>= (len x) 0) :pattern ((len x)))))", 65));
-    vow_s[689] = vow_immortal(vstr_new("(assert (forall ((s Val) (i Int)) (! (and (>= (byte s i) 0) (< (byte s i) 256)) :pattern ((byte s i)))))", 104));
-    vow_s[690] = vow_immortal(vstr_new("Val", 3));
-    vow_s[691] = vow_immortal(vstr_new("(and ", 5));
-    vow_s[692] = vow_immortal(vstr_new("(- 9223372036854775808)", 23));
-    vow_s[693] = vow_immortal(vstr_new("(- ", 3));
-    vow_s[694] = vow_immortal(vstr_new("div", 3));
-    vow_s[695] = vow_immortal(vstr_new("mod", 3));
-    vow_s[696] = vow_immortal(vstr_new("=>", 2));
-    vow_s[697] = vow_immortal(vstr_new("(not (= ", 8));
-    vow_s[698] = vow_immortal(vstr_new("))", 2));
-    vow_s[699] = vow_immortal(vstr_new("v", 1));
-    vow_s[700] = vow_immortal(vstr_new("(declare-const ", 15));
-    vow_s[701] = vow_immortal(vstr_new("(assert (= ", 11));
-    vow_s[702] = vow_immortal(vstr_new("(declare-fun ", 13));
-    vow_s[703] = vow_immortal(vstr_new(") ", 2));
-    vow_s[704] = vow_immortal(vstr_new("gfld_", 5));
-    vow_s[705] = vow_immortal(vstr_new("fld_", 4));
-    vow_s[706] = vow_immortal(vstr_new("opt_value_", 10));
-    vow_s[707] = vow_immortal(vstr_new("gvf_", 4));
-    vow_s[708] = vow_immortal(vstr_new("vf_", 3));
-    vow_s[709] = vow_immortal(vstr_new("unbound_", 8));
-    vow_s[710] = vow_immortal(vstr_new("len(", 4));
-    vow_s[711] = vow_immortal(vstr_new("(len ", 5));
-    vow_s[712] = vow_immortal(vstr_new("(assert (= (len ", 16));
-    vow_s[713] = vow_immortal(vstr_new("(assert (= (byte ", 17));
-    vow_s[714] = vow_immortal(vstr_new(" where ", 7));
-    vow_s[715] = vow_immortal(vstr_new("0", 1));
-    vow_s[716] = vow_immortal(vstr_new("return value of '", 17));
-    vow_s[717] = vow_immortal(vstr_new("' satisfies ", 12));
-    vow_s[718] = vow_immortal(vstr_new("postcondition of '", 18));
-    vow_s[719] = vow_immortal(vstr_new("': ", 3));
-    vow_s[720] = vow_immortal(vstr_new("(= (tag ", 8));
-    vow_s[721] = vow_immortal(vstr_new(") 1)", 4));
-    vow_s[722] = vow_immortal(vstr_new(") 0)", 4));
-    vow_s[723] = vow_immortal(vstr_new("(ite (= (tag ", 13));
-    vow_s[724] = vow_immortal(vstr_new(") 1) (", 6));
-    vow_s[725] = vow_immortal(vstr_new("(byte ", 6));
-    vow_s[726] = vow_immortal(vstr_new("(elem_", 6));
-    vow_s[727] = vow_immortal(vstr_new("(not ", 5));
-    vow_s[728] = vow_immortal(vstr_new("byte", 4));
-    vow_s[729] = vow_immortal(vstr_new("elem_", 5));
-    vow_s[730] = vow_immortal(vstr_new("q", 1));
-    vow_s[731] = vow_immortal(vstr_new("(forall ((", 10));
-    vow_s[732] = vow_immortal(vstr_new(" Int)) (=> (and (<= ", 20));
-    vow_s[733] = vow_immortal(vstr_new(") (< ", 5));
-    vow_s[734] = vow_immortal(vstr_new(")) ", 3));
-    vow_s[735] = vow_immortal(vstr_new("(exists ((", 10));
-    vow_s[736] = vow_immortal(vstr_new(" Int)) (and (<= ", 16));
-    vow_s[737] = vow_immortal(vstr_new("loop invariant holds on entry: ", 31));
-    vow_s[738] = vow_immortal(vstr_new("loop invariant ", 15));
-    vow_s[739] = vow_immortal(vstr_new("loop measure decreases: ", 24));
-    vow_s[740] = vow_immortal(vstr_new("(< ", 3));
-    vow_s[741] = vow_immortal(vstr_new("not (", 5));
-    vow_s[742] = vow_immortal(vstr_new("loop measure is non-negative: ", 30));
-    vow_s[743] = vow_immortal(vstr_new("(>= ", 4));
-    vow_s[744] = vow_immortal(vstr_new(" 0)", 3));
-    vow_s[745] = vow_immortal(vstr_new("is preserved", 12));
-    vow_s[746] = vow_immortal(vstr_new("(<= ", 4));
-    vow_s[747] = vow_immortal(vstr_new("(or (<= ", 8));
-    vow_s[748] = vow_immortal(vstr_new(") (= ", 5));
-    vow_s[749] = vow_immortal(vstr_new(" <= ", 4));
-    vow_s[750] = vow_immortal(vstr_new(" < ", 3));
-    vow_s[751] = vow_immortal(vstr_new("(+ ", 3));
-    vow_s[752] = vow_immortal(vstr_new(" 1)", 3));
-    vow_s[753] = vow_immortal(vstr_new("(<= 0 ", 6));
-    vow_s[754] = vow_immortal(vstr_new(" (len ", 6));
-    vow_s[755] = vow_immortal(vstr_new(" is an element of ", 18));
-    vow_s[756] = vow_immortal(vstr_new("assertion: ", 11));
-    vow_s[757] = vow_immortal(vstr_new("holds at 'break'", 16));
-    vow_s[758] = vow_immortal(vstr_new("holds at 'continue'", 19));
-    vow_s[759] = vow_immortal(vstr_new("(= ", 3));
-    vow_s[760] = vow_immortal(vstr_new(" is ", 4));
-    vow_s[761] = vow_immortal(vstr_new("(and (<= 0 (tag ", 16));
-    vow_s[762] = vow_immortal(vstr_new(")) (< (tag ", 11));
-    vow_s[763] = vow_immortal(vstr_new("(or ", 4));
-    vow_s[764] = vow_immortal(vstr_new("(=> ", 4));
-    vow_s[765] = vow_immortal(vstr_new("(ite ", 5));
-    vow_s[766] = vow_immortal(vstr_new("(assert (= (elem_", 17));
-    vow_s[767] = vow_immortal(vstr_new(") 0))", 5));
-    vow_s[768] = vow_immortal(vstr_new("(and (<= 0 ", 11));
-    vow_s[769] = vow_immortal(vstr_new(")))", 3));
-    vow_s[770] = vow_immortal(vstr_new("index in bounds: 0 <= ", 22));
-    vow_s[771] = vow_immortal(vstr_new(" < len(", 7));
-    vow_s[772] = vow_immortal(vstr_new("(assert (= (tag ", 16));
-    vow_s[773] = vow_immortal(vstr_new("divisor is not zero: ", 21));
-    vow_s[774] = vow_immortal(vstr_new(" 0))", 4));
-    vow_s[775] = vow_immortal(vstr_new(") (+ (len ", 10));
-    vow_s[776] = vow_immortal(vstr_new(") (len ", 7));
-    vow_s[777] = vow_immortal(vstr_new("))))", 4));
-    vow_s[778] = vow_immortal(vstr_new("(ite (< ", 8));
-    vow_s[779] = vow_immortal(vstr_new(")) (", 4));
-    vow_s[780] = vow_immortal(vstr_new(") (", 3));
-    vow_s[781] = vow_immortal(vstr_new(" (- ", 4));
-    vow_s[782] = vow_immortal(vstr_new("(assert (forall ((", 18));
-    vow_s[783] = vow_immortal(vstr_new(" Int)) (! (=> (and (<= 0 ", 25));
-    vow_s[784] = vow_immortal(vstr_new("))) (= ", 7));
-    vow_s[785] = vow_immortal(vstr_new(")) :pattern (", 13));
-    vow_s[786] = vow_immortal(vstr_new("' of ", 5));
-    vow_s[787] = vow_immortal(vstr_new(" satisfies ", 11));
-    vow_s[788] = vow_immortal(vstr_new("(assert (= (", 12));
-    vow_s[789] = vow_immortal(vstr_new("' of '", 6));
-    vow_s[790] = vow_immortal(vstr_new("precondition of '", 17));
-    vow_s[791] = vow_immortal(vstr_new("recursive call to '", 19));
-    vow_s[792] = vow_immortal(vstr_new("' decreases its measure: ", 25));
-    vow_s[793] = vow_immortal(vstr_new("(and (>= ", 9));
-    vow_s[794] = vow_immortal(vstr_new(" 0) (< ", 7));
-    vow_s[795] = vow_immortal(vstr_new(") 1)))", 6));
-    vow_s[796] = vow_immortal(vstr_new(" (elem_", 7));
-    vow_s[797] = vow_immortal(vstr_new("))) :pattern (", 14));
-    vow_s[798] = vow_immortal(vstr_new("set_at index in bounds", 22));
-    vow_s[799] = vow_immortal(vstr_new("set_at index in bounds: 0 <= ", 29));
-    vow_s[800] = vow_immortal(vstr_new(")) (not (= ", 11));
-    vow_s[801] = vow_immortal(vstr_new(") (<= ", 6));
-    vow_s[802] = vow_immortal(vstr_new("slice bounds", 12));
-    vow_s[803] = vow_immortal(vstr_new("slice bounds: 0 <= ", 19));
-    vow_s[804] = vow_immortal(vstr_new(" <= len(", 8));
-    vow_s[805] = vow_immortal(vstr_new("(= (len ", 8));
-    vow_s[806] = vow_immortal(vstr_new(") (- ", 5));
-    vow_s[807] = vow_immortal(vstr_new(" (+ ", 4));
-    vow_s[808] = vow_immortal(vstr_new(")))) :pattern (", 15));
-    vow_s[809] = vow_immortal(vstr_new(" 256))", 6));
-    vow_s[810] = vow_immortal(vstr_new("char code in range", 18));
-    vow_s[811] = vow_immortal(vstr_new("char code in range: 0 <= ", 25));
-    vow_s[812] = vow_immortal(vstr_new(" < 256", 6));
-    vow_s[813] = vow_immortal(vstr_new(") 1))", 5));
-    vow_s[814] = vow_immortal(vstr_new("(= (byte ", 9));
-    vow_s[815] = vow_immortal(vstr_new(" 0) ", 4));
-    vow_s[816] = vow_immortal(vstr_new("(assert (>= (len ", 17));
-    vow_s[817] = vow_immortal(vstr_new(") 16))", 6));
-    vow_s[818] = vow_immortal(vstr_new("z3", 2));
-    vow_s[819] = vow_immortal(vstr_new("VOW_Z3", 6));
-    vow_s[820] = vow_immortal(vstr_new("-in", 3));
-    vow_s[821] = vow_immortal(vstr_new("-smt2", 5));
-    vow_s[822] = vow_immortal(vstr_new("(set-option :produce-models true)", 33));
-    vow_s[823] = vow_immortal(vstr_new("(set-option :timeout 10000)", 27));
-    vow_s[824] = vow_immortal(vstr_new("(push 1) ; fn ", 14));
-    vow_s[825] = vow_immortal(vstr_new("(check-sat)", 11));
-    vow_s[826] = vow_immortal(vstr_new("(push 1)", 8));
-    vow_s[827] = vow_immortal(vstr_new("(assert ", 8));
-    vow_s[828] = vow_immortal(vstr_new("(assert (not ", 13));
-    vow_s[829] = vow_immortal(vstr_new("(get-value (", 12));
-    vow_s[830] = vow_immortal(vstr_new("(pop 1)", 7));
-    vow_s[831] = vow_immortal(vstr_new("((", 2));
-    vow_s[832] = vow_immortal(vstr_new("VOW_SMT_DUMP", 12));
-    vow_s[833] = vow_immortal(vstr_new("sat", 3));
-    vow_s[834] = vow_immortal(vstr_new("unsat", 5));
-    vow_s[835] = vow_immortal(vstr_new("unknown", 7));
-    vow_s[836] = vow_immortal(vstr_new("(error", 6));
-    vow_s[837] = vow_immortal(vstr_new("Z3 rejected the generated query: ", 33));
-    vow_s[838] = vow_immortal(vstr_new("Z3 answered ", 12));
-    vow_s[839] = vow_immortal(vstr_new(" queries", 8));
-    vow_s[840] = vow_immortal(vstr_new(" (is Z3 installed\? set VOW_Z3 to its path)", 42));
-    vow_s[841] = vow_immortal(vstr_new("internal verifier error: the definitions for '", 46));
-    vow_s[842] = vow_immortal(vstr_new("' are inconsistent", 18));
-    vow_s[843] = vow_immortal(vstr_new("cannot prove ", 13));
-    vow_s[844] = vow_immortal(vstr_new("Z3 gave up (timeout or incomplete theory); add an assertion, invariant or check to help it", 90));
-    vow_s[845] = vow_immortal(vstr_new(" = ", 3));
-    vow_s[846] = vow_immortal(vstr_new("counterexample: ", 16));
-    vow_s[847] = vow_immortal(vstr_new("in function '", 13));
-    vow_s[848] = vow_immortal(vstr_new("\\r", 2));
-    vow_s[849] = vow_immortal(vstr_new("\\0", 2));
-    vow_s[850] = vow_immortal(vstr_new("inout ", 6));
-    vow_s[851] = vow_immortal(vstr_new("{}", 2));
-    vow_s[852] = vow_immortal(vstr_new(" with (", 7));
-    vow_s[853] = vow_immortal(vstr_new("not ", 4));
-    vow_s[854] = vow_immortal(vstr_new(" in ", 4));
-    vow_s[855] = vow_immortal(vstr_new("  ", 2));
-    vow_s[856] = vow_immortal(vstr_new(" invariant ", 11));
-    vow_s[857] = vow_immortal(vstr_new("set ", 4));
-    vow_s[858] = vow_immortal(vstr_new("return ", 7));
-    vow_s[859] = vow_immortal(vstr_new(" then", 5));
-    vow_s[860] = vow_immortal(vstr_new("end if", 6));
-    vow_s[861] = vow_immortal(vstr_new(" decreases ", 11));
-    vow_s[862] = vow_immortal(vstr_new("while ", 6));
-    vow_s[863] = vow_immortal(vstr_new(" do", 3));
-    vow_s[864] = vow_immortal(vstr_new("end while", 9));
-    vow_s[865] = vow_immortal(vstr_new("for ", 4));
-    vow_s[866] = vow_immortal(vstr_new("end for", 7));
-    vow_s[867] = vow_immortal(vstr_new("match ", 6));
-    vow_s[868] = vow_immortal(vstr_new("case ", 5));
-    vow_s[869] = vow_immortal(vstr_new("end match", 9));
-    vow_s[870] = vow_immortal(vstr_new("assert ", 7));
-    vow_s[871] = vow_immortal(vstr_new("check ", 6));
-    vow_s[872] = vow_immortal(vstr_new("fn ", 3));
-    vow_s[873] = vow_immortal(vstr_new(" -> ", 4));
-    vow_s[874] = vow_immortal(vstr_new(" uses ", 6));
-    vow_s[875] = vow_immortal(vstr_new(" requires ", 10));
-    vow_s[876] = vow_immortal(vstr_new(" ensures ", 9));
-    vow_s[877] = vow_immortal(vstr_new("end fn ", 7));
-    vow_s[878] = vow_immortal(vstr_new("struct ", 7));
-    vow_s[879] = vow_immortal(vstr_new("end struct ", 11));
-    vow_s[880] = vow_immortal(vstr_new("enum ", 5));
-    vow_s[881] = vow_immortal(vstr_new("),", 2));
-    vow_s[882] = vow_immortal(vstr_new("end enum ", 9));
-    vow_s[883] = vow_immortal(vstr_new("type ", 5));
-    vow_s[884] = vow_immortal(vstr_new("\\\?", 2));
-    vow_s[885] = vow_immortal(vstr_new("\\", 1));
-    vow_s[886] = vow_immortal(vstr_new("void", 4));
-    vow_s[887] = vow_immortal(vstr_new("V * l_", 6));
-    vow_s[888] = vow_immortal(vstr_new("V l_", 4));
-    vow_s[889] = vow_immortal(vstr_new("// Generated by vowc. Do not edit.", 34));
-    vow_s[890] = vow_immortal(vstr_new("#define VOW_VERIFIED 1", 22));
-    vow_s[891] = vow_immortal(vstr_new("#include \"vow_rt.h\"", 19));
-    vow_s[892] = vow_immortal(vstr_new("static V vow_s[", 15));
-    vow_s[893] = vow_immortal(vstr_new("];", 2));
-    vow_s[894] = vow_immortal(vstr_new("static V ", 9));
-    vow_s[895] = vow_immortal(vstr_new(");", 2));
-    vow_s[896] = vow_immortal(vstr_new("int main(int argc, char **argv) {", 33));
-    vow_s[897] = vow_immortal(vstr_new("    vow_argc = argc;", 20));
-    vow_s[898] = vow_immortal(vstr_new("    vow_argv = argv;", 20));
-    vow_s[899] = vow_immortal(vstr_new("    vow_s[", 10));
-    vow_s[900] = vow_immortal(vstr_new("] = vow_immortal(vstr_new(", 26));
-    vow_s[901] = vow_immortal(vstr_new("));", 3));
-    vow_s[902] = vow_immortal(vstr_new("    f_main();", 13));
-    vow_s[903] = vow_immortal(vstr_new("    fflush(stdout);", 19));
-    vow_s[904] = vow_immortal(vstr_new("    vow_report_leaks();", 23));
-    vow_s[905] = vow_immortal(vstr_new("    return 0;", 13));
-    vow_s[906] = vow_immortal(vstr_new("t", 1));
-    vow_s[907] = vow_immortal(vstr_new("V ", 2));
-    vow_s[908] = vow_immortal(vstr_new(";", 1));
-    vow_s[909] = vow_immortal(vstr_new("vow_s[", 6));
-    vow_s[910] = vow_immortal(vstr_new("i_", 2));
-    vow_s[911] = vow_immortal(vstr_new("f_", 2));
-    vow_s[912] = vow_immortal(vstr_new("(*l_", 4));
-    vow_s[913] = vow_immortal(vstr_new("l_", 2));
-    vow_s[914] = vow_immortal(vstr_new("vdup(", 5));
-    vow_s[915] = vow_immortal(vstr_new("vdrop(", 6));
-    vow_s[916] = vow_immortal(vstr_new("field:", 6));
-    vow_s[917] = vow_immortal(vstr_new(") {", 3));
-    vow_s[918] = vow_immortal(vstr_new("return 0;", 9));
-    vow_s[919] = vow_immortal(vstr_new("(void)", 6));
-    vow_s[920] = vow_immortal(vstr_new("for (;;) {", 10));
-    vow_s[921] = vow_immortal(vstr_new("if (!", 5));
-    vow_s[922] = vow_immortal(vstr_new(") break;", 8));
-    vow_s[923] = vow_immortal(vstr_new("for (V ", 7));
-    vow_s[924] = vow_immortal(vstr_new("; VI(", 5));
-    vow_s[925] = vow_immortal(vstr_new(") < VI(", 7));
-    vow_s[926] = vow_immortal(vstr_new("); ", 3));
-    vow_s[927] = vow_immortal(vstr_new(" = (V)(VI(", 10));
-    vow_s[928] = vow_immortal(vstr_new(") + 1)) {", 9));
-    vow_s[929] = vow_immortal(vstr_new("for (int64_t ", 13));
-    vow_s[930] = vow_immortal(vstr_new(" = 0; ", 6));
-    vow_s[931] = vow_immortal(vstr_new(" < VL(", 6));
-    vow_s[932] = vow_immortal(vstr_new(")->len; ", 8));
-    vow_s[933] = vow_immortal(vstr_new("++) {", 5));
-    vow_s[934] = vow_immortal(vstr_new(" = VB(VL(", 9));
-    vow_s[935] = vow_immortal(vstr_new(")->buf)->items[", 15));
-    vow_s[936] = vow_immortal(vstr_new("#ifndef VOW_VERIFIED", 20));
-    vow_s[937] = vow_immortal(vstr_new("assertion failed at ", 20));
-    vow_s[938] = vow_immortal(vstr_new(") vow_panic(", 12));
-    vow_s[939] = vow_immortal(vstr_new("#endif", 6));
-    vow_s[940] = vow_immortal(vstr_new("check failed at ", 16));
-    vow_s[941] = vow_immortal(vstr_new("break;", 6));
-    vow_s[942] = vow_immortal(vstr_new("continue;", 9));
-    vow_s[943] = vow_immortal(vstr_new("if (", 4));
-    vow_s[944] = vow_immortal(vstr_new("} else {", 8));
-    vow_s[945] = vow_immortal(vstr_new("VP(", 3));
-    vow_s[946] = vow_immortal(vstr_new(")[0]", 4));
-    vow_s[947] = vow_immortal(vstr_new("VI(", 3));
-    vow_s[948] = vow_immortal(vstr_new(") == INT64_C(", 13));
-    vow_s[949] = vow_immortal(vstr_new("vstr_eq(", 8));
-    vow_s[950] = vow_immortal(vstr_new(" == ", 4));
-    vow_s[951] = vow_immortal(vstr_new("} else if", 9));
-    vow_s[952] = vow_immortal(vstr_new(" = VP(", 6));
-    vow_s[953] = vow_immortal(vstr_new(")[", 2));
-    vow_s[954] = vow_immortal(vstr_new("    vow_panic(\"unreachable: corrupt enum tag\");", 47));
-    vow_s[955] = vow_immortal(vstr_new("vhm", 3));
-    vow_s[956] = vow_immortal(vstr_new("vmap", 4));
-    vow_s[957] = vow_immortal(vstr_new("1", 1));
-    vow_s[958] = vow_immortal(vstr_new("UINT64_C(", 9));
-    vow_s[959] = vow_immortal(vstr_new("(V)INT64_C(", 11));
-    vow_s[960] = vow_immortal(vstr_new("0 /* spec-only */", 17));
-    vow_s[961] = vow_immortal(vstr_new("vlist_empty(", 12));
-    vow_s[962] = vow_immortal(vstr_new(" = vlist_push(", 14));
-    vow_s[963] = vow_immortal(vstr_new("vmap_empty()", 12));
-    vow_s[964] = vow_immortal(vstr_new("vstr_byte(", 10));
-    vow_s[965] = vow_immortal(vstr_new("vlist_get(", 10));
-    vow_s[966] = vow_immortal(vstr_new("vow_variant0(", 13));
-    vow_s[967] = vow_immortal(vstr_new("vow_steal(", 10));
-    vow_s[968] = vow_immortal(vstr_new("vow_with(", 9));
-    vow_s[969] = vow_immortal(vstr_new("vdrop(VP(", 9));
-    vow_s[970] = vow_immortal(vstr_new("]);", 3));
-    vow_s[971] = vow_immortal(vstr_new("] = ", 4));
-    vow_s[972] = vow_immortal(vstr_new("vneg(", 5));
-    vow_s[973] = vow_immortal(vstr_new("(V)!", 4));
-    vow_s[974] = vow_immortal(vstr_new(") { ", 4));
-    vow_s[975] = vow_immortal(vstr_new(" = 0; break; }", 14));
-    vow_s[976] = vow_immortal(vstr_new(" = 1; break; }", 14));
-    vow_s[977] = vow_immortal(vstr_new("!", 1));
-    vow_s[978] = vow_immortal(vstr_new("vstr_cat(", 9));
-    vow_s[979] = vow_immortal(vstr_new("vlist_cat(", 10));
-    vow_s[980] = vow_immortal(vstr_new("vadd(", 5));
-    vow_s[981] = vow_immortal(vstr_new("vsub(", 5));
-    vow_s[982] = vow_immortal(vstr_new("vmul(", 5));
-    vow_s[983] = vow_immortal(vstr_new("vdiv(", 5));
-    vow_s[984] = vow_immortal(vstr_new("vmod(", 5));
-    vow_s[985] = vow_immortal(vstr_new("(V)(", 4));
-    vow_s[986] = vow_immortal(vstr_new("(V)!vstr_eq(", 12));
-    vow_s[987] = vow_immortal(vstr_new("(V)!(V)(", 8));
-    vow_s[988] = vow_immortal(vstr_new("(V)(VI(", 7));
-    vow_s[989] = vow_immortal(vstr_new(" VI(", 4));
-    vow_s[990] = vow_immortal(vstr_new("&l_", 3));
-    vow_s[991] = vow_immortal(vstr_new("vow_fields(", 11));
-    vow_s[992] = vow_immortal(vstr_new(")[0] = ", 7));
-    vow_s[993] = vow_immortal(vstr_new("vstr_len(", 9));
-    vow_s[994] = vow_immortal(vstr_new("_len(", 5));
-    vow_s[995] = vow_immortal(vstr_new("vlist_len(", 10));
-    vow_s[996] = vow_immortal(vstr_new("vlist_push(", 11));
-    vow_s[997] = vow_immortal(vstr_new("vlist_set_at(", 13));
-    vow_s[998] = vow_immortal(vstr_new("vstr_slice(", 11));
-    vow_s[999] = vow_immortal(vstr_new("vlist_slice(", 12));
-    vow_s[1000] = vow_immortal(vstr_new("vjoin(", 6));
-    vow_s[1001] = vow_immortal(vstr_new("vint_to_str(", 12));
-    vow_s[1002] = vow_immortal(vstr_new("vstr_to_int(", 12));
-    vow_s[1003] = vow_immortal(vstr_new("vchar(", 6));
-    vow_s[1004] = vow_immortal(vstr_new("vhash(", 6));
-    vow_s[1005] = vow_immortal(vstr_new("_insert(", 8));
-    vow_s[1006] = vow_immortal(vstr_new("_lookup(", 8));
-    vow_s[1007] = vow_immortal(vstr_new("_has(", 5));
-    vow_s[1008] = vow_immortal(vstr_new("_keys(", 6));
-    vow_s[1009] = vow_immortal(vstr_new("vow_panic(VS(", 13));
-    vow_s[1010] = vow_immortal(vstr_new(")->data);", 9));
-    vow_s[1011] = vow_immortal(vstr_new("vexit(", 6));
-    vow_s[1012] = vow_immortal(vstr_new("vprint(", 7));
-    vow_s[1013] = vow_immortal(vstr_new("veprint(", 8));
-    vow_s[1014] = vow_immortal(vstr_new("vread_file(", 11));
-    vow_s[1015] = vow_immortal(vstr_new("vwrite_file(", 12));
-    vow_s[1016] = vow_immortal(vstr_new("vargs()", 7));
-    vow_s[1017] = vow_immortal(vstr_new("vmake_dir(", 10));
-    vow_s[1018] = vow_immortal(vstr_new("vlist_dir(", 10));
-    vow_s[1019] = vow_immortal(vstr_new("vgetenv(", 8));
-    vow_s[1020] = vow_immortal(vstr_new("vrun(", 5));
-    vow_s[1021] = vow_immortal(vstr_new("(V)(VP(", 7));
-    vow_s[1022] = vow_immortal(vstr_new(")[0] == 1)", 10));
-    vow_s[1023] = vow_immortal(vstr_new(")[0] == 0)", 10));
-    vow_s[1024] = vow_immortal(vstr_new("vvalue_or(", 10));
-    vow_s[1025] = vow_immortal(vstr_new("vow-verifier-2", 14));
-    vow_s[1026] = vow_immortal(vstr_new("// Vow runtime, reference counted.\012", 35));
-    vow_s[1027] = vow_immortal(vstr_new("// Every Vow value is one 64-bit word (V). Integers and booleans are unboxed; everything\012", 89));
-    vow_s[1028] = vow_immortal(vstr_new("// else is a pointer to a heap object, preceded by a 16-byte header holding its\012", 80));
-    vow_s[1029] = vow_immortal(vstr_new("// reference count and layout. Objects are freed when their count reaches zero, and an\012", 87));
-    vow_s[1030] = vow_immortal(vstr_new("// object with a count of one is updated in place by `with`, `push`, `set_at` and\012", 82));
-    vow_s[1031] = vow_immortal(vstr_new("// `insert`, which preserves value semantics because nothing else can see it.\012", 78));
-    vow_s[1032] = vow_immortal(vstr_new("// Ownership conventions (the code generator relies on these):\012", 63));
-    vow_s[1033] = vow_immortal(vstr_new("// - A function \"consumes\" an argument when it takes over the caller's reference, and\012", 86));
-    vow_s[1034] = vow_immortal(vstr_new("//   \"borrows\" it otherwise. Results are always owned by the caller.\012", 69));
-    vow_s[1035] = vow_immortal(vstr_new("// - Consumed: vlist_push(list, item), vlist_set_at(list, _, value), vlist_cat(list, _),\012", 89));
-    vow_s[1036] = vow_immortal(vstr_new("//   vmap_insert(map, key, value), vow_with(base), vsome(value),\012", 65));
-    vow_s[1037] = vow_immortal(vstr_new("//   vvalue_or(_, default).\012", 28));
-    vow_s[1038] = vow_immortal(vstr_new("// - Everything else borrows its arguments.\012", 44));
-    vow_s[1039] = vow_immortal(vstr_new("// - vlist_get and field reads return borrowed references.\012", 59));
-    vow_s[1040] = vow_immortal(vstr_new("// Define VOW_VERIFIED when every proof obligation was discharged: bounds and divisor\012", 86));
-    vow_s[1041] = vow_immortal(vstr_new("// checks then compile to nothing. Overflow checks always stay. Define VOW_RC_DEBUG to\012", 87));
-    vow_s[1042] = vow_immortal(vstr_new("// keep freed memory poisoned (never reused) and panic on any use after free; with\012", 83));
-    vow_s[1043] = vow_immortal(vstr_new("// VOW_LEAKS=1 in the environment, the program reports objects still live at exit.\012", 83));
-    vow_s[1044] = vow_immortal(vstr_new("#ifndef VOW_RT_H\012", 17));
-    vow_s[1045] = vow_immortal(vstr_new("#define VOW_RT_H\012", 17));
-    vow_s[1046] = vow_immortal(vstr_new("#ifndef _GNU_SOURCE\012", 20));
-    vow_s[1047] = vow_immortal(vstr_new("#define _GNU_SOURCE\012", 20));
-    vow_s[1048] = vow_immortal(vstr_new("#endif\012", 7));
-    vow_s[1049] = vow_immortal(vstr_new("#include <dirent.h>\012", 20));
-    vow_s[1050] = vow_immortal(vstr_new("#include <fcntl.h>\012", 19));
-    vow_s[1051] = vow_immortal(vstr_new("#include <stdint.h>\012", 20));
-    vow_s[1052] = vow_immortal(vstr_new("#include <stdio.h>\012", 19));
-    vow_s[1053] = vow_immortal(vstr_new("#include <stdlib.h>\012", 20));
-    vow_s[1054] = vow_immortal(vstr_new("#include <string.h>\012", 20));
-    vow_s[1055] = vow_immortal(vstr_new("#include <sys/stat.h>\012", 22));
-    vow_s[1056] = vow_immortal(vstr_new("#include <sys/wait.h>\012", 22));
-    vow_s[1057] = vow_immortal(vstr_new("#include <unistd.h>\012", 20));
-    vow_s[1058] = vow_immortal(vstr_new("typedef uint64_t V;\012", 20));
-    vow_s[1059] = vow_immortal(vstr_new("#define VI(x) ((int64_t)(x))\012", 29));
-    vow_s[1060] = vow_immortal(vstr_new("#define VP(x) ((V *)(uintptr_t)(x))\012", 36));
-    vow_s[1061] = vow_immortal(vstr_new("static __attribute__((noreturn)) void vow_panic(const char *msg) {\012", 67));
-    vow_s[1062] = vow_immortal(vstr_new("    fflush(stdout);\012", 20));
-    vow_s[1063] = vow_immortal(vstr_new("    fprintf(stderr, \"vow: panic: %s\\n\", msg);\012", 46));
-    vow_s[1064] = vow_immortal(vstr_new("    exit(101);\012", 15));
-    vow_s[1065] = vow_immortal(vstr_new("}\012", 2));
-    vow_s[1066] = vow_immortal(vstr_new("#ifdef VOW_VERIFIED\012", 20));
-    vow_s[1067] = vow_immortal(vstr_new("#define VOW_REQUIRE(cond, msg) ((void)0)\012", 41));
-    vow_s[1068] = vow_immortal(vstr_new("#else\012", 6));
-    vow_s[1069] = vow_immortal(vstr_new("#define VOW_REQUIRE(cond, msg) \\\012", 33));
-    vow_s[1070] = vow_immortal(vstr_new("    do {                       \\\012", 33));
-    vow_s[1071] = vow_immortal(vstr_new("        if (!(cond)) vow_panic(msg); \\\012", 39));
-    vow_s[1072] = vow_immortal(vstr_new("    } while (0)\012", 16));
-    vow_s[1073] = vow_immortal(vstr_new("// ---- objects ----\012", 21));
-    vow_s[1074] = vow_immortal(vstr_new("enum { VK_FIELDS, VK_STR, VK_LIST, VK_BUF, VK_NODE, VK_HASH };\012", 63));
-    vow_s[1075] = vow_immortal(vstr_new("typedef struct {\012", 17));
-    vow_s[1076] = vow_immortal(vstr_new("    int32_t rc;     // reference count; -1 for immortal objects (literals, None)\012", 81));
-    vow_s[1077] = vow_immortal(vstr_new("    uint8_t kind;   // VK_*\012", 28));
-    vow_s[1078] = vow_immortal(vstr_new("    uint8_t flags;  // lists and buffers: elements are heap values; nodes: see below\012", 85));
-    vow_s[1079] = vow_immortal(vstr_new("    uint16_t words; // VK_FIELDS: number of payload words\012", 58));
-    vow_s[1080] = vow_immortal(vstr_new("    uint64_t mask;  // VK_FIELDS: bit i set when payload word i is a heap value\012", 80));
-    vow_s[1081] = vow_immortal(vstr_new("} VHdr;\012", 8));
-    vow_s[1082] = vow_immortal(vstr_new("#define VH(x) ((VHdr *)((char *)(uintptr_t)(x) - sizeof(VHdr)))\012", 64));
-    vow_s[1083] = vow_immortal(vstr_new("// ---- allocation: size classes of 16 bytes with free lists, carved from chunks ----\012", 86));
-    vow_s[1084] = vow_immortal(vstr_new("#define VOW_CLASSES 64\012", 23));
-    vow_s[1085] = vow_immortal(vstr_new("static void *vow_freelist[VOW_CLASSES + 1];\012", 44));
-    vow_s[1086] = vow_immortal(vstr_new("static char *vow_chunk;\012", 24));
-    vow_s[1087] = vow_immortal(vstr_new("static size_t vow_chunk_left;\012", 30));
-    vow_s[1088] = vow_immortal(vstr_new("static int64_t vow_live, vow_immortals;\012", 40));
-    vow_s[1089] = vow_immortal(vstr_new("static void *vow_raw_alloc(size_t n) {\012", 39));
-    vow_s[1090] = vow_immortal(vstr_new("    size_t c = n / 16;\012", 23));
-    vow_s[1091] = vow_immortal(vstr_new("    if (c <= VOW_CLASSES) {\012", 28));
-    vow_s[1092] = vow_immortal(vstr_new("        void *p = vow_freelist[c];\012", 35));
-    vow_s[1093] = vow_immortal(vstr_new("        if (p) {\012", 17));
-    vow_s[1094] = vow_immortal(vstr_new("            vow_freelist[c] = *(void **)p;\012", 43));
-    vow_s[1095] = vow_immortal(vstr_new("            return p;\012", 22));
-    vow_s[1096] = vow_immortal(vstr_new("        }\012", 10));
-    vow_s[1097] = vow_immortal(vstr_new("        if (n > vow_chunk_left) {\012", 34));
-    vow_s[1098] = vow_immortal(vstr_new("            vow_chunk_left = (size_t)1 << 20;\012", 46));
-    vow_s[1099] = vow_immortal(vstr_new("            vow_chunk = (char *)malloc(vow_chunk_left);\012", 56));
-    vow_s[1100] = vow_immortal(vstr_new("            if (!vow_chunk) vow_panic(\"out of memory\");\012", 56));
-    vow_s[1101] = vow_immortal(vstr_new("        p = vow_chunk;\012", 23));
-    vow_s[1102] = vow_immortal(vstr_new("        vow_chunk += n;\012", 24));
-    vow_s[1103] = vow_immortal(vstr_new("        vow_chunk_left -= n;\012", 29));
-    vow_s[1104] = vow_immortal(vstr_new("        return p;\012", 18));
-    vow_s[1105] = vow_immortal(vstr_new("    }\012", 6));
-    vow_s[1106] = vow_immortal(vstr_new("    void *p = malloc(n);\012", 25));
-    vow_s[1107] = vow_immortal(vstr_new("    if (!p) vow_panic(\"out of memory\");\012", 40));
-    vow_s[1108] = vow_immortal(vstr_new("    return p;\012", 14));
-    vow_s[1109] = vow_immortal(vstr_new("static void vow_raw_free(void *p, size_t n) {\012", 46));
-    vow_s[1110] = vow_immortal(vstr_new("#ifdef VOW_RC_DEBUG\012", 20));
-    vow_s[1111] = vow_immortal(vstr_new("    VHdr *h = (VHdr *)p;\012", 25));
-    vow_s[1112] = vow_immortal(vstr_new("    memset((char *)p + sizeof(VHdr), 0xdd, n - sizeof(VHdr));\012", 62));
-    vow_s[1113] = vow_immortal(vstr_new("    h->rc = 0; // a freed object: any later use panics\012", 55));
-    vow_s[1114] = vow_immortal(vstr_new("        *(void **)p = vow_freelist[c];\012", 39));
-    vow_s[1115] = vow_immortal(vstr_new("        vow_freelist[c] = p;\012", 29));
-    vow_s[1116] = vow_immortal(vstr_new("    } else {\012", 13));
-    vow_s[1117] = vow_immortal(vstr_new("        free(p);\012", 17));
-    vow_s[1118] = vow_immortal(vstr_new("static inline size_t vow_round(size_t n) { return (n + 15) & ~(size_t)15; }\012", 76));
-    vow_s[1119] = vow_immortal(vstr_new("static V vow_obj(uint8_t kind, uint8_t flags, uint16_t words, uint64_t mask, size_t payload) {\012", 95));
-    vow_s[1120] = vow_immortal(vstr_new("    VHdr *h = (VHdr *)vow_raw_alloc(vow_round(sizeof(VHdr) + payload));\012", 72));
-    vow_s[1121] = vow_immortal(vstr_new("    h->rc = 1;\012", 15));
-    vow_s[1122] = vow_immortal(vstr_new("    h->kind = kind;\012", 20));
-    vow_s[1123] = vow_immortal(vstr_new("    h->flags = flags;\012", 22));
-    vow_s[1124] = vow_immortal(vstr_new("    h->words = words;\012", 22));
-    vow_s[1125] = vow_immortal(vstr_new("    h->mask = mask;\012", 20));
-    vow_s[1126] = vow_immortal(vstr_new("    vow_live++;\012", 16));
-    vow_s[1127] = vow_immortal(vstr_new("    return (V)(uintptr_t)((char *)h + sizeof(VHdr));\012", 53));
-    vow_s[1128] = vow_immortal(vstr_new("static V vow_immortal(V x) {\012", 29));
-    vow_s[1129] = vow_immortal(vstr_new("    VH(x)->rc = -1;\012", 20));
-    vow_s[1130] = vow_immortal(vstr_new("    vow_immortals++;\012", 21));
-    vow_s[1131] = vow_immortal(vstr_new("    return x;\012", 14));
-    vow_s[1132] = vow_immortal(vstr_new("#define VOW_ALIVE(h) \\\012", 23));
-    vow_s[1133] = vow_immortal(vstr_new("    do {             \\\012", 23));
-    vow_s[1134] = vow_immortal(vstr_new("        if ((h)->rc == 0) vow_panic(\"use after free (reference counting bug)\"); \\\012", 82));
-    vow_s[1135] = vow_immortal(vstr_new("#define VOW_ALIVE(h) ((void)0)\012", 31));
-    vow_s[1136] = vow_immortal(vstr_new("static inline V vdup(V x) {\012", 28));
-    vow_s[1137] = vow_immortal(vstr_new("    if (x) {\012", 13));
-    vow_s[1138] = vow_immortal(vstr_new("        VHdr *h = VH(x);\012", 25));
-    vow_s[1139] = vow_immortal(vstr_new("        VOW_ALIVE(h);\012", 22));
-    vow_s[1140] = vow_immortal(vstr_new("        if (h->rc > 0) h->rc++;\012", 32));
-    vow_s[1141] = vow_immortal(vstr_new("static void vow_destroy(V x);\012", 30));
-    vow_s[1142] = vow_immortal(vstr_new("static inline void vdrop(V x) {\012", 32));
-    vow_s[1143] = vow_immortal(vstr_new("        if (h->rc > 0 && --h->rc == 0) vow_destroy(x);\012", 55));
-    vow_s[1144] = vow_immortal(vstr_new("// ---- strings ----\012", 21));
-    vow_s[1145] = vow_immortal(vstr_new("    int64_t len;\012", 17));
-    vow_s[1146] = vow_immortal(vstr_new("    char data[];\012", 17));
-    vow_s[1147] = vow_immortal(vstr_new("} VStr;\012", 8));
-    vow_s[1148] = vow_immortal(vstr_new("#define VS(x) ((VStr *)(uintptr_t)(x))\012", 39));
-    vow_s[1149] = vow_immortal(vstr_new("// ---- lists: a header (length, buffer) sharing a buffer of elements ----\012", 75));
-    vow_s[1150] = vow_immortal(vstr_new("    V buf;\012", 11));
-    vow_s[1151] = vow_immortal(vstr_new("} VList;\012", 9));
-    vow_s[1152] = vow_immortal(vstr_new("    int64_t cap;\012", 17));
-    vow_s[1153] = vow_immortal(vstr_new("    int64_t used;\012", 18));
-    vow_s[1154] = vow_immortal(vstr_new("    V items[];\012", 15));
-    vow_s[1155] = vow_immortal(vstr_new("} VBuf;\012", 8));
-    vow_s[1156] = vow_immortal(vstr_new("#define VL(x) ((VList *)(uintptr_t)(x))\012", 40));
-    vow_s[1157] = vow_immortal(vstr_new("#define VB(x) ((VBuf *)(uintptr_t)(x))\012", 39));
-    vow_s[1158] = vow_immortal(vstr_new("// ---- maps: persistent AVL trees, updated in place where unshared ----\012", 73));
-    vow_s[1159] = vow_immortal(vstr_new("    V key, val, left, right;\012", 29));
-    vow_s[1160] = vow_immortal(vstr_new("    int64_t height, size;\012", 26));
-    vow_s[1161] = vow_immortal(vstr_new("} VNode;\012", 9));
-    vow_s[1162] = vow_immortal(vstr_new("#define VN(x) ((VNode *)(uintptr_t)(x))\012", 40));
-    vow_s[1163] = vow_immortal(vstr_new("#define VN_KEY_HEAP 1\012", 22));
-    vow_s[1164] = vow_immortal(vstr_new("#define VN_VAL_HEAP 2\012", 22));
-    vow_s[1165] = vow_immortal(vstr_new("#define VN_STR_KEYS 4\012", 22));
-    vow_s[1166] = vow_immortal(vstr_new("// ---- hash maps: open addressing; the header is followed by the hashes (0 marks an\012", 85));
-    vow_s[1167] = vow_immortal(vstr_new("// empty slot), the keys and the values, each `cap` long ----\012", 62));
-    vow_s[1168] = vow_immortal(vstr_new("    int64_t count;\012", 19));
-    vow_s[1169] = vow_immortal(vstr_new("} VHash;\012", 9));
-    vow_s[1170] = vow_immortal(vstr_new("#define VHM(x) ((VHash *)(uintptr_t)(x))\012", 41));
-    vow_s[1171] = vow_immortal(vstr_new("static inline uint64_t *vhm_hashes(V h) { return (uint64_t *)((char *)(uintptr_t)h + sizeof(VHash)); }\012", 103));
-    vow_s[1172] = vow_immortal(vstr_new("static inline V *vhm_keyarr(V h) { return (V *)(vhm_hashes(h) + VHM(h)->cap); }\012", 80));
-    vow_s[1173] = vow_immortal(vstr_new("static inline V *vhm_valarr(V h) { return vhm_keyarr(h) + VHM(h)->cap; }\012", 73));
-    vow_s[1174] = vow_immortal(vstr_new("static size_t vow_size(VHdr *h, V x) {\012", 39));
-    vow_s[1175] = vow_immortal(vstr_new("    switch (h->kind) {\012", 23));
-    vow_s[1176] = vow_immortal(vstr_new("    case VK_FIELDS: return vow_round(sizeof(VHdr) + (size_t)(h->words > 0 \? h->words : 1) * sizeof(V));\012", 104));
-    vow_s[1177] = vow_immortal(vstr_new("    case VK_STR: return vow_round(sizeof(VHdr) + sizeof(VStr) + (size_t)VS(x)->len + 1);\012", 89));
-    vow_s[1178] = vow_immortal(vstr_new("    case VK_LIST: return vow_round(sizeof(VHdr) + sizeof(VList));\012", 66));
-    vow_s[1179] = vow_immortal(vstr_new("    case VK_BUF: return vow_round(sizeof(VHdr) + sizeof(VBuf) + (size_t)VB(x)->cap * sizeof(V));\012", 97));
-    vow_s[1180] = vow_immortal(vstr_new("    case VK_HASH: return vow_round(sizeof(VHdr) + sizeof(VHash) + (size_t)VHM(x)->cap * 3 * sizeof(V));\012", 104));
-    vow_s[1181] = vow_immortal(vstr_new("    default: return vow_round(sizeof(VHdr) + sizeof(VNode));\012", 61));
-    vow_s[1182] = vow_immortal(vstr_new("// Frees an object and, iteratively, everything only it referenced (no recursion, so\012", 85));
-    vow_s[1183] = vow_immortal(vstr_new("// long chains cannot overflow the C stack).\012", 45));
-    vow_s[1184] = vow_immortal(vstr_new("static V *vow_dstack;\012", 22));
-    vow_s[1185] = vow_immortal(vstr_new("static size_t vow_dcap, vow_dlen;\012", 34));
-    vow_s[1186] = vow_immortal(vstr_new("static void vow_dpush(V c) {\012", 29));
-    vow_s[1187] = vow_immortal(vstr_new("    if (vow_dlen == vow_dcap) {\012", 32));
-    vow_s[1188] = vow_immortal(vstr_new("        vow_dcap = vow_dcap \? vow_dcap * 2 : 256;\012", 50));
-    vow_s[1189] = vow_immortal(vstr_new("        vow_dstack = (V *)realloc(vow_dstack, vow_dcap * sizeof(V));\012", 69));
-    vow_s[1190] = vow_immortal(vstr_new("        if (!vow_dstack) vow_panic(\"out of memory\");\012", 53));
-    vow_s[1191] = vow_immortal(vstr_new("    vow_dstack[vow_dlen++] = c;\012", 32));
-    vow_s[1192] = vow_immortal(vstr_new("static inline void vow_release(V c) {\012", 38));
-    vow_s[1193] = vow_immortal(vstr_new("    if (!c) return;\012", 20));
-    vow_s[1194] = vow_immortal(vstr_new("    VHdr *h = VH(c);\012", 21));
-    vow_s[1195] = vow_immortal(vstr_new("    VOW_ALIVE(h);\012", 18));
-    vow_s[1196] = vow_immortal(vstr_new("    if (h->rc > 0 && --h->rc == 0) vow_dpush(c);\012", 49));
-    vow_s[1197] = vow_immortal(vstr_new("static void vow_free_shell(V x) {\012", 34));
-    vow_s[1198] = vow_immortal(vstr_new("    VHdr *h = VH(x);\012", 21));
-    vow_s[1199] = vow_immortal(vstr_new("    vow_live--;\012", 16));
-    vow_s[1200] = vow_immortal(vstr_new("    vow_raw_free(h, vow_size(h, x));\012", 37));
-    vow_s[1201] = vow_immortal(vstr_new("static void vow_destroy(V x) {\012", 31));
-    vow_s[1202] = vow_immortal(vstr_new("    size_t base = vow_dlen;\012", 28));
-    vow_s[1203] = vow_immortal(vstr_new("    vow_dpush(x);\012", 18));
-    vow_s[1204] = vow_immortal(vstr_new("    while (vow_dlen > base) {\012", 30));
-    vow_s[1205] = vow_immortal(vstr_new("        V y = vow_dstack[--vow_dlen];\012", 38));
-    vow_s[1206] = vow_immortal(vstr_new("        VHdr *h = VH(y);\012", 25));
-    vow_s[1207] = vow_immortal(vstr_new("        switch (h->kind) {\012", 27));
-    vow_s[1208] = vow_immortal(vstr_new("        case VK_FIELDS:\012", 24));
-    vow_s[1209] = vow_immortal(vstr_new("            for (int i = 0; i < h->words; i++)\012", 47));
-    vow_s[1210] = vow_immortal(vstr_new("                if (h->mask & ((uint64_t)1 << i)) vow_release(VP(y)[i]);\012", 73));
-    vow_s[1211] = vow_immortal(vstr_new("            break;\012", 19));
-    vow_s[1212] = vow_immortal(vstr_new("        case VK_LIST: vow_release(VL(y)->buf); break;\012", 54));
-    vow_s[1213] = vow_immortal(vstr_new("        case VK_BUF:\012", 21));
-    vow_s[1214] = vow_immortal(vstr_new("            if (h->flags)\012", 26));
-    vow_s[1215] = vow_immortal(vstr_new("                for (int64_t i = 0; i < VB(y)->used; i++) vow_release(VB(y)->items[i]);\012", 88));
-    vow_s[1216] = vow_immortal(vstr_new("        case VK_NODE:\012", 22));
-    vow_s[1217] = vow_immortal(vstr_new("            if (h->flags & VN_KEY_HEAP) vow_release(VN(y)->key);\012", 65));
-    vow_s[1218] = vow_immortal(vstr_new("            if (h->flags & VN_VAL_HEAP) vow_release(VN(y)->val);\012", 65));
-    vow_s[1219] = vow_immortal(vstr_new("            vow_release(VN(y)->left);\012", 38));
-    vow_s[1220] = vow_immortal(vstr_new("            vow_release(VN(y)->right);\012", 39));
-    vow_s[1221] = vow_immortal(vstr_new("        case VK_HASH:\012", 22));
-    vow_s[1222] = vow_immortal(vstr_new("            for (int64_t i = 0; i < VHM(y)->cap; i++) {\012", 56));
-    vow_s[1223] = vow_immortal(vstr_new("                if (!vhm_hashes(y)[i]) continue;\012", 49));
-    vow_s[1224] = vow_immortal(vstr_new("                if (h->flags & VN_KEY_HEAP) vow_release(vhm_keyarr(y)[i]);\012", 75));
-    vow_s[1225] = vow_immortal(vstr_new("                if (h->flags & VN_VAL_HEAP) vow_release(vhm_valarr(y)[i]);\012", 75));
-    vow_s[1226] = vow_immortal(vstr_new("            }\012", 14));
-    vow_s[1227] = vow_immortal(vstr_new("        default: break;\012", 24));
-    vow_s[1228] = vow_immortal(vstr_new("        vow_free_shell(y);\012", 27));
-    vow_s[1229] = vow_immortal(vstr_new("static void vow_report_leaks(void) {\012", 37));
-    vow_s[1230] = vow_immortal(vstr_new("    const char *e = getenv(\"VOW_LEAKS\");\012", 41));
-    vow_s[1231] = vow_immortal(vstr_new("    if (e && *e == '1') fprintf(stderr, \"vow: %lld objects live at exit\\n\", (long long)(vow_live - vow_immortals));\012", 116));
-    vow_s[1232] = vow_immortal(vstr_new("// ---- integers ----\012", 22));
-    vow_s[1233] = vow_immortal(vstr_new("static inline V vadd(V a, V b) {\012", 33));
-    vow_s[1234] = vow_immortal(vstr_new("    int64_t r;\012", 15));
-    vow_s[1235] = vow_immortal(vstr_new("    if (__builtin_add_overflow(VI(a), VI(b), &r)) vow_panic(\"integer overflow in '+'\");\012", 88));
-    vow_s[1236] = vow_immortal(vstr_new("    return (V)r;\012", 17));
-    vow_s[1237] = vow_immortal(vstr_new("static inline V vsub(V a, V b) {\012", 33));
-    vow_s[1238] = vow_immortal(vstr_new("    if (__builtin_sub_overflow(VI(a), VI(b), &r)) vow_panic(\"integer overflow in '-'\");\012", 88));
-    vow_s[1239] = vow_immortal(vstr_new("static inline V vmul(V a, V b) {\012", 33));
-    vow_s[1240] = vow_immortal(vstr_new("    if (__builtin_mul_overflow(VI(a), VI(b), &r)) vow_panic(\"integer overflow in '*'\");\012", 88));
-    vow_s[1241] = vow_immortal(vstr_new("static inline V vneg(V a) {\012", 28));
-    vow_s[1242] = vow_immortal(vstr_new("    if (VI(a) == INT64_MIN) vow_panic(\"integer overflow in unary '-'\");\012", 72));
-    vow_s[1243] = vow_immortal(vstr_new("    return (V)(-VI(a));\012", 24));
-    vow_s[1244] = vow_immortal(vstr_new("// Euclidean division: the remainder is always non-negative (matches SMT-LIB).\012", 79));
-    vow_s[1245] = vow_immortal(vstr_new("static inline V vdiv(V a, V b) {\012", 33));
-    vow_s[1246] = vow_immortal(vstr_new("    VOW_REQUIRE(VI(b) != 0, \"division by zero\");\012", 49));
-    vow_s[1247] = vow_immortal(vstr_new("    if (VI(a) == INT64_MIN && VI(b) == -1) vow_panic(\"integer overflow in '/'\");\012", 81));
-    vow_s[1248] = vow_immortal(vstr_new("    int64_t q = VI(a) / VI(b), r = VI(a) % VI(b);\012", 50));
-    vow_s[1249] = vow_immortal(vstr_new("    if (r < 0) q = VI(b) > 0 \? q - 1 : q + 1;\012", 46));
-    vow_s[1250] = vow_immortal(vstr_new("    return (V)q;\012", 17));
-    vow_s[1251] = vow_immortal(vstr_new("static inline V vmod(V a, V b) {\012", 33));
-    vow_s[1252] = vow_immortal(vstr_new("    if (VI(b) == -1) return 0;\012", 31));
-    vow_s[1253] = vow_immortal(vstr_new("    int64_t r = VI(a) % VI(b);\012", 31));
-    vow_s[1254] = vow_immortal(vstr_new("    if (r < 0) r = VI(b) > 0 \? r + VI(b) : r - VI(b);\012", 54));
-    vow_s[1255] = vow_immortal(vstr_new("// ---- strings (all functions borrow their arguments) ----\012", 60));
-    vow_s[1256] = vow_immortal(vstr_new("static V vstr_new(const char *p, int64_t n) {\012", 46));
-    vow_s[1257] = vow_immortal(vstr_new("    V s = vow_obj(VK_STR, 0, 0, 0, sizeof(VStr) + (size_t)n + 1);\012", 66));
-    vow_s[1258] = vow_immortal(vstr_new("    VS(s)->len = n;\012", 20));
-    vow_s[1259] = vow_immortal(vstr_new("    if (n) memcpy(VS(s)->data, p, (size_t)n);\012", 46));
-    vow_s[1260] = vow_immortal(vstr_new("    VS(s)->data[n] = 0;\012", 24));
-    vow_s[1261] = vow_immortal(vstr_new("    return s;\012", 14));
-    vow_s[1262] = vow_immortal(vstr_new("static inline V vstr_len(V s) { return (V)VS(s)->len; }\012", 56));
-    vow_s[1263] = vow_immortal(vstr_new("static V vstr_cat(V a, V b) {\012", 30));
-    vow_s[1264] = vow_immortal(vstr_new("    int64_t n = VS(a)->len + VS(b)->len;\012", 41));
-    vow_s[1265] = vow_immortal(vstr_new("    memcpy(VS(s)->data, VS(a)->data, (size_t)VS(a)->len);\012", 58));
-    vow_s[1266] = vow_immortal(vstr_new("    memcpy(VS(s)->data + VS(a)->len, VS(b)->data, (size_t)VS(b)->len);\012", 71));
-    vow_s[1267] = vow_immortal(vstr_new("static inline V vstr_eq(V a, V b) {\012", 36));
-    vow_s[1268] = vow_immortal(vstr_new("    return (V)(VS(a)->len == VS(b)->len && memcmp(VS(a)->data, VS(b)->data, (size_t)VS(a)->len) == 0);\012", 103));
-    vow_s[1269] = vow_immortal(vstr_new("static int vstr_cmp(V a, V b) {\012", 32));
-    vow_s[1270] = vow_immortal(vstr_new("    int64_t n = VS(a)->len < VS(b)->len \? VS(a)->len : VS(b)->len;\012", 67));
-    vow_s[1271] = vow_immortal(vstr_new("    int c = memcmp(VS(a)->data, VS(b)->data, (size_t)n);\012", 57));
-    vow_s[1272] = vow_immortal(vstr_new("    if (c) return c;\012", 21));
-    vow_s[1273] = vow_immortal(vstr_new("    return VS(a)->len < VS(b)->len \? -1 : (VS(a)->len > VS(b)->len \? 1 : 0);\012", 77));
-    vow_s[1274] = vow_immortal(vstr_new("static inline V vstr_byte(V s, V i) {\012", 38));
-    vow_s[1275] = vow_immortal(vstr_new("    VOW_REQUIRE(VI(i) >= 0 && VI(i) < VS(s)->len, \"string index out of bounds\");\012", 81));
-    vow_s[1276] = vow_immortal(vstr_new("    return (V)(unsigned char)VS(s)->data[VI(i)];\012", 49));
-    vow_s[1277] = vow_immortal(vstr_new("static V vstr_slice(V s, V from, V to) {\012", 41));
-    vow_s[1278] = vow_immortal(vstr_new("    VOW_REQUIRE(0 <= VI(from) && VI(from) <= VI(to) && VI(to) <= VS(s)->len, \"string slice out of bounds\");\012", 108));
-    vow_s[1279] = vow_immortal(vstr_new("    return vstr_new(VS(s)->data + VI(from), VI(to) - VI(from));\012", 64));
-    vow_s[1280] = vow_immortal(vstr_new("static V vchar(V code) {\012", 25));
-    vow_s[1281] = vow_immortal(vstr_new("    VOW_REQUIRE(VI(code) >= 0 && VI(code) < 256, \"char code out of range\");\012", 76));
-    vow_s[1282] = vow_immortal(vstr_new("    char c = (char)VI(code);\012", 29));
-    vow_s[1283] = vow_immortal(vstr_new("    return vstr_new(&c, 1);\012", 28));
-    vow_s[1284] = vow_immortal(vstr_new("static V vint_to_str(V n) {\012", 28));
-    vow_s[1285] = vow_immortal(vstr_new("    char buf[32];\012", 18));
-    vow_s[1286] = vow_immortal(vstr_new("    int k = snprintf(buf, sizeof buf, \"%lld\", (long long)VI(n));\012", 65));
-    vow_s[1287] = vow_immortal(vstr_new("    return vstr_new(buf, k);\012", 29));
-    vow_s[1288] = vow_immortal(vstr_new("static V vhash(V s) {\012", 22));
-    vow_s[1289] = vow_immortal(vstr_new("    uint64_t h = 14695981039346656037ull;\012", 42));
-    vow_s[1290] = vow_immortal(vstr_new("    for (int64_t i = 0; i < VS(s)->len; i++) {\012", 47));
-    vow_s[1291] = vow_immortal(vstr_new("        h ^= (unsigned char)VS(s)->data[i];\012", 44));
-    vow_s[1292] = vow_immortal(vstr_new("        h *= 1099511628211ull;\012", 31));
-    vow_s[1293] = vow_immortal(vstr_new("    char buf[17];\012", 18));
-    vow_s[1294] = vow_immortal(vstr_new("    snprintf(buf, sizeof buf, \"%016llx\", (unsigned long long)h);\012", 65));
-    vow_s[1295] = vow_immortal(vstr_new("    return vstr_new(buf, 16);\012", 30));
-    vow_s[1296] = vow_immortal(vstr_new("// ---- structs, enums and options ----\012", 40));
-    vow_s[1297] = vow_immortal(vstr_new("static V vow_fields(int64_t words, uint64_t mask) {\012", 52));
-    vow_s[1298] = vow_immortal(vstr_new("    size_t n = (size_t)(words > 0 \? words : 1) * sizeof(V);\012", 60));
-    vow_s[1299] = vow_immortal(vstr_new("    V r = vow_obj(VK_FIELDS, 0, (uint16_t)words, mask, n);\012", 59));
-    vow_s[1300] = vow_immortal(vstr_new("    memset(VP(r), 0, n);\012", 25));
-    vow_s[1301] = vow_immortal(vstr_new("    return r;\012", 14));
-    vow_s[1302] = vow_immortal(vstr_new("// Consumes base; returns an object the caller owns exclusively: base itself when it was\012", 89));
-    vow_s[1303] = vow_immortal(vstr_new("// unshared, otherwise a copy. The caller then replaces fields (dropping the old ones).\012", 88));
-    vow_s[1304] = vow_immortal(vstr_new("static V vow_with(V base) {\012", 28));
-    vow_s[1305] = vow_immortal(vstr_new("    VHdr *h = VH(base);\012", 24));
-    vow_s[1306] = vow_immortal(vstr_new("    if (h->rc == 1) return base;\012", 33));
-    vow_s[1307] = vow_immortal(vstr_new("    V r = vow_fields(h->words, h->mask);\012", 41));
-    vow_s[1308] = vow_immortal(vstr_new("    memcpy(VP(r), VP(base), (size_t)h->words * sizeof(V));\012", 59));
-    vow_s[1309] = vow_immortal(vstr_new("    for (int i = 0; i < h->words; i++)\012", 39));
-    vow_s[1310] = vow_immortal(vstr_new("        if (h->mask & ((uint64_t)1 << i)) vdup(VP(r)[i]);\012", 58));
-    vow_s[1311] = vow_immortal(vstr_new("    vdrop(base);\012", 17));
-    vow_s[1312] = vow_immortal(vstr_new("// Takes field i out of base for an update that `with` will write back: when base is\012", 85));
-    vow_s[1313] = vow_immortal(vstr_new("// unshared the field is moved out (its slot left empty), otherwise duplicated.\012", 80));
-    vow_s[1314] = vow_immortal(vstr_new("static V vow_steal(V base, int64_t i) {\012", 40));
-    vow_s[1315] = vow_immortal(vstr_new("    if (VH(base)->rc == 1) {\012", 29));
-    vow_s[1316] = vow_immortal(vstr_new("        V x = VP(base)[i];\012", 27));
-    vow_s[1317] = vow_immortal(vstr_new("        VP(base)[i] = 0;\012", 25));
-    vow_s[1318] = vow_immortal(vstr_new("        return x;\012", 18));
-    vow_s[1319] = vow_immortal(vstr_new("    return vdup(VP(base)[i]);\012", 30));
-    vow_s[1320] = vow_immortal(vstr_new("static V vow_variant0(int64_t tag) {\012", 37));
-    vow_s[1321] = vow_immortal(vstr_new("    V r = vow_fields(1, 0);\012", 28));
-    vow_s[1322] = vow_immortal(vstr_new("    VP(r)[0] = (V)tag;\012", 23));
-    vow_s[1323] = vow_immortal(vstr_new("static V vow_none_obj;\012", 23));
-    vow_s[1324] = vow_immortal(vstr_new("static V vnone(void) {\012", 23));
-    vow_s[1325] = vow_immortal(vstr_new("    if (!vow_none_obj) vow_none_obj = vow_immortal(vow_fields(1, 0));\012", 70));
-    vow_s[1326] = vow_immortal(vstr_new("    return vow_none_obj;\012", 25));
-    vow_s[1327] = vow_immortal(vstr_new("// Consumes x.\012", 15));
-    vow_s[1328] = vow_immortal(vstr_new("static V vsome(V x, int heap) {\012", 32));
-    vow_s[1329] = vow_immortal(vstr_new("    V r = vow_fields(2, heap \? 2 : 0);\012", 39));
-    vow_s[1330] = vow_immortal(vstr_new("    VP(r)[0] = 1;\012", 18));
-    vow_s[1331] = vow_immortal(vstr_new("    VP(r)[1] = x;\012", 18));
-    vow_s[1332] = vow_immortal(vstr_new("// Borrows o, consumes d.\012", 26));
-    vow_s[1333] = vow_immortal(vstr_new("static V vvalue_or(V o, V d, int heap) {\012", 41));
-    vow_s[1334] = vow_immortal(vstr_new("    if (VP(o)[0] == 1) {\012", 25));
-    vow_s[1335] = vow_immortal(vstr_new("        V r = VP(o)[1];\012", 24));
-    vow_s[1336] = vow_immortal(vstr_new("        if (heap) {\012", 20));
-    vow_s[1337] = vow_immortal(vstr_new("            vdup(r);\012", 21));
-    vow_s[1338] = vow_immortal(vstr_new("            vdrop(d);\012", 22));
-    vow_s[1339] = vow_immortal(vstr_new("        return r;\012", 18));
-    vow_s[1340] = vow_immortal(vstr_new("    return d;\012", 14));
-    vow_s[1341] = vow_immortal(vstr_new("static V vstr_to_int(V s) {\012", 28));
-    vow_s[1342] = vow_immortal(vstr_new("    int64_t n = VS(s)->len, i = 0, v = 0;\012", 42));
-    vow_s[1343] = vow_immortal(vstr_new("    int neg = 0;\012", 17));
-    vow_s[1344] = vow_immortal(vstr_new("    if (n == 0) return vnone();\012", 32));
-    vow_s[1345] = vow_immortal(vstr_new("    if (VS(s)->data[0] == '-') {\012", 33));
-    vow_s[1346] = vow_immortal(vstr_new("        neg = 1;\012", 17));
-    vow_s[1347] = vow_immortal(vstr_new("        i = 1;\012", 15));
-    vow_s[1348] = vow_immortal(vstr_new("        if (n == 1) return vnone();\012", 36));
-    vow_s[1349] = vow_immortal(vstr_new("    for (; i < n; i++) {\012", 25));
-    vow_s[1350] = vow_immortal(vstr_new("        char c = VS(s)->data[i];\012", 33));
-    vow_s[1351] = vow_immortal(vstr_new("        if (c < '0' || c > '9') return vnone();\012", 48));
-    vow_s[1352] = vow_immortal(vstr_new("        if (__builtin_mul_overflow(v, 10, &v)) return vnone();\012", 63));
-    vow_s[1353] = vow_immortal(vstr_new("        if (__builtin_add_overflow(v, (int64_t)(neg \? -(c - '0') : (c - '0')), &v)) return vnone();\012", 100));
-    vow_s[1354] = vow_immortal(vstr_new("    return vsome((V)v, 0);\012", 27));
-    vow_s[1355] = vow_immortal(vstr_new("// ---- lists ----\012", 19));
-    vow_s[1356] = vow_immortal(vstr_new("static V vbuf_new(int64_t cap, int heap) {\012", 43));
-    vow_s[1357] = vow_immortal(vstr_new("    if (cap < 4) cap = 4;\012", 26));
-    vow_s[1358] = vow_immortal(vstr_new("    V b = vow_obj(VK_BUF, (uint8_t)heap, 0, 0, sizeof(VBuf) + (size_t)cap * sizeof(V));\012", 88));
-    vow_s[1359] = vow_immortal(vstr_new("    VB(b)->cap = cap;\012", 22));
-    vow_s[1360] = vow_immortal(vstr_new("    VB(b)->used = 0;\012", 21));
-    vow_s[1361] = vow_immortal(vstr_new("    return b;\012", 14));
-    vow_s[1362] = vow_immortal(vstr_new("static V vlist_make(int64_t len, V buf, int heap) {\012", 52));
-    vow_s[1363] = vow_immortal(vstr_new("    V l = vow_obj(VK_LIST, (uint8_t)heap, 0, 0, sizeof(VList));\012", 64));
-    vow_s[1364] = vow_immortal(vstr_new("    VL(l)->len = len;\012", 22));
-    vow_s[1365] = vow_immortal(vstr_new("    VL(l)->buf = buf;\012", 22));
-    vow_s[1366] = vow_immortal(vstr_new("    return l;\012", 14));
-    vow_s[1367] = vow_immortal(vstr_new("static V vlist_empty(int heap) { return vlist_make(0, 0, heap); }\012", 66));
-    vow_s[1368] = vow_immortal(vstr_new("static inline V vlist_len(V l) { return (V)VL(l)->len; }\012", 57));
-    vow_s[1369] = vow_immortal(vstr_new("// Borrowed.\012", 13));
-    vow_s[1370] = vow_immortal(vstr_new("static inline V vlist_get(V l, V i) {\012", 38));
-    vow_s[1371] = vow_immortal(vstr_new("    VOW_REQUIRE(VI(i) >= 0 && VI(i) < VL(l)->len, \"list index out of bounds\");\012", 79));
-    vow_s[1372] = vow_immortal(vstr_new("    return VB(VL(l)->buf)->items[VI(i)];\012", 41));
-    vow_s[1373] = vow_immortal(vstr_new("// Consumes l and x. Appends in place when the buffer has room just past this list's\012", 85));
-    vow_s[1374] = vow_immortal(vstr_new("// end (no other list can see that slot); reuses the header when it is unshared.\012", 81));
-    vow_s[1375] = vow_immortal(vstr_new("static V vlist_push(V l, V x) {\012", 32));
-    vow_s[1376] = vow_immortal(vstr_new("    VList *L = VL(l);\012", 22));
-    vow_s[1377] = vow_immortal(vstr_new("    int heap = VH(l)->flags;\012", 29));
-    vow_s[1378] = vow_immortal(vstr_new("    V b = L->buf;\012", 18));
-    vow_s[1379] = vow_immortal(vstr_new("    int64_t n = L->len;\012", 24));
-    vow_s[1380] = vow_immortal(vstr_new("    if (b && VB(b)->used == n && n < VB(b)->cap) {\012", 51));
-    vow_s[1381] = vow_immortal(vstr_new("        VB(b)->items[n] = x;\012", 29));
-    vow_s[1382] = vow_immortal(vstr_new("        VB(b)->used = n + 1;\012", 29));
-    vow_s[1383] = vow_immortal(vstr_new("        if (VH(l)->rc == 1) {\012", 30));
-    vow_s[1384] = vow_immortal(vstr_new("            L->len = n + 1;\012", 28));
-    vow_s[1385] = vow_immortal(vstr_new("            return l;\012", 22));
-    vow_s[1386] = vow_immortal(vstr_new("        V r = vlist_make(n + 1, vdup(b), heap);\012", 48));
-    vow_s[1387] = vow_immortal(vstr_new("        vdrop(l);\012", 18));
-    vow_s[1388] = vow_immortal(vstr_new("    V nb = vbuf_new(n * 2, heap);\012", 34));
-    vow_s[1389] = vow_immortal(vstr_new("    if (n) {\012", 13));
-    vow_s[1390] = vow_immortal(vstr_new("        memcpy(VB(nb)->items, VB(b)->items, (size_t)n * sizeof(V));\012", 68));
-    vow_s[1391] = vow_immortal(vstr_new("        if (VH(l)->rc == 1 && VH(b)->rc == 1) {\012", 48));
-    vow_s[1392] = vow_immortal(vstr_new("            // Sole owner of both: move the elements; release any beyond this list's end.\012", 90));
-    vow_s[1393] = vow_immortal(vstr_new("            if (heap)\012", 22));
-    vow_s[1394] = vow_immortal(vstr_new("                for (int64_t i = n; i < VB(b)->used; i++) vdrop(VB(b)->items[i]);\012", 82));
-    vow_s[1395] = vow_immortal(vstr_new("            VB(b)->used = 0;\012", 29));
-    vow_s[1396] = vow_immortal(vstr_new("        } else if (heap) {\012", 27));
-    vow_s[1397] = vow_immortal(vstr_new("            for (int64_t i = 0; i < n; i++) vdup(VB(b)->items[i]);\012", 67));
-    vow_s[1398] = vow_immortal(vstr_new("    VB(nb)->items[n] = x;\012", 26));
-    vow_s[1399] = vow_immortal(vstr_new("    VB(nb)->used = n + 1;\012", 26));
-    vow_s[1400] = vow_immortal(vstr_new("    if (VH(l)->rc == 1) {\012", 26));
-    vow_s[1401] = vow_immortal(vstr_new("        vdrop(L->buf);\012", 23));
-    vow_s[1402] = vow_immortal(vstr_new("        L->buf = nb;\012", 21));
-    vow_s[1403] = vow_immortal(vstr_new("        L->len = n + 1;\012", 24));
-    vow_s[1404] = vow_immortal(vstr_new("        return l;\012", 18));
-    vow_s[1405] = vow_immortal(vstr_new("    V r = vlist_make(n + 1, nb, heap);\012", 39));
-    vow_s[1406] = vow_immortal(vstr_new("    vdrop(l);\012", 14));
-    vow_s[1407] = vow_immortal(vstr_new("// Consumes l and x: element i replaced, in place when l and its buffer are unshared.\012", 86));
-    vow_s[1408] = vow_immortal(vstr_new("static V vlist_set_at(V l, V i, V x) {\012", 39));
-    vow_s[1409] = vow_immortal(vstr_new("    VOW_REQUIRE(VI(i) >= 0 && VI(i) < VL(l)->len, \"set_at index out of bounds\");\012", 81));
-    vow_s[1410] = vow_immortal(vstr_new("    if (VH(l)->rc == 1 && VH(b)->rc == 1) {\012", 44));
-    vow_s[1411] = vow_immortal(vstr_new("        V old = VB(b)->items[VI(i)];\012", 37));
-    vow_s[1412] = vow_immortal(vstr_new("        VB(b)->items[VI(i)] = x;\012", 33));
-    vow_s[1413] = vow_immortal(vstr_new("        if (heap) vdrop(old);\012", 30));
-    vow_s[1414] = vow_immortal(vstr_new("    V nb = vbuf_new(n, heap);\012", 30));
-    vow_s[1415] = vow_immortal(vstr_new("    memcpy(VB(nb)->items, VB(b)->items, (size_t)n * sizeof(V));\012", 64));
-    vow_s[1416] = vow_immortal(vstr_new("    if (heap)\012", 14));
-    vow_s[1417] = vow_immortal(vstr_new("        for (int64_t j = 0; j < n; j++)\012", 40));
-    vow_s[1418] = vow_immortal(vstr_new("            if (j != VI(i)) vdup(VB(nb)->items[j]);\012", 52));
-    vow_s[1419] = vow_immortal(vstr_new("    VB(nb)->items[VI(i)] = x;\012", 30));
-    vow_s[1420] = vow_immortal(vstr_new("    VB(nb)->used = n;\012", 22));
-    vow_s[1421] = vow_immortal(vstr_new("    V r = vlist_make(n, nb, heap);\012", 35));
-    vow_s[1422] = vow_immortal(vstr_new("// Borrows l.\012", 14));
-    vow_s[1423] = vow_immortal(vstr_new("static V vlist_slice(V l, V from, V to) {\012", 42));
-    vow_s[1424] = vow_immortal(vstr_new("    VOW_REQUIRE(0 <= VI(from) && VI(from) <= VI(to) && VI(to) <= VL(l)->len, \"list slice out of bounds\");\012", 106));
-    vow_s[1425] = vow_immortal(vstr_new("    int64_t n = VI(to) - VI(from);\012", 35));
-    vow_s[1426] = vow_immortal(vstr_new("        memcpy(VB(nb)->items, VB(VL(l)->buf)->items + VI(from), (size_t)n * sizeof(V));\012", 88));
-    vow_s[1427] = vow_immortal(vstr_new("        if (heap)\012", 18));
-    vow_s[1428] = vow_immortal(vstr_new("            for (int64_t j = 0; j < n; j++) vdup(VB(nb)->items[j]);\012", 68));
-    vow_s[1429] = vow_immortal(vstr_new("    return vlist_make(n, nb, heap);\012", 36));
-    vow_s[1430] = vow_immortal(vstr_new("// Consumes a, borrows b.\012", 26));
-    vow_s[1431] = vow_immortal(vstr_new("static V vlist_cat(V a, V b) {\012", 31));
-    vow_s[1432] = vow_immortal(vstr_new("    int heap = VH(a)->flags;\012", 29));
-    vow_s[1433] = vow_immortal(vstr_new("    for (int64_t i = 0; i < VL(b)->len; i++) {\012", 47));
-    vow_s[1434] = vow_immortal(vstr_new("        V x = VB(VL(b)->buf)->items[i];\012", 40));
-    vow_s[1435] = vow_immortal(vstr_new("        a = vlist_push(a, heap \? vdup(x) : x);\012", 47));
-    vow_s[1436] = vow_immortal(vstr_new("    return a;\012", 14));
-    vow_s[1437] = vow_immortal(vstr_new("// Borrows both.\012", 17));
-    vow_s[1438] = vow_immortal(vstr_new("static V vjoin(V parts, V sep) {\012", 33));
-    vow_s[1439] = vow_immortal(vstr_new("    int64_t n = 0, k = VL(parts)->len;\012", 39));
-    vow_s[1440] = vow_immortal(vstr_new("    for (int64_t i = 0; i < k; i++) n += VS(VB(VL(parts)->buf)->items[i])->len;\012", 80));
-    vow_s[1441] = vow_immortal(vstr_new("    if (k > 1) n += (k - 1) * VS(sep)->len;\012", 44));
-    vow_s[1442] = vow_immortal(vstr_new("    char *p = VS(s)->data;\012", 27));
-    vow_s[1443] = vow_immortal(vstr_new("    for (int64_t i = 0; i < k; i++) {\012", 38));
-    vow_s[1444] = vow_immortal(vstr_new("        if (i) {\012", 17));
-    vow_s[1445] = vow_immortal(vstr_new("            memcpy(p, VS(sep)->data, (size_t)VS(sep)->len);\012", 60));
-    vow_s[1446] = vow_immortal(vstr_new("            p += VS(sep)->len;\012", 31));
-    vow_s[1447] = vow_immortal(vstr_new("        V x = VB(VL(parts)->buf)->items[i];\012", 44));
-    vow_s[1448] = vow_immortal(vstr_new("        memcpy(p, VS(x)->data, (size_t)VS(x)->len);\012", 52));
-    vow_s[1449] = vow_immortal(vstr_new("        p += VS(x)->len;\012", 25));
-    vow_s[1450] = vow_immortal(vstr_new("    *p = 0;\012", 12));
-    vow_s[1451] = vow_immortal(vstr_new("// ---- maps ----\012", 18));
-    vow_s[1452] = vow_immortal(vstr_new("static inline int64_t vn_h(V n) { return n \? VN(n)->height : 0; }\012", 66));
-    vow_s[1453] = vow_immortal(vstr_new("static inline int64_t vn_s(V n) { return n \? VN(n)->size : 0; }\012", 64));
-    vow_s[1454] = vow_immortal(vstr_new("static int vkey_cmp(V a, V b, int flags) {\012", 43));
-    vow_s[1455] = vow_immortal(vstr_new("    if (flags & VN_STR_KEYS) return vstr_cmp(a, b);\012", 52));
-    vow_s[1456] = vow_immortal(vstr_new("    return VI(a) < VI(b) \? -1 : (VI(a) > VI(b) \? 1 : 0);\012", 57));
-    vow_s[1457] = vow_immortal(vstr_new("// Consumes all four parts.\012", 28));
-    vow_s[1458] = vow_immortal(vstr_new("static V vn_make(V k, V v, V l, V r, int flags) {\012", 50));
-    vow_s[1459] = vow_immortal(vstr_new("    V n = vow_obj(VK_NODE, (uint8_t)flags, 0, 0, sizeof(VNode));\012", 65));
-    vow_s[1460] = vow_immortal(vstr_new("    VN(n)->key = k;\012", 20));
-    vow_s[1461] = vow_immortal(vstr_new("    VN(n)->val = v;\012", 20));
-    vow_s[1462] = vow_immortal(vstr_new("    VN(n)->left = l;\012", 21));
-    vow_s[1463] = vow_immortal(vstr_new("    VN(n)->right = r;\012", 22));
-    vow_s[1464] = vow_immortal(vstr_new("    int64_t hl = vn_h(l), hr = vn_h(r);\012", 40));
-    vow_s[1465] = vow_immortal(vstr_new("    VN(n)->height = (hl > hr \? hl : hr) + 1;\012", 45));
-    vow_s[1466] = vow_immortal(vstr_new("    VN(n)->size = vn_s(l) + vn_s(r) + 1;\012", 41));
-    vow_s[1467] = vow_immortal(vstr_new("    return n;\012", 14));
-    vow_s[1468] = vow_immortal(vstr_new("static void vn_fix(V n) {\012", 26));
-    vow_s[1469] = vow_immortal(vstr_new("    VNode *x = VN(n);\012", 22));
-    vow_s[1470] = vow_immortal(vstr_new("    int64_t hl = vn_h(x->left), hr = vn_h(x->right);\012", 53));
-    vow_s[1471] = vow_immortal(vstr_new("    x->height = (hl > hr \? hl : hr) + 1;\012", 41));
-    vow_s[1472] = vow_immortal(vstr_new("    x->size = vn_s(x->left) + vn_s(x->right) + 1;\012", 50));
-    vow_s[1473] = vow_immortal(vstr_new("// Consumes n; returns a node with the same contents that the caller owns exclusively:\012", 87));
-    vow_s[1474] = vow_immortal(vstr_new("// n itself when unshared, otherwise a copy (so updates copy only the path they touch).\012", 88));
-    vow_s[1475] = vow_immortal(vstr_new("static V vn_unshare(V n) {\012", 27));
-    vow_s[1476] = vow_immortal(vstr_new("    if (VH(n)->rc == 1) return n;\012", 34));
-    vow_s[1477] = vow_immortal(vstr_new("    int f = VH(n)->flags;\012", 26));
-    vow_s[1478] = vow_immortal(vstr_new("    V m = vn_make((f & VN_KEY_HEAP) \? vdup(x->key) : x->key, (f & VN_VAL_HEAP) \? vdup(x->val) : x->val,\012", 104));
-    vow_s[1479] = vow_immortal(vstr_new("                  vdup(x->left), vdup(x->right), f);\012", 53));
-    vow_s[1480] = vow_immortal(vstr_new("    vdrop(n);\012", 14));
-    vow_s[1481] = vow_immortal(vstr_new("    return m;\012", 14));
-    vow_s[1482] = vow_immortal(vstr_new("// Rotations relink nodes in place; n must be exclusively owned.\012", 65));
-    vow_s[1483] = vow_immortal(vstr_new("static V vn_rot_right(V n) {\012", 29));
-    vow_s[1484] = vow_immortal(vstr_new("    V l = vn_unshare(VN(n)->left);\012", 35));
-    vow_s[1485] = vow_immortal(vstr_new("    VN(n)->left = VN(l)->right;\012", 32));
-    vow_s[1486] = vow_immortal(vstr_new("    vn_fix(n);\012", 15));
-    vow_s[1487] = vow_immortal(vstr_new("    VN(l)->right = n;\012", 22));
-    vow_s[1488] = vow_immortal(vstr_new("    vn_fix(l);\012", 15));
-    vow_s[1489] = vow_immortal(vstr_new("static V vn_rot_left(V n) {\012", 28));
-    vow_s[1490] = vow_immortal(vstr_new("    V r = vn_unshare(VN(n)->right);\012", 36));
-    vow_s[1491] = vow_immortal(vstr_new("    VN(n)->right = VN(r)->left;\012", 32));
-    vow_s[1492] = vow_immortal(vstr_new("    VN(r)->left = n;\012", 21));
-    vow_s[1493] = vow_immortal(vstr_new("    vn_fix(r);\012", 15));
-    vow_s[1494] = vow_immortal(vstr_new("static V vn_rebalance(V n) {\012", 29));
-    vow_s[1495] = vow_immortal(vstr_new("    if (hl > hr + 1) {\012", 23));
-    vow_s[1496] = vow_immortal(vstr_new("        if (vn_h(VN(x->left)->left) < vn_h(VN(x->left)->right)) x->left = vn_rot_left(vn_unshare(x->left));\012", 108));
-    vow_s[1497] = vow_immortal(vstr_new("        return vn_rot_right(n);\012", 32));
-    vow_s[1498] = vow_immortal(vstr_new("    if (hr > hl + 1) {\012", 23));
-    vow_s[1499] = vow_immortal(vstr_new("        if (vn_h(VN(x->right)->right) < vn_h(VN(x->right)->left)) x->right = vn_rot_right(vn_unshare(x->right));\012", 113));
-    vow_s[1500] = vow_immortal(vstr_new("        return vn_rot_left(n);\012", 31));
-    vow_s[1501] = vow_immortal(vstr_new("// Consumes n, k and v. Unshared nodes on the path are updated in place; shared ones\012", 85));
-    vow_s[1502] = vow_immortal(vstr_new("// are copied first.\012", 21));
-    vow_s[1503] = vow_immortal(vstr_new("static V vn_insert(V n, V k, V v, int flags) {\012", 47));
-    vow_s[1504] = vow_immortal(vstr_new("    if (!n) return vn_make(k, v, 0, 0, flags);\012", 47));
-    vow_s[1505] = vow_immortal(vstr_new("    int c = vkey_cmp(k, VN(n)->key, flags);\012", 44));
-    vow_s[1506] = vow_immortal(vstr_new("    n = vn_unshare(n);\012", 23));
-    vow_s[1507] = vow_immortal(vstr_new("    if (c == 0) {\012", 18));
-    vow_s[1508] = vow_immortal(vstr_new("        if (flags & VN_KEY_HEAP) vdrop(x->key);\012", 48));
-    vow_s[1509] = vow_immortal(vstr_new("        if (flags & VN_VAL_HEAP) vdrop(x->val);\012", 48));
-    vow_s[1510] = vow_immortal(vstr_new("        x->key = k;\012", 20));
-    vow_s[1511] = vow_immortal(vstr_new("        x->val = v;\012", 20));
-    vow_s[1512] = vow_immortal(vstr_new("        return n;\012", 18));
-    vow_s[1513] = vow_immortal(vstr_new("    if (c < 0)\012", 15));
-    vow_s[1514] = vow_immortal(vstr_new("        x->left = vn_insert(x->left, k, v, flags);\012", 51));
-    vow_s[1515] = vow_immortal(vstr_new("        x->right = vn_insert(x->right, k, v, flags);\012", 53));
-    vow_s[1516] = vow_immortal(vstr_new("    return vn_rebalance(n);\012", 28));
-    vow_s[1517] = vow_immortal(vstr_new("static V vmap_empty(void) { return 0; }\012", 40));
-    vow_s[1518] = vow_immortal(vstr_new("static inline V vmap_len(V m) { return (V)vn_s(m); }\012", 53));
-    vow_s[1519] = vow_immortal(vstr_new("static V vmap_insert(V m, V k, V v, int flags) { return vn_insert(m, k, v, flags); }\012", 85));
-    vow_s[1520] = vow_immortal(vstr_new("static V vn_find(V m, V k, int flags) {\012", 40));
-    vow_s[1521] = vow_immortal(vstr_new("    V n = m;\012", 13));
-    vow_s[1522] = vow_immortal(vstr_new("    while (n) {\012", 16));
-    vow_s[1523] = vow_immortal(vstr_new("        int c = vkey_cmp(k, VN(n)->key, flags);\012", 48));
-    vow_s[1524] = vow_immortal(vstr_new("        if (c == 0) return n;\012", 30));
-    vow_s[1525] = vow_immortal(vstr_new("        n = c < 0 \? VN(n)->left : VN(n)->right;\012", 48));
-    vow_s[1526] = vow_immortal(vstr_new("    return 0;\012", 14));
-    vow_s[1527] = vow_immortal(vstr_new("// Borrows m and k; the result owns a reference to the value.\012", 62));
-    vow_s[1528] = vow_immortal(vstr_new("static V vmap_lookup(V m, V k, int flags) {\012", 44));
-    vow_s[1529] = vow_immortal(vstr_new("    V n = vn_find(m, k, flags);\012", 32));
-    vow_s[1530] = vow_immortal(vstr_new("    if (!n) return vnone();\012", 28));
-    vow_s[1531] = vow_immortal(vstr_new("    V v = VN(n)->val;\012", 22));
-    vow_s[1532] = vow_immortal(vstr_new("    if (flags & VN_VAL_HEAP) vdup(v);\012", 38));
-    vow_s[1533] = vow_immortal(vstr_new("    return vsome(v, flags & VN_VAL_HEAP);\012", 42));
-    vow_s[1534] = vow_immortal(vstr_new("static V vmap_has(V m, V k, int flags) { return (V)(vn_find(m, k, flags) != 0); }\012", 82));
-    vow_s[1535] = vow_immortal(vstr_new("static V vn_keys(V n, V acc, int flags) {\012", 42));
-    vow_s[1536] = vow_immortal(vstr_new("    if (!n) return acc;\012", 24));
-    vow_s[1537] = vow_immortal(vstr_new("    acc = vn_keys(VN(n)->left, acc, flags);\012", 44));
-    vow_s[1538] = vow_immortal(vstr_new("    V k = VN(n)->key;\012", 22));
-    vow_s[1539] = vow_immortal(vstr_new("    acc = vlist_push(acc, (flags & VN_KEY_HEAP) \? vdup(k) : k);\012", 64));
-    vow_s[1540] = vow_immortal(vstr_new("    return vn_keys(VN(n)->right, acc, flags);\012", 46));
-    vow_s[1541] = vow_immortal(vstr_new("static V vmap_keys(V m, int flags) { return vn_keys(m, vlist_empty(flags & VN_KEY_HEAP), flags); }\012", 99));
-    vow_s[1542] = vow_immortal(vstr_new("// ---- hash maps ----\012", 23));
-    vow_s[1543] = vow_immortal(vstr_new("static int vow_name_cmp(const void *a, const void *b);\012", 55));
-    vow_s[1544] = vow_immortal(vstr_new("static uint64_t vhm_hash(V k, int flags) {\012", 43));
-    vow_s[1545] = vow_immortal(vstr_new("    uint64_t h;\012", 16));
-    vow_s[1546] = vow_immortal(vstr_new("    if (flags & VN_STR_KEYS) {\012", 31));
-    vow_s[1547] = vow_immortal(vstr_new("        h = 14695981039346656037ull;\012", 37));
-    vow_s[1548] = vow_immortal(vstr_new("        for (int64_t i = 0; i < VS(k)->len; i++) {\012", 51));
-    vow_s[1549] = vow_immortal(vstr_new("            h ^= (unsigned char)VS(k)->data[i];\012", 48));
-    vow_s[1550] = vow_immortal(vstr_new("            h *= 1099511628211ull;\012", 35));
-    vow_s[1551] = vow_immortal(vstr_new("        h = k;\012", 15));
-    vow_s[1552] = vow_immortal(vstr_new("        h ^= h >> 30;\012", 22));
-    vow_s[1553] = vow_immortal(vstr_new("        h *= 0xbf58476d1ce4e5b9ull;\012", 36));
-    vow_s[1554] = vow_immortal(vstr_new("        h ^= h >> 27;\012", 22));
-    vow_s[1555] = vow_immortal(vstr_new("        h *= 0x94d049bb133111ebull;\012", 36));
-    vow_s[1556] = vow_immortal(vstr_new("        h ^= h >> 31;\012", 22));
-    vow_s[1557] = vow_immortal(vstr_new("    return h \? h : 1;\012", 22));
-    vow_s[1558] = vow_immortal(vstr_new("static inline int vhm_eq(V a, V b, int flags) { return (flags & VN_STR_KEYS) \? (int)vstr_eq(a, b) : a == b; }\012", 110));
-    vow_s[1559] = vow_immortal(vstr_new("static V vhm_new(int64_t cap, int flags) {\012", 43));
-    vow_s[1560] = vow_immortal(vstr_new("    V h = vow_obj(VK_HASH, (uint8_t)flags, 0, 0, sizeof(VHash) + (size_t)cap * 3 * sizeof(V));\012", 95));
-    vow_s[1561] = vow_immortal(vstr_new("    VHM(h)->count = 0;\012", 23));
-    vow_s[1562] = vow_immortal(vstr_new("    VHM(h)->cap = cap;\012", 23));
-    vow_s[1563] = vow_immortal(vstr_new("    memset(vhm_hashes(h), 0, (size_t)cap * sizeof(uint64_t));\012", 62));
-    vow_s[1564] = vow_immortal(vstr_new("    return h;\012", 14));
-    vow_s[1565] = vow_immortal(vstr_new("// Consumes k and v; h must be exclusively owned and have a free slot.\012", 71));
-    vow_s[1566] = vow_immortal(vstr_new("static void vhm_place(V h, uint64_t hh, V k, V v, int flags) {\012", 63));
-    vow_s[1567] = vow_immortal(vstr_new("    int64_t cap = VHM(h)->cap, i = (int64_t)(hh & (uint64_t)(cap - 1));\012", 72));
-    vow_s[1568] = vow_immortal(vstr_new("    uint64_t *hs = vhm_hashes(h);\012", 34));
-    vow_s[1569] = vow_immortal(vstr_new("    V *ks = vhm_keyarr(h), *vs = vhm_valarr(h);\012", 48));
-    vow_s[1570] = vow_immortal(vstr_new("    while (hs[i]) {\012", 20));
-    vow_s[1571] = vow_immortal(vstr_new("        if (hs[i] == hh && vhm_eq(ks[i], k, flags)) {\012", 54));
-    vow_s[1572] = vow_immortal(vstr_new("            if (flags & VN_KEY_HEAP) vdrop(k);\012", 47));
-    vow_s[1573] = vow_immortal(vstr_new("            if (flags & VN_VAL_HEAP) vdrop(vs[i]);\012", 51));
-    vow_s[1574] = vow_immortal(vstr_new("            vs[i] = v;\012", 23));
-    vow_s[1575] = vow_immortal(vstr_new("            return;\012", 20));
-    vow_s[1576] = vow_immortal(vstr_new("        i = (i + 1) & (cap - 1);\012", 33));
-    vow_s[1577] = vow_immortal(vstr_new("    hs[i] = hh;\012", 16));
-    vow_s[1578] = vow_immortal(vstr_new("    ks[i] = k;\012", 15));
-    vow_s[1579] = vow_immortal(vstr_new("    vs[i] = v;\012", 15));
-    vow_s[1580] = vow_immortal(vstr_new("    VHM(h)->count++;\012", 21));
-    vow_s[1581] = vow_immortal(vstr_new("// Consumes h (exclusively owned): moves its entries into a table of capacity cap.\012", 83));
-    vow_s[1582] = vow_immortal(vstr_new("static V vhm_grow(V h, int64_t cap, int flags) {\012", 49));
-    vow_s[1583] = vow_immortal(vstr_new("    V n = vhm_new(cap, flags);\012", 31));
-    vow_s[1584] = vow_immortal(vstr_new("    for (int64_t i = 0; i < VHM(h)->cap; i++)\012", 46));
-    vow_s[1585] = vow_immortal(vstr_new("        if (vhm_hashes(h)[i]) vhm_place(n, vhm_hashes(h)[i], vhm_keyarr(h)[i], vhm_valarr(h)[i], flags);\012", 105));
-    vow_s[1586] = vow_immortal(vstr_new("    vow_free_shell(h);\012", 23));
-    vow_s[1587] = vow_immortal(vstr_new("// Consumes h, k and v. An unshared table is updated in place; a shared one is copied\012", 86));
-    vow_s[1588] = vow_immortal(vstr_new("// first (so value semantics hold).\012", 36));
-    vow_s[1589] = vow_immortal(vstr_new("static V vhm_insert(V h, V k, V v, int flags) {\012", 48));
-    vow_s[1590] = vow_immortal(vstr_new("    uint64_t hh = vhm_hash(k, flags);\012", 38));
-    vow_s[1591] = vow_immortal(vstr_new("    if (!h) {\012", 14));
-    vow_s[1592] = vow_immortal(vstr_new("        h = vhm_new(8, flags);\012", 31));
-    vow_s[1593] = vow_immortal(vstr_new("    } else if (VH(h)->rc != 1) {\012", 33));
-    vow_s[1594] = vow_immortal(vstr_new("        int64_t cap = VHM(h)->cap;\012", 35));
-    vow_s[1595] = vow_immortal(vstr_new("        V c = vhm_new(cap, flags);\012", 35));
-    vow_s[1596] = vow_immortal(vstr_new("        memcpy(vhm_hashes(c), vhm_hashes(h), (size_t)cap * 3 * sizeof(V));\012", 75));
-    vow_s[1597] = vow_immortal(vstr_new("        VHM(c)->count = VHM(h)->count;\012", 39));
-    vow_s[1598] = vow_immortal(vstr_new("        for (int64_t i = 0; i < cap; i++) {\012", 44));
-    vow_s[1599] = vow_immortal(vstr_new("            if (!vhm_hashes(c)[i]) continue;\012", 45));
-    vow_s[1600] = vow_immortal(vstr_new("            if (flags & VN_KEY_HEAP) vdup(vhm_keyarr(c)[i]);\012", 61));
-    vow_s[1601] = vow_immortal(vstr_new("            if (flags & VN_VAL_HEAP) vdup(vhm_valarr(c)[i]);\012", 61));
-    vow_s[1602] = vow_immortal(vstr_new("        vdrop(h);\012", 18));
-    vow_s[1603] = vow_immortal(vstr_new("        h = c;\012", 15));
-    vow_s[1604] = vow_immortal(vstr_new("    if ((VHM(h)->count + 1) * 4 > VHM(h)->cap * 3) h = vhm_grow(h, VHM(h)->cap * 2, flags);\012", 92));
-    vow_s[1605] = vow_immortal(vstr_new("    vhm_place(h, hh, k, v, flags);\012", 35));
-    vow_s[1606] = vow_immortal(vstr_new("static int64_t vhm_find(V h, V k, int flags) {\012", 47));
-    vow_s[1607] = vow_immortal(vstr_new("    if (!h) return -1;\012", 23));
-    vow_s[1608] = vow_immortal(vstr_new("    while (vhm_hashes(h)[i]) {\012", 31));
-    vow_s[1609] = vow_immortal(vstr_new("        if (vhm_hashes(h)[i] == hh && vhm_eq(vhm_keyarr(h)[i], k, flags)) return i;\012", 84));
-    vow_s[1610] = vow_immortal(vstr_new("    return -1;\012", 15));
-    vow_s[1611] = vow_immortal(vstr_new("// Borrows h and k; the result owns a reference to the value.\012", 62));
-    vow_s[1612] = vow_immortal(vstr_new("static V vhm_lookup(V h, V k, int flags) {\012", 43));
-    vow_s[1613] = vow_immortal(vstr_new("    int64_t i = vhm_find(h, k, flags);\012", 39));
-    vow_s[1614] = vow_immortal(vstr_new("    if (i < 0) return vnone();\012", 31));
-    vow_s[1615] = vow_immortal(vstr_new("    V v = vhm_valarr(h)[i];\012", 28));
-    vow_s[1616] = vow_immortal(vstr_new("static V vhm_has(V h, V k, int flags) { return (V)(vhm_find(h, k, flags) >= 0); }\012", 82));
-    vow_s[1617] = vow_immortal(vstr_new("static inline V vhm_len(V h) { return h \? (V)VHM(h)->count : 0; }\012", 66));
-    vow_s[1618] = vow_immortal(vstr_new("static int vow_int_cmp(const void *a, const void *b) {\012", 55));
-    vow_s[1619] = vow_immortal(vstr_new("    int64_t x = VI(*(const V *)a), y = VI(*(const V *)b);\012", 58));
-    vow_s[1620] = vow_immortal(vstr_new("    return x < y \? -1 : (x > y \? 1 : 0);\012", 41));
-    vow_s[1621] = vow_immortal(vstr_new("// The keys in ascending order, so programs stay deterministic.\012", 64));
-    vow_s[1622] = vow_immortal(vstr_new("static V vhm_keys(V h, int flags) {\012", 36));
-    vow_s[1623] = vow_immortal(vstr_new("    V l = vlist_empty(flags & VN_KEY_HEAP);\012", 44));
-    vow_s[1624] = vow_immortal(vstr_new("    if (!h) return l;\012", 22));
-    vow_s[1625] = vow_immortal(vstr_new("    int64_t n = 0;\012", 19));
-    vow_s[1626] = vow_immortal(vstr_new("    V *ks = (V *)malloc(sizeof(V) * (size_t)(VHM(h)->count + 1));\012", 66));
-    vow_s[1627] = vow_immortal(vstr_new("        if (vhm_hashes(h)[i]) ks[n++] = vhm_keyarr(h)[i];\012", 58));
-    vow_s[1628] = vow_immortal(vstr_new("    qsort(ks, (size_t)n, sizeof(V), (flags & VN_STR_KEYS) \? vow_name_cmp : vow_int_cmp);\012", 89));
-    vow_s[1629] = vow_immortal(vstr_new("    for (int64_t i = 0; i < n; i++) l = vlist_push(l, (flags & VN_KEY_HEAP) \? vdup(ks[i]) : ks[i]);\012", 100));
-    vow_s[1630] = vow_immortal(vstr_new("    free(ks);\012", 14));
-    vow_s[1631] = vow_immortal(vstr_new("// ---- effects (all borrow their arguments) ----\012", 50));
-    vow_s[1632] = vow_immortal(vstr_new("static int vow_argc;\012", 21));
-    vow_s[1633] = vow_immortal(vstr_new("static char **vow_argv;\012", 24));
-    vow_s[1634] = vow_immortal(vstr_new("static V vprint(V s) {\012", 23));
-    vow_s[1635] = vow_immortal(vstr_new("    fwrite(VS(s)->data, 1, (size_t)VS(s)->len, stdout);\012", 56));
-    vow_s[1636] = vow_immortal(vstr_new("static V veprint(V s) {\012", 24));
-    vow_s[1637] = vow_immortal(vstr_new("    fwrite(VS(s)->data, 1, (size_t)VS(s)->len, stderr);\012", 56));
-    vow_s[1638] = vow_immortal(vstr_new("static V vread_file(V path) {\012", 30));
-    vow_s[1639] = vow_immortal(vstr_new("    FILE *f = fopen(VS(path)->data, \"rb\");\012", 43));
-    vow_s[1640] = vow_immortal(vstr_new("    if (!f) return vnone();\012", 28));
-    vow_s[1641] = vow_immortal(vstr_new("    fseek(f, 0, SEEK_END);\012", 27));
-    vow_s[1642] = vow_immortal(vstr_new("    long n = ftell(f);\012", 23));
-    vow_s[1643] = vow_immortal(vstr_new("    fseek(f, 0, SEEK_SET);\012", 27));
-    vow_s[1644] = vow_immortal(vstr_new("    VS(s)->len = (int64_t)fread(VS(s)->data, 1, (size_t)n, f);\012", 63));
-    vow_s[1645] = vow_immortal(vstr_new("    VS(s)->data[VS(s)->len] = 0;\012", 33));
-    vow_s[1646] = vow_immortal(vstr_new("    fclose(f);\012", 15));
-    vow_s[1647] = vow_immortal(vstr_new("    return vsome(s, 1);\012", 24));
-    vow_s[1648] = vow_immortal(vstr_new("static V vwrite_file(V path, V contents) {\012", 43));
-    vow_s[1649] = vow_immortal(vstr_new("    FILE *f = fopen(VS(path)->data, \"wb\");\012", 43));
-    vow_s[1650] = vow_immortal(vstr_new("    if (!f) return 0;\012", 22));
-    vow_s[1651] = vow_immortal(vstr_new("    size_t w = fwrite(VS(contents)->data, 1, (size_t)VS(contents)->len, f);\012", 76));
-    vow_s[1652] = vow_immortal(vstr_new("    int ok = fclose(f) == 0 && w == (size_t)VS(contents)->len;\012", 63));
-    vow_s[1653] = vow_immortal(vstr_new("    return (V)ok;\012", 18));
-    vow_s[1654] = vow_immortal(vstr_new("// make_dir(path): create the directory and any missing parents, like `mkdir -p`.\012", 82));
-    vow_s[1655] = vow_immortal(vstr_new("static V vmake_dir(V path) {\012", 29));
-    vow_s[1656] = vow_immortal(vstr_new("    int64_t n = VS(path)->len;\012", 31));
-    vow_s[1657] = vow_immortal(vstr_new("    if (n == 0) return 0;\012", 26));
-    vow_s[1658] = vow_immortal(vstr_new("    char *p = (char *)malloc((size_t)n + 1);\012", 45));
-    vow_s[1659] = vow_immortal(vstr_new("    memcpy(p, VS(path)->data, (size_t)n + 1);\012", 46));
-    vow_s[1660] = vow_immortal(vstr_new("    for (int64_t i = 1; i < n; i++) {\012", 38));
-    vow_s[1661] = vow_immortal(vstr_new("        if (p[i] == '/') {\012", 27));
-    vow_s[1662] = vow_immortal(vstr_new("            p[i] = 0;\012", 22));
-    vow_s[1663] = vow_immortal(vstr_new("            mkdir(p, 0777);\012", 28));
-    vow_s[1664] = vow_immortal(vstr_new("            p[i] = '/';\012", 24));
-    vow_s[1665] = vow_immortal(vstr_new("    mkdir(p, 0777);\012", 20));
-    vow_s[1666] = vow_immortal(vstr_new("    struct stat st;\012", 20));
-    vow_s[1667] = vow_immortal(vstr_new("    int ok = stat(p, &st) == 0 && S_ISDIR(st.st_mode);\012", 55));
-    vow_s[1668] = vow_immortal(vstr_new("    free(p);\012", 13));
-    vow_s[1669] = vow_immortal(vstr_new("static int vow_name_cmp(const void *a, const void *b) { return vstr_cmp(*(const V *)a, *(const V *)b); }\012", 105));
-    vow_s[1670] = vow_immortal(vstr_new("// list_dir(path): the names in a directory, sorted, without \".\" and \"..\".\012", 75));
-    vow_s[1671] = vow_immortal(vstr_new("static V vlist_dir(V path) {\012", 29));
-    vow_s[1672] = vow_immortal(vstr_new("    DIR *d = opendir(VS(path)->data);\012", 38));
-    vow_s[1673] = vow_immortal(vstr_new("    if (!d) return vnone();\012", 28));
-    vow_s[1674] = vow_immortal(vstr_new("    int64_t cap = 16, n = 0;\012", 29));
-    vow_s[1675] = vow_immortal(vstr_new("    V *names = (V *)malloc(sizeof(V) * (size_t)cap);\012", 53));
-    vow_s[1676] = vow_immortal(vstr_new("    struct dirent *e;\012", 22));
-    vow_s[1677] = vow_immortal(vstr_new("    while ((e = readdir(d)) != 0) {\012", 36));
-    vow_s[1678] = vow_immortal(vstr_new("        if (strcmp(e->d_name, \".\") == 0 || strcmp(e->d_name, \"..\") == 0) continue;\012", 83));
-    vow_s[1679] = vow_immortal(vstr_new("        if (n == cap) names = (V *)realloc(names, sizeof(V) * (size_t)(cap *= 2));\012", 83));
-    vow_s[1680] = vow_immortal(vstr_new("        names[n++] = vstr_new(e->d_name, (int64_t)strlen(e->d_name));\012", 70));
-    vow_s[1681] = vow_immortal(vstr_new("    closedir(d);\012", 17));
-    vow_s[1682] = vow_immortal(vstr_new("    qsort(names, (size_t)n, sizeof(V), vow_name_cmp);\012", 54));
-    vow_s[1683] = vow_immortal(vstr_new("    V l = vlist_empty(1);\012", 26));
-    vow_s[1684] = vow_immortal(vstr_new("    for (int64_t i = 0; i < n; i++) l = vlist_push(l, names[i]);\012", 65));
-    vow_s[1685] = vow_immortal(vstr_new("    free(names);\012", 17));
-    vow_s[1686] = vow_immortal(vstr_new("    return vsome(l, 1);\012", 24));
-    vow_s[1687] = vow_immortal(vstr_new("static V vargs(void) {\012", 23));
-    vow_s[1688] = vow_immortal(vstr_new("    for (int i = 1; i < vow_argc; i++) l = vlist_push(l, vstr_new(vow_argv[i], (int64_t)strlen(vow_argv[i])));\012", 111));
-    vow_s[1689] = vow_immortal(vstr_new("static V vgetenv(V name) {\012", 27));
-    vow_s[1690] = vow_immortal(vstr_new("    const char *v = getenv(VS(name)->data);\012", 44));
-    vow_s[1691] = vow_immortal(vstr_new("    if (!v) return vnone();\012", 28));
-    vow_s[1692] = vow_immortal(vstr_new("    return vsome(vstr_new(v, (int64_t)strlen(v)), 1);\012", 54));
-    vow_s[1693] = vow_immortal(vstr_new("static __attribute__((noreturn)) void vexit(V code) {\012", 54));
-    vow_s[1694] = vow_immortal(vstr_new("    exit((int)VI(code));\012", 25));
-    vow_s[1695] = vow_immortal(vstr_new("// run(argv, input): stdin comes from a temporary file so that large inputs and outputs\012", 88));
-    vow_s[1696] = vow_immortal(vstr_new("// cannot deadlock on full pipes; stdout is captured, stderr is inherited.\012", 75));
-    vow_s[1697] = vow_immortal(vstr_new("static V vrun(V argv, V input) {\012", 33));
-    vow_s[1698] = vow_immortal(vstr_new("    int64_t n = VL(argv)->len;\012", 31));
-    vow_s[1699] = vow_immortal(vstr_new("    V out = vow_fields(2, 2);\012", 30));
-    vow_s[1700] = vow_immortal(vstr_new("    VP(out)[0] = (V)(int64_t)-1;\012", 33));
-    vow_s[1701] = vow_immortal(vstr_new("    char tmpl[] = \"/tmp/vow-run-XXXXXX\";\012", 41));
-    vow_s[1702] = vow_immortal(vstr_new("    int in_fd = n == 0 \? -1 : mkstemp(tmpl);\012", 45));
-    vow_s[1703] = vow_immortal(vstr_new("    if (in_fd < 0) {\012", 21));
-    vow_s[1704] = vow_immortal(vstr_new("        VP(out)[1] = vstr_new(\"\", 0);\012", 38));
-    vow_s[1705] = vow_immortal(vstr_new("        return out;\012", 20));
-    vow_s[1706] = vow_immortal(vstr_new("    unlink(tmpl);\012", 18));
-    vow_s[1707] = vow_immortal(vstr_new("    int pfd[2];\012", 16));
-    vow_s[1708] = vow_immortal(vstr_new("    if (write(in_fd, VS(input)->data, (size_t)VS(input)->len) != (ssize_t)VS(input)->len || pipe(pfd) != 0) {\012", 110));
-    vow_s[1709] = vow_immortal(vstr_new("        close(in_fd);\012", 22));
-    vow_s[1710] = vow_immortal(vstr_new("    lseek(in_fd, 0, SEEK_SET);\012", 31));
-    vow_s[1711] = vow_immortal(vstr_new("    pid_t pid = fork();\012", 24));
-    vow_s[1712] = vow_immortal(vstr_new("    if (pid == 0) {\012", 20));
-    vow_s[1713] = vow_immortal(vstr_new("        dup2(in_fd, 0);\012", 24));
-    vow_s[1714] = vow_immortal(vstr_new("        dup2(pfd[1], 1);\012", 25));
-    vow_s[1715] = vow_immortal(vstr_new("        close(pfd[0]);\012", 23));
-    vow_s[1716] = vow_immortal(vstr_new("        close(pfd[1]);\012", 23));
-    vow_s[1717] = vow_immortal(vstr_new("        char **av = (char **)malloc(sizeof(char *) * (size_t)(n + 1));\012", 71));
-    vow_s[1718] = vow_immortal(vstr_new("        for (int64_t i = 0; i < n; i++) av[i] = VS(VB(VL(argv)->buf)->items[i])->data;\012", 87));
-    vow_s[1719] = vow_immortal(vstr_new("        av[n] = 0;\012", 19));
-    vow_s[1720] = vow_immortal(vstr_new("        execvp(av[0], av);\012", 27));
-    vow_s[1721] = vow_immortal(vstr_new("        _exit(127);\012", 20));
-    vow_s[1722] = vow_immortal(vstr_new("    close(pfd[1]);\012", 19));
-    vow_s[1723] = vow_immortal(vstr_new("    close(in_fd);\012", 18));
-    vow_s[1724] = vow_immortal(vstr_new("    size_t cap = 4096, len = 0;\012", 32));
-    vow_s[1725] = vow_immortal(vstr_new("    char *buf = (char *)malloc(cap);\012", 37));
-    vow_s[1726] = vow_immortal(vstr_new("    for (;;) {\012", 15));
-    vow_s[1727] = vow_immortal(vstr_new("        if (len == cap) buf = (char *)realloc(buf, cap *= 2);\012", 62));
-    vow_s[1728] = vow_immortal(vstr_new("        ssize_t k = read(pfd[0], buf + len, cap - len);\012", 56));
-    vow_s[1729] = vow_immortal(vstr_new("        if (k <= 0) break;\012", 27));
-    vow_s[1730] = vow_immortal(vstr_new("        len += (size_t)k;\012", 26));
-    vow_s[1731] = vow_immortal(vstr_new("    close(pfd[0]);\012", 19));
-    vow_s[1732] = vow_immortal(vstr_new("    int status = 0;\012", 20));
-    vow_s[1733] = vow_immortal(vstr_new("    waitpid(pid, &status, 0);\012", 30));
-    vow_s[1734] = vow_immortal(vstr_new("    VP(out)[0] = (V)(int64_t)(WIFEXITED(status) \? WEXITSTATUS(status) : -1);\012", 77));
-    vow_s[1735] = vow_immortal(vstr_new("    VP(out)[1] = vstr_new(buf, (int64_t)len);\012", 46));
-    vow_s[1736] = vow_immortal(vstr_new("    free(buf);\012", 15));
-    vow_s[1737] = vow_immortal(vstr_new("    return out;\012", 16));
+    vow_s[538] = vow_immortal(vstr_new(", in ", 5));
+    vow_s[539] = vow_immortal(vstr_new("main", 4));
+    vow_s[540] = vow_immortal(vstr_new("the program has no 'fn main()'", 30));
+    vow_s[541] = vow_immortal(vstr_new("'main' must take no parameters and return Unit", 46));
+    vow_s[542] = vow_immortal(vstr_new("duplicate parameter '", 21));
+    vow_s[543] = vow_immortal(vstr_new("unknown effect '", 16));
+    vow_s[544] = vow_immortal(vstr_new("' (expected console, fs or proc)", 32));
+    vow_s[545] = vow_immortal(vstr_new("only function parameters can be inout", 37));
+    vow_s[546] = vow_immortal(vstr_new("duplicate field '", 17));
+    vow_s[547] = vow_immortal(vstr_new("a specification", 15));
+    vow_s[548] = vow_immortal(vstr_new("a 'decreases' measure", 21));
+    vow_s[549] = vow_immortal(vstr_new("' can finish without returning a ", 33));
+    vow_s[550] = vow_immortal(vstr_new("unreachable statement", 21));
+    vow_s[551] = vow_immortal(vstr_new("the value of '", 14));
+    vow_s[552] = vow_immortal(vstr_new("_", 1));
+    vow_s[553] = vow_immortal(vstr_new("use 'let _ = ...' to discard a value", 36));
+    vow_s[554] = vow_immortal(vstr_new("cannot bind a Unit value", 24));
+    vow_s[555] = vow_immortal(vstr_new("unknown variable '", 18));
+    vow_s[556] = vow_immortal(vstr_new("' is not a var and cannot be reassigned", 39));
+    vow_s[557] = vow_immortal(vstr_new("the new value of '", 18));
+    vow_s[558] = vow_immortal(vstr_new("this function must return a ", 28));
+    vow_s[559] = vow_immortal(vstr_new("this function returns Unit; use a bare 'return'", 47));
+    vow_s[560] = vow_immortal(vstr_new("the returned value", 18));
+    vow_s[561] = vow_immortal(vstr_new("an if condition", 15));
+    vow_s[562] = vow_immortal(vstr_new("a while condition", 17));
+    vow_s[563] = vow_immortal(vstr_new("a range bound", 13));
+    vow_s[564] = vow_immortal(vstr_new("'for ... in' needs a List, but this is ", 39));
+    vow_s[565] = vow_immortal(vstr_new("'break' and 'continue' must be inside a loop", 44));
+    vow_s[566] = vow_immortal(vstr_new("the ", 4));
+    vow_s[567] = vow_immortal(vstr_new(" result of this call is ignored; bind it with 'let'", 51));
+    vow_s[568] = vow_immortal(vstr_new("this pattern does not match a ", 30));
+    vow_s[569] = vow_immortal(vstr_new("duplicate case", 14));
+    vow_s[570] = vow_immortal(vstr_new("a match on ", 11));
+    vow_s[571] = vow_immortal(vstr_new(" needs an 'else' arm", 20));
+    vow_s[572] = vow_immortal(vstr_new("cannot match on a value of type ", 32));
+    vow_s[573] = vow_immortal(vstr_new(" has no variant '", 17));
+    vow_s[574] = vow_immortal(vstr_new("duplicate case '", 16));
+    vow_s[575] = vow_immortal(vstr_new("field '", 7));
+    vow_s[576] = vow_immortal(vstr_new("' is bound twice", 16));
+    vow_s[577] = vow_immortal(vstr_new("variant '", 9));
+    vow_s[578] = vow_immortal(vstr_new("' has no field '", 16));
+    vow_s[579] = vow_immortal(vstr_new("expected a variant of ", 22));
+    vow_s[580] = vow_immortal(vstr_new("every variant is already covered; remove the 'else' arm", 55));
+    vow_s[581] = vow_immortal(vstr_new("match is not exhaustive; missing ", 33));
+    vow_s[582] = vow_immortal(vstr_new("'try' in a function that returns ", 33));
+    vow_s[583] = vow_immortal(vstr_new(" needs ", 7));
+    vow_s[584] = vow_immortal(vstr_new(" is not allowed in a specification", 34));
+    vow_s[585] = vow_immortal(vstr_new(" uses '", 7));
+    vow_s[586] = vow_immortal(vstr_new("', but the enclosing function does not declare it", 49));
+    vow_s[587] = vow_immortal(vstr_new("add 'uses ", 10));
+    vow_s[588] = vow_immortal(vstr_new("' to the function signature", 27));
+    vow_s[589] = vow_immortal(vstr_new("parameter of '", 14));
+    vow_s[590] = vow_immortal(vstr_new("' is inout; pass a var with 'inout'", 35));
+    vow_s[591] = vow_immortal(vstr_new("' is not inout", 14));
+    vow_s[592] = vow_immortal(vstr_new("' must be a var to be passed inout", 34));
+    vow_s[593] = vow_immortal(vstr_new("' is passed inout more than once in this call", 45));
+    vow_s[594] = vow_immortal(vstr_new("' is passed inout to '", 22));
+    vow_s[595] = vow_immortal(vstr_new("' and also modified by this argument; use separate statements", 61));
+    vow_s[596] = vow_immortal(vstr_new(" takes no inout arguments", 25));
+    vow_s[597] = vow_immortal(vstr_new("arguments to ", 13));
+    vow_s[598] = vow_immortal(vstr_new(" must be named", 14));
+    vow_s[599] = vow_immortal(vstr_new(" has no parameter '", 19));
+    vow_s[600] = vow_immortal(vstr_new("argument '", 10));
+    vow_s[601] = vow_immortal(vstr_new("' is given twice", 16));
+    vow_s[602] = vow_immortal(vstr_new("missing argument '", 18));
+    vow_s[603] = vow_immortal(vstr_new("' for ", 6));
+    vow_s[604] = vow_immortal(vstr_new("' is a type, not a value", 24));
+    vow_s[605] = vow_immortal(vstr_new("'it' is only available inside a 'where' refinement", 50));
+    vow_s[606] = vow_immortal(vstr_new("'result' is only available inside 'ensures'", 43));
+    vow_s[607] = vow_immortal(vstr_new("a hole", 6));
+    vow_s[608] = vow_immortal(vstr_new(" has no field '", 15));
+    vow_s[609] = vow_immortal(vstr_new(" has no fields", 14));
+    vow_s[610] = vow_immortal(vstr_new("an index", 8));
+    vow_s[611] = vow_immortal(vstr_new("cannot index a ", 15));
+    vow_s[612] = vow_immortal(vstr_new("a list literal", 14));
+    vow_s[613] = vow_immortal(vstr_new("cannot infer the element type of '[]'; add a type annotation", 60));
+    vow_s[614] = vow_immortal(vstr_new("a list element", 14));
+    vow_s[615] = vow_immortal(vstr_new("a map literal", 13));
+    vow_s[616] = vow_immortal(vstr_new("cannot infer the type of '{}'; add a type annotation", 52));
+    vow_s[617] = vow_immortal(vstr_new("'with'", 6));
+    vow_s[618] = vow_immortal(vstr_new("'with' needs a struct, but this is ", 35));
+    vow_s[619] = vow_immortal(vstr_new("'with' takes no inout arguments", 31));
+    vow_s[620] = vow_immortal(vstr_new("' is updated twice", 18));
+    vow_s[621] = vow_immortal(vstr_new("the operand of '", 16));
+    vow_s[622] = vow_immortal(vstr_new("a quantifier bound", 18));
+    vow_s[623] = vow_immortal(vstr_new("the body of '", 13));
+    vow_s[624] = vow_immortal(vstr_new("the operands of '", 17));
+    vow_s[625] = vow_immortal(vstr_new("cannot compare ", 15));
+    vow_s[626] = vow_immortal(vstr_new(" with ", 6));
+    vow_s[627] = vow_immortal(vstr_new("' does not work on maps (", 25));
+    vow_s[628] = vow_immortal(vstr_new("); compare lookups instead", 26));
+    vow_s[629] = vow_immortal(vstr_new("' does not work on ", 19));
+    vow_s[630] = vow_immortal(vstr_new(", because it contains ", 22));
+    vow_s[631] = vow_immortal(vstr_new("'++'", 4));
+    vow_s[632] = vow_immortal(vstr_new("the right side of '++'", 22));
+    vow_s[633] = vow_immortal(vstr_new("'++' joins Strings or Lists, not ", 33));
+    vow_s[634] = vow_immortal(vstr_new("cannot infer the type of this Option; add a type annotation", 59));
+    vow_s[635] = vow_immortal(vstr_new("' has fields; construct it with ", 32));
+    vow_s[636] = vow_immortal(vstr_new("(...)", 5));
+    vow_s[637] = vow_immortal(vstr_new("' has no fields; write ", 23));
+    vow_s[638] = vow_immortal(vstr_new(" without parentheses", 20));
+    vow_s[639] = vow_immortal(vstr_new("variant", 7));
+    vow_s[640] = vow_immortal(vstr_new("constructing a value", 20));
+    vow_s[641] = vow_immortal(vstr_new("only named functions can be called", 34));
+    vow_s[642] = vow_immortal(vstr_new("' is not allowed in a specification (only len, value_or, is_some and is_none are)", 81));
+    vow_s[643] = vow_immortal(vstr_new("builtin", 7));
+    vow_s[644] = vow_immortal(vstr_new("' cannot be used in a specification: only pure, non-recursive functions whose whole body is 'return <expression>' can", 117));
+    vow_s[645] = vow_immortal(vstr_new("user", 4));
+    vow_s[646] = vow_immortal(vstr_new("struct '", 8));
+    vow_s[647] = vow_immortal(vstr_new("' is an enum; construct a variant with ", 39));
+    vow_s[648] = vow_immortal(vstr_new(".Variant(...)", 13));
+    vow_s[649] = vow_immortal(vstr_new("unknown function '", 18));
+    vow_s[650] = vow_immortal(vstr_new("cannot infer the type parameter ", 32));
+    vow_s[651] = vow_immortal(vstr_new(" of ", 4));
+    vow_s[652] = vow_immortal(vstr_new("add a type annotation to the variable this value is bound to", 60));
+    vow_s[653] = vow_immortal(vstr_new(" '", 2));
+    vow_s[654] = vow_immortal(vstr_new("the error passed on by 'try' (the function's error type)", 56));
+    vow_s[655] = vow_immortal(vstr_new("' is generic and cannot be used in a specification", 50));
+    vow_s[656] = vow_immortal(vstr_new("argument", 8));
+    vow_s[657] = vow_immortal(vstr_new("field", 5));
+    vow_s[658] = vow_immortal(vstr_new("'len' needs a List, String or Map, not ", 39));
+    vow_s[659] = vow_immortal(vstr_new("the pushed item", 15));
+    vow_s[660] = vow_immortal(vstr_new("'push' needs a List, not ", 25));
+    vow_s[661] = vow_immortal(vstr_new("'at'", 4));
+    vow_s[662] = vow_immortal(vstr_new("the new element", 15));
+    vow_s[663] = vow_immortal(vstr_new("'set_at' needs a List, not ", 27));
+    vow_s[664] = vow_immortal(vstr_new("'from'", 6));
+    vow_s[665] = vow_immortal(vstr_new("'to'", 4));
+    vow_s[666] = vow_immortal(vstr_new("'slice' needs a List or String, not ", 36));
+    vow_s[667] = vow_immortal(vstr_new("'parts'", 7));
+    vow_s[668] = vow_immortal(vstr_new("'sep'", 5));
+    vow_s[669] = vow_immortal(vstr_new("the argument", 12));
+    vow_s[670] = vow_immortal(vstr_new("the character code", 18));
+    vow_s[671] = vow_immortal(vstr_new("the message", 11));
+    vow_s[672] = vow_immortal(vstr_new("the path", 8));
+    vow_s[673] = vow_immortal(vstr_new("the contents", 12));
+    vow_s[674] = vow_immortal(vstr_new("the variable name", 17));
+    vow_s[675] = vow_immortal(vstr_new("'argv'", 6));
+    vow_s[676] = vow_immortal(vstr_new("'input'", 7));
+    vow_s[677] = vow_immortal(vstr_new("the exit code", 13));
+    vow_s[678] = vow_immortal(vstr_new("the default", 11));
+    vow_s[679] = vow_immortal(vstr_new("'value_or' needs an Option, not ", 32));
+    vow_s[680] = vow_immortal(vstr_new("' needs an Option, not ", 23));
+    vow_s[681] = vow_immortal(vstr_new("' needs a Map, not ", 19));
+    vow_s[682] = vow_immortal(vstr_new("the key", 7));
+    vow_s[683] = vow_immortal(vstr_new("the value", 9));
+    vow_s[684] = vow_immortal(vstr_new("(declare-sort Val 0)", 20));
+    vow_s[685] = vow_immortal(vstr_new("(declare-fun len (Val) Int)", 27));
+    vow_s[686] = vow_immortal(vstr_new("(declare-fun byte (Val Int) Int)", 32));
+    vow_s[687] = vow_immortal(vstr_new("(declare-fun tag (Val) Int)", 27));
+    vow_s[688] = vow_immortal(vstr_new("(declare-fun elem_Int (Val Int) Int)", 36));
+    vow_s[689] = vow_immortal(vstr_new("(declare-fun elem_Bool (Val Int) Bool)", 38));
+    vow_s[690] = vow_immortal(vstr_new("(declare-fun elem_Val (Val Int) Val)", 36));
+    vow_s[691] = vow_immortal(vstr_new("(assert (forall ((x Val)) (! (>= (len x) 0) :pattern ((len x)))))", 65));
+    vow_s[692] = vow_immortal(vstr_new("(assert (forall ((s Val) (i Int)) (! (and (>= (byte s i) 0) (< (byte s i) 256)) :pattern ((byte s i)))))", 104));
+    vow_s[693] = vow_immortal(vstr_new("Val", 3));
+    vow_s[694] = vow_immortal(vstr_new("(and ", 5));
+    vow_s[695] = vow_immortal(vstr_new("(- 9223372036854775808)", 23));
+    vow_s[696] = vow_immortal(vstr_new("(- ", 3));
+    vow_s[697] = vow_immortal(vstr_new("div", 3));
+    vow_s[698] = vow_immortal(vstr_new("mod", 3));
+    vow_s[699] = vow_immortal(vstr_new("=>", 2));
+    vow_s[700] = vow_immortal(vstr_new("(not (= ", 8));
+    vow_s[701] = vow_immortal(vstr_new("))", 2));
+    vow_s[702] = vow_immortal(vstr_new("0", 1));
+    vow_s[703] = vow_immortal(vstr_new("(not ", 5));
+    vow_s[704] = vow_immortal(vstr_new("(= ", 3));
+    vow_s[705] = vow_immortal(vstr_new("(or (= ", 7));
+    vow_s[706] = vow_immortal(vstr_new(") (", 3));
+    vow_s[707] = vow_immortal(vstr_new("peq_", 4));
+    vow_s[708] = vow_immortal(vstr_new("Val Val", 7));
+    vow_s[709] = vow_immortal(vstr_new("eq_", 3));
+    vow_s[710] = vow_immortal(vstr_new("(declare-fun ", 13));
+    vow_s[711] = vow_immortal(vstr_new(" (Val Val) Bool)", 16));
+    vow_s[712] = vow_immortal(vstr_new(" ea eb)", 7));
+    vow_s[713] = vow_immortal(vstr_new("(assert (forall ((ea Val) (eb Val)) (! (= ", 42));
+    vow_s[714] = vow_immortal(vstr_new(") :pattern (", 12));
+    vow_s[715] = vow_immortal(vstr_new("))))", 4));
+    vow_s[716] = vow_immortal(vstr_new(" ea)", 4));
+    vow_s[717] = vow_immortal(vstr_new(" eb)", 4));
+    vow_s[718] = vow_immortal(vstr_new("(elem_", 6));
+    vow_s[719] = vow_immortal(vstr_new(" ea ei)", 7));
+    vow_s[720] = vow_immortal(vstr_new(" eb ei)", 7));
+    vow_s[721] = vow_immortal(vstr_new("(=> (and (<= 0 ei) (< ei (len ea))) ", 36));
+    vow_s[722] = vow_immortal(vstr_new("(and (= (len ea) (len eb)) (forall ((ei Int)) (! ", 49));
+    vow_s[723] = vow_immortal(vstr_new(" :pattern (", 11));
+    vow_s[724] = vow_immortal(vstr_new("(= (tag ea) (tag eb))", 21));
+    vow_s[725] = vow_immortal(vstr_new("(=> (= (tag ea) ", 16));
+    vow_s[726] = vow_immortal(vstr_new(") ", 2));
+    vow_s[727] = vow_immortal(vstr_new("v", 1));
+    vow_s[728] = vow_immortal(vstr_new("(declare-const ", 15));
+    vow_s[729] = vow_immortal(vstr_new("(assert (= ", 11));
+    vow_s[730] = vow_immortal(vstr_new("gfld_", 5));
+    vow_s[731] = vow_immortal(vstr_new("fld_", 4));
+    vow_s[732] = vow_immortal(vstr_new("opt_value_", 10));
+    vow_s[733] = vow_immortal(vstr_new("gvf_", 4));
+    vow_s[734] = vow_immortal(vstr_new("vf_", 3));
+    vow_s[735] = vow_immortal(vstr_new("unbound_", 8));
+    vow_s[736] = vow_immortal(vstr_new("len(", 4));
+    vow_s[737] = vow_immortal(vstr_new("(len ", 5));
+    vow_s[738] = vow_immortal(vstr_new("(assert (= (len ", 16));
+    vow_s[739] = vow_immortal(vstr_new("(assert (= (byte ", 17));
+    vow_s[740] = vow_immortal(vstr_new(" where ", 7));
+    vow_s[741] = vow_immortal(vstr_new("return value of '", 17));
+    vow_s[742] = vow_immortal(vstr_new("' satisfies ", 12));
+    vow_s[743] = vow_immortal(vstr_new("postcondition of '", 18));
+    vow_s[744] = vow_immortal(vstr_new("': ", 3));
+    vow_s[745] = vow_immortal(vstr_new("(= (tag ", 8));
+    vow_s[746] = vow_immortal(vstr_new(") 1)", 4));
+    vow_s[747] = vow_immortal(vstr_new(") 0)", 4));
+    vow_s[748] = vow_immortal(vstr_new("(ite (= (tag ", 13));
+    vow_s[749] = vow_immortal(vstr_new(") 1) (", 6));
+    vow_s[750] = vow_immortal(vstr_new("(byte ", 6));
+    vow_s[751] = vow_immortal(vstr_new("byte", 4));
+    vow_s[752] = vow_immortal(vstr_new("elem_", 5));
+    vow_s[753] = vow_immortal(vstr_new("q", 1));
+    vow_s[754] = vow_immortal(vstr_new("(forall ((", 10));
+    vow_s[755] = vow_immortal(vstr_new(" Int)) (=> (and (<= ", 20));
+    vow_s[756] = vow_immortal(vstr_new(") (< ", 5));
+    vow_s[757] = vow_immortal(vstr_new(")) ", 3));
+    vow_s[758] = vow_immortal(vstr_new("(exists ((", 10));
+    vow_s[759] = vow_immortal(vstr_new(" Int)) (and (<= ", 16));
+    vow_s[760] = vow_immortal(vstr_new("loop invariant holds on entry: ", 31));
+    vow_s[761] = vow_immortal(vstr_new("loop invariant ", 15));
+    vow_s[762] = vow_immortal(vstr_new("loop measure decreases: ", 24));
+    vow_s[763] = vow_immortal(vstr_new("(< ", 3));
+    vow_s[764] = vow_immortal(vstr_new("not (", 5));
+    vow_s[765] = vow_immortal(vstr_new("loop measure is non-negative: ", 30));
+    vow_s[766] = vow_immortal(vstr_new("(>= ", 4));
+    vow_s[767] = vow_immortal(vstr_new(" 0)", 3));
+    vow_s[768] = vow_immortal(vstr_new("is preserved", 12));
+    vow_s[769] = vow_immortal(vstr_new("(<= ", 4));
+    vow_s[770] = vow_immortal(vstr_new("(or (<= ", 8));
+    vow_s[771] = vow_immortal(vstr_new(") (= ", 5));
+    vow_s[772] = vow_immortal(vstr_new(" <= ", 4));
+    vow_s[773] = vow_immortal(vstr_new(" < ", 3));
+    vow_s[774] = vow_immortal(vstr_new("(+ ", 3));
+    vow_s[775] = vow_immortal(vstr_new(" 1)", 3));
+    vow_s[776] = vow_immortal(vstr_new("(<= 0 ", 6));
+    vow_s[777] = vow_immortal(vstr_new(" (len ", 6));
+    vow_s[778] = vow_immortal(vstr_new(" is an element of ", 18));
+    vow_s[779] = vow_immortal(vstr_new("assertion: ", 11));
+    vow_s[780] = vow_immortal(vstr_new("holds at 'break'", 16));
+    vow_s[781] = vow_immortal(vstr_new("holds at 'continue'", 19));
+    vow_s[782] = vow_immortal(vstr_new(" is ", 4));
+    vow_s[783] = vow_immortal(vstr_new("(and (<= 0 (tag ", 16));
+    vow_s[784] = vow_immortal(vstr_new(")) (< (tag ", 11));
+    vow_s[785] = vow_immortal(vstr_new("(or ", 4));
+    vow_s[786] = vow_immortal(vstr_new("(=> ", 4));
+    vow_s[787] = vow_immortal(vstr_new("(ite ", 5));
+    vow_s[788] = vow_immortal(vstr_new("(assert (= (elem_", 17));
+    vow_s[789] = vow_immortal(vstr_new(") 0))", 5));
+    vow_s[790] = vow_immortal(vstr_new("(and (<= 0 ", 11));
+    vow_s[791] = vow_immortal(vstr_new(")))", 3));
+    vow_s[792] = vow_immortal(vstr_new("index in bounds: 0 <= ", 22));
+    vow_s[793] = vow_immortal(vstr_new(" < len(", 7));
+    vow_s[794] = vow_immortal(vstr_new("(assert (= (tag ", 16));
+    vow_s[795] = vow_immortal(vstr_new("divisor is not zero: ", 21));
+    vow_s[796] = vow_immortal(vstr_new(" 0))", 4));
+    vow_s[797] = vow_immortal(vstr_new(") (+ (len ", 10));
+    vow_s[798] = vow_immortal(vstr_new(") (len ", 7));
+    vow_s[799] = vow_immortal(vstr_new("(ite (< ", 8));
+    vow_s[800] = vow_immortal(vstr_new(")) (", 4));
+    vow_s[801] = vow_immortal(vstr_new(" (- ", 4));
+    vow_s[802] = vow_immortal(vstr_new("(assert (forall ((", 18));
+    vow_s[803] = vow_immortal(vstr_new(" Int)) (! (=> (and (<= 0 ", 25));
+    vow_s[804] = vow_immortal(vstr_new("))) (= ", 7));
+    vow_s[805] = vow_immortal(vstr_new(")) :pattern (", 13));
+    vow_s[806] = vow_immortal(vstr_new("' of ", 5));
+    vow_s[807] = vow_immortal(vstr_new(" satisfies ", 11));
+    vow_s[808] = vow_immortal(vstr_new("(assert (= (", 12));
+    vow_s[809] = vow_immortal(vstr_new("' of '", 6));
+    vow_s[810] = vow_immortal(vstr_new("precondition of '", 17));
+    vow_s[811] = vow_immortal(vstr_new("recursive call to '", 19));
+    vow_s[812] = vow_immortal(vstr_new("' decreases its measure: ", 25));
+    vow_s[813] = vow_immortal(vstr_new("(and (>= ", 9));
+    vow_s[814] = vow_immortal(vstr_new(" 0) (< ", 7));
+    vow_s[815] = vow_immortal(vstr_new(") 1)))", 6));
+    vow_s[816] = vow_immortal(vstr_new(" (elem_", 7));
+    vow_s[817] = vow_immortal(vstr_new("))) :pattern (", 14));
+    vow_s[818] = vow_immortal(vstr_new("set_at index in bounds", 22));
+    vow_s[819] = vow_immortal(vstr_new("set_at index in bounds: 0 <= ", 29));
+    vow_s[820] = vow_immortal(vstr_new(")) (not (= ", 11));
+    vow_s[821] = vow_immortal(vstr_new(") (<= ", 6));
+    vow_s[822] = vow_immortal(vstr_new("slice bounds", 12));
+    vow_s[823] = vow_immortal(vstr_new("slice bounds: 0 <= ", 19));
+    vow_s[824] = vow_immortal(vstr_new(" <= len(", 8));
+    vow_s[825] = vow_immortal(vstr_new("(= (len ", 8));
+    vow_s[826] = vow_immortal(vstr_new(") (- ", 5));
+    vow_s[827] = vow_immortal(vstr_new(" (+ ", 4));
+    vow_s[828] = vow_immortal(vstr_new(")))) :pattern (", 15));
+    vow_s[829] = vow_immortal(vstr_new(" 256))", 6));
+    vow_s[830] = vow_immortal(vstr_new("char code in range", 18));
+    vow_s[831] = vow_immortal(vstr_new("char code in range: 0 <= ", 25));
+    vow_s[832] = vow_immortal(vstr_new(" < 256", 6));
+    vow_s[833] = vow_immortal(vstr_new(") 1))", 5));
+    vow_s[834] = vow_immortal(vstr_new("(= (byte ", 9));
+    vow_s[835] = vow_immortal(vstr_new(" 0) ", 4));
+    vow_s[836] = vow_immortal(vstr_new("(assert (>= (len ", 17));
+    vow_s[837] = vow_immortal(vstr_new(") 16))", 6));
+    vow_s[838] = vow_immortal(vstr_new("z3", 2));
+    vow_s[839] = vow_immortal(vstr_new("VOW_Z3", 6));
+    vow_s[840] = vow_immortal(vstr_new("-in", 3));
+    vow_s[841] = vow_immortal(vstr_new("-smt2", 5));
+    vow_s[842] = vow_immortal(vstr_new("(set-option :produce-models true)", 33));
+    vow_s[843] = vow_immortal(vstr_new("(set-option :timeout 10000)", 27));
+    vow_s[844] = vow_immortal(vstr_new("(push 1) ; fn ", 14));
+    vow_s[845] = vow_immortal(vstr_new("(check-sat)", 11));
+    vow_s[846] = vow_immortal(vstr_new("(push 1)", 8));
+    vow_s[847] = vow_immortal(vstr_new("(assert ", 8));
+    vow_s[848] = vow_immortal(vstr_new("(assert (not ", 13));
+    vow_s[849] = vow_immortal(vstr_new("(get-value (", 12));
+    vow_s[850] = vow_immortal(vstr_new("(pop 1)", 7));
+    vow_s[851] = vow_immortal(vstr_new("((", 2));
+    vow_s[852] = vow_immortal(vstr_new("VOW_SMT_DUMP", 12));
+    vow_s[853] = vow_immortal(vstr_new("sat", 3));
+    vow_s[854] = vow_immortal(vstr_new("unsat", 5));
+    vow_s[855] = vow_immortal(vstr_new("unknown", 7));
+    vow_s[856] = vow_immortal(vstr_new("(error", 6));
+    vow_s[857] = vow_immortal(vstr_new("Z3 rejected the generated query: ", 33));
+    vow_s[858] = vow_immortal(vstr_new("Z3 answered ", 12));
+    vow_s[859] = vow_immortal(vstr_new(" queries", 8));
+    vow_s[860] = vow_immortal(vstr_new(" (is Z3 installed\? set VOW_Z3 to its path)", 42));
+    vow_s[861] = vow_immortal(vstr_new("internal verifier error: the definitions for '", 46));
+    vow_s[862] = vow_immortal(vstr_new("' are inconsistent", 18));
+    vow_s[863] = vow_immortal(vstr_new("cannot prove ", 13));
+    vow_s[864] = vow_immortal(vstr_new("Z3 gave up (timeout or incomplete theory); add an assertion, invariant or check to help it", 90));
+    vow_s[865] = vow_immortal(vstr_new(" = ", 3));
+    vow_s[866] = vow_immortal(vstr_new("counterexample: ", 16));
+    vow_s[867] = vow_immortal(vstr_new("in function '", 13));
+    vow_s[868] = vow_immortal(vstr_new("\\r", 2));
+    vow_s[869] = vow_immortal(vstr_new("\\0", 2));
+    vow_s[870] = vow_immortal(vstr_new("inout ", 6));
+    vow_s[871] = vow_immortal(vstr_new("{}", 2));
+    vow_s[872] = vow_immortal(vstr_new(" with (", 7));
+    vow_s[873] = vow_immortal(vstr_new("not ", 4));
+    vow_s[874] = vow_immortal(vstr_new(" in ", 4));
+    vow_s[875] = vow_immortal(vstr_new("  ", 2));
+    vow_s[876] = vow_immortal(vstr_new(" invariant ", 11));
+    vow_s[877] = vow_immortal(vstr_new("set ", 4));
+    vow_s[878] = vow_immortal(vstr_new("return ", 7));
+    vow_s[879] = vow_immortal(vstr_new(" then", 5));
+    vow_s[880] = vow_immortal(vstr_new("end if", 6));
+    vow_s[881] = vow_immortal(vstr_new(" decreases ", 11));
+    vow_s[882] = vow_immortal(vstr_new("while ", 6));
+    vow_s[883] = vow_immortal(vstr_new(" do", 3));
+    vow_s[884] = vow_immortal(vstr_new("end while", 9));
+    vow_s[885] = vow_immortal(vstr_new("for ", 4));
+    vow_s[886] = vow_immortal(vstr_new("end for", 7));
+    vow_s[887] = vow_immortal(vstr_new("match ", 6));
+    vow_s[888] = vow_immortal(vstr_new("case ", 5));
+    vow_s[889] = vow_immortal(vstr_new("end match", 9));
+    vow_s[890] = vow_immortal(vstr_new("assert ", 7));
+    vow_s[891] = vow_immortal(vstr_new("check ", 6));
+    vow_s[892] = vow_immortal(vstr_new("fn ", 3));
+    vow_s[893] = vow_immortal(vstr_new(" -> ", 4));
+    vow_s[894] = vow_immortal(vstr_new(" uses ", 6));
+    vow_s[895] = vow_immortal(vstr_new(" requires ", 10));
+    vow_s[896] = vow_immortal(vstr_new(" ensures ", 9));
+    vow_s[897] = vow_immortal(vstr_new("end fn ", 7));
+    vow_s[898] = vow_immortal(vstr_new("struct ", 7));
+    vow_s[899] = vow_immortal(vstr_new("end struct ", 11));
+    vow_s[900] = vow_immortal(vstr_new("enum ", 5));
+    vow_s[901] = vow_immortal(vstr_new("),", 2));
+    vow_s[902] = vow_immortal(vstr_new("end enum ", 9));
+    vow_s[903] = vow_immortal(vstr_new("type ", 5));
+    vow_s[904] = vow_immortal(vstr_new("\\\?", 2));
+    vow_s[905] = vow_immortal(vstr_new("\\", 1));
+    vow_s[906] = vow_immortal(vstr_new("void", 4));
+    vow_s[907] = vow_immortal(vstr_new("V * l_", 6));
+    vow_s[908] = vow_immortal(vstr_new("V l_", 4));
+    vow_s[909] = vow_immortal(vstr_new("// Generated by vowc. Do not edit.", 34));
+    vow_s[910] = vow_immortal(vstr_new("#define VOW_VERIFIED 1", 22));
+    vow_s[911] = vow_immortal(vstr_new("#include \"vow_rt.h\"", 19));
+    vow_s[912] = vow_immortal(vstr_new("static V vow_s[", 15));
+    vow_s[913] = vow_immortal(vstr_new("];", 2));
+    vow_s[914] = vow_immortal(vstr_new("static V ", 9));
+    vow_s[915] = vow_immortal(vstr_new(");", 2));
+    vow_s[916] = vow_immortal(vstr_new("(V a, V b);", 11));
+    vow_s[917] = vow_immortal(vstr_new("int main(int argc, char **argv) {", 33));
+    vow_s[918] = vow_immortal(vstr_new("    vow_argc = argc;", 20));
+    vow_s[919] = vow_immortal(vstr_new("    vow_argv = argv;", 20));
+    vow_s[920] = vow_immortal(vstr_new("    vow_s[", 10));
+    vow_s[921] = vow_immortal(vstr_new("] = vow_immortal(vstr_new(", 26));
+    vow_s[922] = vow_immortal(vstr_new("));", 3));
+    vow_s[923] = vow_immortal(vstr_new("    f_main();", 13));
+    vow_s[924] = vow_immortal(vstr_new("    fflush(stdout);", 19));
+    vow_s[925] = vow_immortal(vstr_new("    vow_report_leaks();", 23));
+    vow_s[926] = vow_immortal(vstr_new("    return 0;", 13));
+    vow_s[927] = vow_immortal(vstr_new("t", 1));
+    vow_s[928] = vow_immortal(vstr_new("V ", 2));
+    vow_s[929] = vow_immortal(vstr_new(";", 1));
+    vow_s[930] = vow_immortal(vstr_new("vow_s[", 6));
+    vow_s[931] = vow_immortal(vstr_new("i_", 2));
+    vow_s[932] = vow_immortal(vstr_new("f_", 2));
+    vow_s[933] = vow_immortal(vstr_new("(*l_", 4));
+    vow_s[934] = vow_immortal(vstr_new("l_", 2));
+    vow_s[935] = vow_immortal(vstr_new("vdup(", 5));
+    vow_s[936] = vow_immortal(vstr_new("vdrop(", 6));
+    vow_s[937] = vow_immortal(vstr_new("field:", 6));
+    vow_s[938] = vow_immortal(vstr_new(") {", 3));
+    vow_s[939] = vow_immortal(vstr_new("return 0;", 9));
+    vow_s[940] = vow_immortal(vstr_new("(void)", 6));
+    vow_s[941] = vow_immortal(vstr_new("for (;;) {", 10));
+    vow_s[942] = vow_immortal(vstr_new("if (!", 5));
+    vow_s[943] = vow_immortal(vstr_new(") break;", 8));
+    vow_s[944] = vow_immortal(vstr_new("for (V ", 7));
+    vow_s[945] = vow_immortal(vstr_new("; VI(", 5));
+    vow_s[946] = vow_immortal(vstr_new(") < VI(", 7));
+    vow_s[947] = vow_immortal(vstr_new("); ", 3));
+    vow_s[948] = vow_immortal(vstr_new(" = (V)(VI(", 10));
+    vow_s[949] = vow_immortal(vstr_new(") + 1)) {", 9));
+    vow_s[950] = vow_immortal(vstr_new("for (int64_t ", 13));
+    vow_s[951] = vow_immortal(vstr_new(" = 0; ", 6));
+    vow_s[952] = vow_immortal(vstr_new(" < VL(", 6));
+    vow_s[953] = vow_immortal(vstr_new(")->len; ", 8));
+    vow_s[954] = vow_immortal(vstr_new("++) {", 5));
+    vow_s[955] = vow_immortal(vstr_new(" = VB(VL(", 9));
+    vow_s[956] = vow_immortal(vstr_new(")->buf)->items[", 15));
+    vow_s[957] = vow_immortal(vstr_new("#ifndef VOW_VERIFIED", 20));
+    vow_s[958] = vow_immortal(vstr_new("assertion failed at ", 20));
+    vow_s[959] = vow_immortal(vstr_new(") vow_panic(", 12));
+    vow_s[960] = vow_immortal(vstr_new("#endif", 6));
+    vow_s[961] = vow_immortal(vstr_new("check failed at ", 16));
+    vow_s[962] = vow_immortal(vstr_new("break;", 6));
+    vow_s[963] = vow_immortal(vstr_new("continue;", 9));
+    vow_s[964] = vow_immortal(vstr_new("if (", 4));
+    vow_s[965] = vow_immortal(vstr_new("} else {", 8));
+    vow_s[966] = vow_immortal(vstr_new("VP(", 3));
+    vow_s[967] = vow_immortal(vstr_new(")[0]", 4));
+    vow_s[968] = vow_immortal(vstr_new("VI(", 3));
+    vow_s[969] = vow_immortal(vstr_new(") == INT64_C(", 13));
+    vow_s[970] = vow_immortal(vstr_new("vstr_eq(", 8));
+    vow_s[971] = vow_immortal(vstr_new(" == ", 4));
+    vow_s[972] = vow_immortal(vstr_new("} else if", 9));
+    vow_s[973] = vow_immortal(vstr_new(" = VP(", 6));
+    vow_s[974] = vow_immortal(vstr_new(")[", 2));
+    vow_s[975] = vow_immortal(vstr_new("    vow_panic(\"unreachable: corrupt enum tag\");", 47));
+    vow_s[976] = vow_immortal(vstr_new("vhm", 3));
+    vow_s[977] = vow_immortal(vstr_new("vmap", 4));
+    vow_s[978] = vow_immortal(vstr_new("1", 1));
+    vow_s[979] = vow_immortal(vstr_new("UINT64_C(", 9));
+    vow_s[980] = vow_immortal(vstr_new("(V)INT64_C(", 11));
+    vow_s[981] = vow_immortal(vstr_new("0 /* spec-only */", 17));
+    vow_s[982] = vow_immortal(vstr_new("vlist_empty(", 12));
+    vow_s[983] = vow_immortal(vstr_new(" = vlist_push(", 14));
+    vow_s[984] = vow_immortal(vstr_new("vmap_empty()", 12));
+    vow_s[985] = vow_immortal(vstr_new("vstr_byte(", 10));
+    vow_s[986] = vow_immortal(vstr_new("vlist_get(", 10));
+    vow_s[987] = vow_immortal(vstr_new("vow_variant0(", 13));
+    vow_s[988] = vow_immortal(vstr_new("vow_fields(", 11));
+    vow_s[989] = vow_immortal(vstr_new(", 0)", 4));
+    vow_s[990] = vow_immortal(vstr_new(")[0] = ", 7));
+    vow_s[991] = vow_immortal(vstr_new("vow_steal(", 10));
+    vow_s[992] = vow_immortal(vstr_new("vow_with(", 9));
+    vow_s[993] = vow_immortal(vstr_new("vdrop(VP(", 9));
+    vow_s[994] = vow_immortal(vstr_new("]);", 3));
+    vow_s[995] = vow_immortal(vstr_new("] = ", 4));
+    vow_s[996] = vow_immortal(vstr_new("vneg(", 5));
+    vow_s[997] = vow_immortal(vstr_new("(V)!", 4));
+    vow_s[998] = vow_immortal(vstr_new(") { ", 4));
+    vow_s[999] = vow_immortal(vstr_new(" = 0; break; }", 14));
+    vow_s[1000] = vow_immortal(vstr_new(" = 1; break; }", 14));
+    vow_s[1001] = vow_immortal(vstr_new("!", 1));
+    vow_s[1002] = vow_immortal(vstr_new("vstr_cat(", 9));
+    vow_s[1003] = vow_immortal(vstr_new("vlist_cat(", 10));
+    vow_s[1004] = vow_immortal(vstr_new("vadd(", 5));
+    vow_s[1005] = vow_immortal(vstr_new("vsub(", 5));
+    vow_s[1006] = vow_immortal(vstr_new("vmul(", 5));
+    vow_s[1007] = vow_immortal(vstr_new("vdiv(", 5));
+    vow_s[1008] = vow_immortal(vstr_new("vmod(", 5));
+    vow_s[1009] = vow_immortal(vstr_new("(V)", 3));
+    vow_s[1010] = vow_immortal(vstr_new("(V)(VI(", 7));
+    vow_s[1011] = vow_immortal(vstr_new(" VI(", 4));
+    vow_s[1012] = vow_immortal(vstr_new("veq_", 4));
+    vow_s[1013] = vow_immortal(vstr_new("(V a, V b) {", 12));
+    vow_s[1014] = vow_immortal(vstr_new("    if (a == b) return 1;", 25));
+    vow_s[1015] = vow_immortal(vstr_new("VP(a)[", 6));
+    vow_s[1016] = vow_immortal(vstr_new("VP(b)[", 6));
+    vow_s[1017] = vow_immortal(vstr_new("    if (!", 9));
+    vow_s[1018] = vow_immortal(vstr_new(") return 0;", 11));
+    vow_s[1019] = vow_immortal(vstr_new("    if (VL(a)->len != VL(b)->len) return 0;", 43));
+    vow_s[1020] = vow_immortal(vstr_new("    for (int64_t i = 0; i < VL(a)->len; i++) {", 46));
+    vow_s[1021] = vow_immortal(vstr_new("VB(VL(a)->buf)->items[i]", 24));
+    vow_s[1022] = vow_immortal(vstr_new("VB(VL(b)->buf)->items[i]", 24));
+    vow_s[1023] = vow_immortal(vstr_new("        if (!", 13));
+    vow_s[1024] = vow_immortal(vstr_new("    }", 5));
+    vow_s[1025] = vow_immortal(vstr_new("    if (VP(a)[0] != VP(b)[0]) return 0;", 39));
+    vow_s[1026] = vow_immortal(vstr_new("    switch (VP(a)[0]) {", 23));
+    vow_s[1027] = vow_immortal(vstr_new("    case ", 9));
+    vow_s[1028] = vow_immortal(vstr_new("        break;", 14));
+    vow_s[1029] = vow_immortal(vstr_new("    return 1;", 13));
+    vow_s[1030] = vow_immortal(vstr_new("&l_", 3));
+    vow_s[1031] = vow_immortal(vstr_new("vstr_len(", 9));
+    vow_s[1032] = vow_immortal(vstr_new("_len(", 5));
+    vow_s[1033] = vow_immortal(vstr_new("vlist_len(", 10));
+    vow_s[1034] = vow_immortal(vstr_new("vlist_push(", 11));
+    vow_s[1035] = vow_immortal(vstr_new("vlist_set_at(", 13));
+    vow_s[1036] = vow_immortal(vstr_new("vstr_slice(", 11));
+    vow_s[1037] = vow_immortal(vstr_new("vlist_slice(", 12));
+    vow_s[1038] = vow_immortal(vstr_new("vjoin(", 6));
+    vow_s[1039] = vow_immortal(vstr_new("vint_to_str(", 12));
+    vow_s[1040] = vow_immortal(vstr_new("vstr_to_int(", 12));
+    vow_s[1041] = vow_immortal(vstr_new("vchar(", 6));
+    vow_s[1042] = vow_immortal(vstr_new("vhash(", 6));
+    vow_s[1043] = vow_immortal(vstr_new("_insert(", 8));
+    vow_s[1044] = vow_immortal(vstr_new("_lookup(", 8));
+    vow_s[1045] = vow_immortal(vstr_new("_has(", 5));
+    vow_s[1046] = vow_immortal(vstr_new("_keys(", 6));
+    vow_s[1047] = vow_immortal(vstr_new("vow_panic(VS(", 13));
+    vow_s[1048] = vow_immortal(vstr_new(")->data);", 9));
+    vow_s[1049] = vow_immortal(vstr_new("vexit(", 6));
+    vow_s[1050] = vow_immortal(vstr_new("vprint(", 7));
+    vow_s[1051] = vow_immortal(vstr_new("veprint(", 8));
+    vow_s[1052] = vow_immortal(vstr_new("vread_file(", 11));
+    vow_s[1053] = vow_immortal(vstr_new("vwrite_file(", 12));
+    vow_s[1054] = vow_immortal(vstr_new("vargs()", 7));
+    vow_s[1055] = vow_immortal(vstr_new("vmake_dir(", 10));
+    vow_s[1056] = vow_immortal(vstr_new("vlist_dir(", 10));
+    vow_s[1057] = vow_immortal(vstr_new("vgetenv(", 8));
+    vow_s[1058] = vow_immortal(vstr_new("vrun(", 5));
+    vow_s[1059] = vow_immortal(vstr_new("(V)(VP(", 7));
+    vow_s[1060] = vow_immortal(vstr_new(")[0] == 1)", 10));
+    vow_s[1061] = vow_immortal(vstr_new(")[0] == 0)", 10));
+    vow_s[1062] = vow_immortal(vstr_new("vvalue_or(", 10));
+    vow_s[1063] = vow_immortal(vstr_new("vow-verifier-2", 14));
+    vow_s[1064] = vow_immortal(vstr_new("// Vow runtime, reference counted.\012", 35));
+    vow_s[1065] = vow_immortal(vstr_new("// Every Vow value is one 64-bit word (V). Integers and booleans are unboxed; everything\012", 89));
+    vow_s[1066] = vow_immortal(vstr_new("// else is a pointer to a heap object, preceded by a 16-byte header holding its\012", 80));
+    vow_s[1067] = vow_immortal(vstr_new("// reference count and layout. Objects are freed when their count reaches zero, and an\012", 87));
+    vow_s[1068] = vow_immortal(vstr_new("// object with a count of one is updated in place by `with`, `push`, `set_at` and\012", 82));
+    vow_s[1069] = vow_immortal(vstr_new("// `insert`, which preserves value semantics because nothing else can see it.\012", 78));
+    vow_s[1070] = vow_immortal(vstr_new("// Ownership conventions (the code generator relies on these):\012", 63));
+    vow_s[1071] = vow_immortal(vstr_new("// - A function \"consumes\" an argument when it takes over the caller's reference, and\012", 86));
+    vow_s[1072] = vow_immortal(vstr_new("//   \"borrows\" it otherwise. Results are always owned by the caller.\012", 69));
+    vow_s[1073] = vow_immortal(vstr_new("// - Consumed: vlist_push(list, item), vlist_set_at(list, _, value), vlist_cat(list, _),\012", 89));
+    vow_s[1074] = vow_immortal(vstr_new("//   vmap_insert(map, key, value), vow_with(base), vsome(value),\012", 65));
+    vow_s[1075] = vow_immortal(vstr_new("//   vvalue_or(_, default).\012", 28));
+    vow_s[1076] = vow_immortal(vstr_new("// - Everything else borrows its arguments.\012", 44));
+    vow_s[1077] = vow_immortal(vstr_new("// - vlist_get and field reads return borrowed references.\012", 59));
+    vow_s[1078] = vow_immortal(vstr_new("// Define VOW_VERIFIED when every proof obligation was discharged: bounds and divisor\012", 86));
+    vow_s[1079] = vow_immortal(vstr_new("// checks then compile to nothing. Overflow checks always stay. Define VOW_RC_DEBUG to\012", 87));
+    vow_s[1080] = vow_immortal(vstr_new("// keep freed memory poisoned (never reused) and panic on any use after free; with\012", 83));
+    vow_s[1081] = vow_immortal(vstr_new("// VOW_LEAKS=1 in the environment, the program reports objects still live at exit.\012", 83));
+    vow_s[1082] = vow_immortal(vstr_new("#ifndef VOW_RT_H\012", 17));
+    vow_s[1083] = vow_immortal(vstr_new("#define VOW_RT_H\012", 17));
+    vow_s[1084] = vow_immortal(vstr_new("#ifndef _GNU_SOURCE\012", 20));
+    vow_s[1085] = vow_immortal(vstr_new("#define _GNU_SOURCE\012", 20));
+    vow_s[1086] = vow_immortal(vstr_new("#endif\012", 7));
+    vow_s[1087] = vow_immortal(vstr_new("#include <dirent.h>\012", 20));
+    vow_s[1088] = vow_immortal(vstr_new("#include <fcntl.h>\012", 19));
+    vow_s[1089] = vow_immortal(vstr_new("#include <stdint.h>\012", 20));
+    vow_s[1090] = vow_immortal(vstr_new("#include <stdio.h>\012", 19));
+    vow_s[1091] = vow_immortal(vstr_new("#include <stdlib.h>\012", 20));
+    vow_s[1092] = vow_immortal(vstr_new("#include <string.h>\012", 20));
+    vow_s[1093] = vow_immortal(vstr_new("#include <sys/stat.h>\012", 22));
+    vow_s[1094] = vow_immortal(vstr_new("#include <sys/wait.h>\012", 22));
+    vow_s[1095] = vow_immortal(vstr_new("#include <unistd.h>\012", 20));
+    vow_s[1096] = vow_immortal(vstr_new("typedef uint64_t V;\012", 20));
+    vow_s[1097] = vow_immortal(vstr_new("#define VI(x) ((int64_t)(x))\012", 29));
+    vow_s[1098] = vow_immortal(vstr_new("#define VP(x) ((V *)(uintptr_t)(x))\012", 36));
+    vow_s[1099] = vow_immortal(vstr_new("static __attribute__((noreturn)) void vow_panic(const char *msg) {\012", 67));
+    vow_s[1100] = vow_immortal(vstr_new("    fflush(stdout);\012", 20));
+    vow_s[1101] = vow_immortal(vstr_new("    fprintf(stderr, \"vow: panic: %s\\n\", msg);\012", 46));
+    vow_s[1102] = vow_immortal(vstr_new("    exit(101);\012", 15));
+    vow_s[1103] = vow_immortal(vstr_new("}\012", 2));
+    vow_s[1104] = vow_immortal(vstr_new("#ifdef VOW_VERIFIED\012", 20));
+    vow_s[1105] = vow_immortal(vstr_new("#define VOW_REQUIRE(cond, msg) ((void)0)\012", 41));
+    vow_s[1106] = vow_immortal(vstr_new("#else\012", 6));
+    vow_s[1107] = vow_immortal(vstr_new("#define VOW_REQUIRE(cond, msg) \\\012", 33));
+    vow_s[1108] = vow_immortal(vstr_new("    do {                       \\\012", 33));
+    vow_s[1109] = vow_immortal(vstr_new("        if (!(cond)) vow_panic(msg); \\\012", 39));
+    vow_s[1110] = vow_immortal(vstr_new("    } while (0)\012", 16));
+    vow_s[1111] = vow_immortal(vstr_new("// ---- objects ----\012", 21));
+    vow_s[1112] = vow_immortal(vstr_new("enum { VK_FIELDS, VK_STR, VK_LIST, VK_BUF, VK_NODE, VK_HASH };\012", 63));
+    vow_s[1113] = vow_immortal(vstr_new("typedef struct {\012", 17));
+    vow_s[1114] = vow_immortal(vstr_new("    int32_t rc;     // reference count; -1 for immortal objects (literals, None)\012", 81));
+    vow_s[1115] = vow_immortal(vstr_new("    uint8_t kind;   // VK_*\012", 28));
+    vow_s[1116] = vow_immortal(vstr_new("    uint8_t flags;  // lists and buffers: elements are heap values; nodes: see below\012", 85));
+    vow_s[1117] = vow_immortal(vstr_new("    uint16_t words; // VK_FIELDS: number of payload words\012", 58));
+    vow_s[1118] = vow_immortal(vstr_new("    uint64_t mask;  // VK_FIELDS: bit i set when payload word i is a heap value\012", 80));
+    vow_s[1119] = vow_immortal(vstr_new("} VHdr;\012", 8));
+    vow_s[1120] = vow_immortal(vstr_new("#define VH(x) ((VHdr *)((char *)(uintptr_t)(x) - sizeof(VHdr)))\012", 64));
+    vow_s[1121] = vow_immortal(vstr_new("// ---- allocation: size classes of 16 bytes with free lists, carved from chunks ----\012", 86));
+    vow_s[1122] = vow_immortal(vstr_new("#define VOW_CLASSES 64\012", 23));
+    vow_s[1123] = vow_immortal(vstr_new("static void *vow_freelist[VOW_CLASSES + 1];\012", 44));
+    vow_s[1124] = vow_immortal(vstr_new("static char *vow_chunk;\012", 24));
+    vow_s[1125] = vow_immortal(vstr_new("static size_t vow_chunk_left;\012", 30));
+    vow_s[1126] = vow_immortal(vstr_new("static int64_t vow_live, vow_immortals;\012", 40));
+    vow_s[1127] = vow_immortal(vstr_new("static void *vow_raw_alloc(size_t n) {\012", 39));
+    vow_s[1128] = vow_immortal(vstr_new("    size_t c = n / 16;\012", 23));
+    vow_s[1129] = vow_immortal(vstr_new("    if (c <= VOW_CLASSES) {\012", 28));
+    vow_s[1130] = vow_immortal(vstr_new("        void *p = vow_freelist[c];\012", 35));
+    vow_s[1131] = vow_immortal(vstr_new("        if (p) {\012", 17));
+    vow_s[1132] = vow_immortal(vstr_new("            vow_freelist[c] = *(void **)p;\012", 43));
+    vow_s[1133] = vow_immortal(vstr_new("            return p;\012", 22));
+    vow_s[1134] = vow_immortal(vstr_new("        }\012", 10));
+    vow_s[1135] = vow_immortal(vstr_new("        if (n > vow_chunk_left) {\012", 34));
+    vow_s[1136] = vow_immortal(vstr_new("            vow_chunk_left = (size_t)1 << 20;\012", 46));
+    vow_s[1137] = vow_immortal(vstr_new("            vow_chunk = (char *)malloc(vow_chunk_left);\012", 56));
+    vow_s[1138] = vow_immortal(vstr_new("            if (!vow_chunk) vow_panic(\"out of memory\");\012", 56));
+    vow_s[1139] = vow_immortal(vstr_new("        p = vow_chunk;\012", 23));
+    vow_s[1140] = vow_immortal(vstr_new("        vow_chunk += n;\012", 24));
+    vow_s[1141] = vow_immortal(vstr_new("        vow_chunk_left -= n;\012", 29));
+    vow_s[1142] = vow_immortal(vstr_new("        return p;\012", 18));
+    vow_s[1143] = vow_immortal(vstr_new("    }\012", 6));
+    vow_s[1144] = vow_immortal(vstr_new("    void *p = malloc(n);\012", 25));
+    vow_s[1145] = vow_immortal(vstr_new("    if (!p) vow_panic(\"out of memory\");\012", 40));
+    vow_s[1146] = vow_immortal(vstr_new("    return p;\012", 14));
+    vow_s[1147] = vow_immortal(vstr_new("static void vow_raw_free(void *p, size_t n) {\012", 46));
+    vow_s[1148] = vow_immortal(vstr_new("#ifdef VOW_RC_DEBUG\012", 20));
+    vow_s[1149] = vow_immortal(vstr_new("    VHdr *h = (VHdr *)p;\012", 25));
+    vow_s[1150] = vow_immortal(vstr_new("    memset((char *)p + sizeof(VHdr), 0xdd, n - sizeof(VHdr));\012", 62));
+    vow_s[1151] = vow_immortal(vstr_new("    h->rc = 0; // a freed object: any later use panics\012", 55));
+    vow_s[1152] = vow_immortal(vstr_new("        *(void **)p = vow_freelist[c];\012", 39));
+    vow_s[1153] = vow_immortal(vstr_new("        vow_freelist[c] = p;\012", 29));
+    vow_s[1154] = vow_immortal(vstr_new("    } else {\012", 13));
+    vow_s[1155] = vow_immortal(vstr_new("        free(p);\012", 17));
+    vow_s[1156] = vow_immortal(vstr_new("static inline size_t vow_round(size_t n) { return (n + 15) & ~(size_t)15; }\012", 76));
+    vow_s[1157] = vow_immortal(vstr_new("static V vow_obj(uint8_t kind, uint8_t flags, uint16_t words, uint64_t mask, size_t payload) {\012", 95));
+    vow_s[1158] = vow_immortal(vstr_new("    VHdr *h = (VHdr *)vow_raw_alloc(vow_round(sizeof(VHdr) + payload));\012", 72));
+    vow_s[1159] = vow_immortal(vstr_new("    h->rc = 1;\012", 15));
+    vow_s[1160] = vow_immortal(vstr_new("    h->kind = kind;\012", 20));
+    vow_s[1161] = vow_immortal(vstr_new("    h->flags = flags;\012", 22));
+    vow_s[1162] = vow_immortal(vstr_new("    h->words = words;\012", 22));
+    vow_s[1163] = vow_immortal(vstr_new("    h->mask = mask;\012", 20));
+    vow_s[1164] = vow_immortal(vstr_new("    vow_live++;\012", 16));
+    vow_s[1165] = vow_immortal(vstr_new("    return (V)(uintptr_t)((char *)h + sizeof(VHdr));\012", 53));
+    vow_s[1166] = vow_immortal(vstr_new("static V vow_immortal(V x) {\012", 29));
+    vow_s[1167] = vow_immortal(vstr_new("    VH(x)->rc = -1;\012", 20));
+    vow_s[1168] = vow_immortal(vstr_new("    vow_immortals++;\012", 21));
+    vow_s[1169] = vow_immortal(vstr_new("    return x;\012", 14));
+    vow_s[1170] = vow_immortal(vstr_new("#define VOW_ALIVE(h) \\\012", 23));
+    vow_s[1171] = vow_immortal(vstr_new("    do {             \\\012", 23));
+    vow_s[1172] = vow_immortal(vstr_new("        if ((h)->rc == 0) vow_panic(\"use after free (reference counting bug)\"); \\\012", 82));
+    vow_s[1173] = vow_immortal(vstr_new("#define VOW_ALIVE(h) ((void)0)\012", 31));
+    vow_s[1174] = vow_immortal(vstr_new("static inline V vdup(V x) {\012", 28));
+    vow_s[1175] = vow_immortal(vstr_new("    if (x) {\012", 13));
+    vow_s[1176] = vow_immortal(vstr_new("        VHdr *h = VH(x);\012", 25));
+    vow_s[1177] = vow_immortal(vstr_new("        VOW_ALIVE(h);\012", 22));
+    vow_s[1178] = vow_immortal(vstr_new("        if (h->rc > 0) h->rc++;\012", 32));
+    vow_s[1179] = vow_immortal(vstr_new("static void vow_destroy(V x);\012", 30));
+    vow_s[1180] = vow_immortal(vstr_new("static inline void vdrop(V x) {\012", 32));
+    vow_s[1181] = vow_immortal(vstr_new("        if (h->rc > 0 && --h->rc == 0) vow_destroy(x);\012", 55));
+    vow_s[1182] = vow_immortal(vstr_new("// ---- strings ----\012", 21));
+    vow_s[1183] = vow_immortal(vstr_new("    int64_t len;\012", 17));
+    vow_s[1184] = vow_immortal(vstr_new("    char data[];\012", 17));
+    vow_s[1185] = vow_immortal(vstr_new("} VStr;\012", 8));
+    vow_s[1186] = vow_immortal(vstr_new("#define VS(x) ((VStr *)(uintptr_t)(x))\012", 39));
+    vow_s[1187] = vow_immortal(vstr_new("// ---- lists: a header (length, buffer) sharing a buffer of elements ----\012", 75));
+    vow_s[1188] = vow_immortal(vstr_new("    V buf;\012", 11));
+    vow_s[1189] = vow_immortal(vstr_new("} VList;\012", 9));
+    vow_s[1190] = vow_immortal(vstr_new("    int64_t cap;\012", 17));
+    vow_s[1191] = vow_immortal(vstr_new("    int64_t used;\012", 18));
+    vow_s[1192] = vow_immortal(vstr_new("    V items[];\012", 15));
+    vow_s[1193] = vow_immortal(vstr_new("} VBuf;\012", 8));
+    vow_s[1194] = vow_immortal(vstr_new("#define VL(x) ((VList *)(uintptr_t)(x))\012", 40));
+    vow_s[1195] = vow_immortal(vstr_new("#define VB(x) ((VBuf *)(uintptr_t)(x))\012", 39));
+    vow_s[1196] = vow_immortal(vstr_new("// ---- maps: persistent AVL trees, updated in place where unshared ----\012", 73));
+    vow_s[1197] = vow_immortal(vstr_new("    V key, val, left, right;\012", 29));
+    vow_s[1198] = vow_immortal(vstr_new("    int64_t height, size;\012", 26));
+    vow_s[1199] = vow_immortal(vstr_new("} VNode;\012", 9));
+    vow_s[1200] = vow_immortal(vstr_new("#define VN(x) ((VNode *)(uintptr_t)(x))\012", 40));
+    vow_s[1201] = vow_immortal(vstr_new("#define VN_KEY_HEAP 1\012", 22));
+    vow_s[1202] = vow_immortal(vstr_new("#define VN_VAL_HEAP 2\012", 22));
+    vow_s[1203] = vow_immortal(vstr_new("#define VN_STR_KEYS 4\012", 22));
+    vow_s[1204] = vow_immortal(vstr_new("// ---- hash maps: open addressing; the header is followed by the hashes (0 marks an\012", 85));
+    vow_s[1205] = vow_immortal(vstr_new("// empty slot), the keys and the values, each `cap` long ----\012", 62));
+    vow_s[1206] = vow_immortal(vstr_new("    int64_t count;\012", 19));
+    vow_s[1207] = vow_immortal(vstr_new("} VHash;\012", 9));
+    vow_s[1208] = vow_immortal(vstr_new("#define VHM(x) ((VHash *)(uintptr_t)(x))\012", 41));
+    vow_s[1209] = vow_immortal(vstr_new("static inline uint64_t *vhm_hashes(V h) { return (uint64_t *)((char *)(uintptr_t)h + sizeof(VHash)); }\012", 103));
+    vow_s[1210] = vow_immortal(vstr_new("static inline V *vhm_keyarr(V h) { return (V *)(vhm_hashes(h) + VHM(h)->cap); }\012", 80));
+    vow_s[1211] = vow_immortal(vstr_new("static inline V *vhm_valarr(V h) { return vhm_keyarr(h) + VHM(h)->cap; }\012", 73));
+    vow_s[1212] = vow_immortal(vstr_new("static size_t vow_size(VHdr *h, V x) {\012", 39));
+    vow_s[1213] = vow_immortal(vstr_new("    switch (h->kind) {\012", 23));
+    vow_s[1214] = vow_immortal(vstr_new("    case VK_FIELDS: return vow_round(sizeof(VHdr) + (size_t)(h->words > 0 \? h->words : 1) * sizeof(V));\012", 104));
+    vow_s[1215] = vow_immortal(vstr_new("    case VK_STR: return vow_round(sizeof(VHdr) + sizeof(VStr) + (size_t)VS(x)->len + 1);\012", 89));
+    vow_s[1216] = vow_immortal(vstr_new("    case VK_LIST: return vow_round(sizeof(VHdr) + sizeof(VList));\012", 66));
+    vow_s[1217] = vow_immortal(vstr_new("    case VK_BUF: return vow_round(sizeof(VHdr) + sizeof(VBuf) + (size_t)VB(x)->cap * sizeof(V));\012", 97));
+    vow_s[1218] = vow_immortal(vstr_new("    case VK_HASH: return vow_round(sizeof(VHdr) + sizeof(VHash) + (size_t)VHM(x)->cap * 3 * sizeof(V));\012", 104));
+    vow_s[1219] = vow_immortal(vstr_new("    default: return vow_round(sizeof(VHdr) + sizeof(VNode));\012", 61));
+    vow_s[1220] = vow_immortal(vstr_new("// Frees an object and, iteratively, everything only it referenced (no recursion, so\012", 85));
+    vow_s[1221] = vow_immortal(vstr_new("// long chains cannot overflow the C stack).\012", 45));
+    vow_s[1222] = vow_immortal(vstr_new("static V *vow_dstack;\012", 22));
+    vow_s[1223] = vow_immortal(vstr_new("static size_t vow_dcap, vow_dlen;\012", 34));
+    vow_s[1224] = vow_immortal(vstr_new("static void vow_dpush(V c) {\012", 29));
+    vow_s[1225] = vow_immortal(vstr_new("    if (vow_dlen == vow_dcap) {\012", 32));
+    vow_s[1226] = vow_immortal(vstr_new("        vow_dcap = vow_dcap \? vow_dcap * 2 : 256;\012", 50));
+    vow_s[1227] = vow_immortal(vstr_new("        vow_dstack = (V *)realloc(vow_dstack, vow_dcap * sizeof(V));\012", 69));
+    vow_s[1228] = vow_immortal(vstr_new("        if (!vow_dstack) vow_panic(\"out of memory\");\012", 53));
+    vow_s[1229] = vow_immortal(vstr_new("    vow_dstack[vow_dlen++] = c;\012", 32));
+    vow_s[1230] = vow_immortal(vstr_new("static inline void vow_release(V c) {\012", 38));
+    vow_s[1231] = vow_immortal(vstr_new("    if (!c) return;\012", 20));
+    vow_s[1232] = vow_immortal(vstr_new("    VHdr *h = VH(c);\012", 21));
+    vow_s[1233] = vow_immortal(vstr_new("    VOW_ALIVE(h);\012", 18));
+    vow_s[1234] = vow_immortal(vstr_new("    if (h->rc > 0 && --h->rc == 0) vow_dpush(c);\012", 49));
+    vow_s[1235] = vow_immortal(vstr_new("static void vow_free_shell(V x) {\012", 34));
+    vow_s[1236] = vow_immortal(vstr_new("    VHdr *h = VH(x);\012", 21));
+    vow_s[1237] = vow_immortal(vstr_new("    vow_live--;\012", 16));
+    vow_s[1238] = vow_immortal(vstr_new("    vow_raw_free(h, vow_size(h, x));\012", 37));
+    vow_s[1239] = vow_immortal(vstr_new("static void vow_destroy(V x) {\012", 31));
+    vow_s[1240] = vow_immortal(vstr_new("    size_t base = vow_dlen;\012", 28));
+    vow_s[1241] = vow_immortal(vstr_new("    vow_dpush(x);\012", 18));
+    vow_s[1242] = vow_immortal(vstr_new("    while (vow_dlen > base) {\012", 30));
+    vow_s[1243] = vow_immortal(vstr_new("        V y = vow_dstack[--vow_dlen];\012", 38));
+    vow_s[1244] = vow_immortal(vstr_new("        VHdr *h = VH(y);\012", 25));
+    vow_s[1245] = vow_immortal(vstr_new("        switch (h->kind) {\012", 27));
+    vow_s[1246] = vow_immortal(vstr_new("        case VK_FIELDS:\012", 24));
+    vow_s[1247] = vow_immortal(vstr_new("            for (int i = 0; i < h->words; i++)\012", 47));
+    vow_s[1248] = vow_immortal(vstr_new("                if (h->mask & ((uint64_t)1 << i)) vow_release(VP(y)[i]);\012", 73));
+    vow_s[1249] = vow_immortal(vstr_new("            break;\012", 19));
+    vow_s[1250] = vow_immortal(vstr_new("        case VK_LIST: vow_release(VL(y)->buf); break;\012", 54));
+    vow_s[1251] = vow_immortal(vstr_new("        case VK_BUF:\012", 21));
+    vow_s[1252] = vow_immortal(vstr_new("            if (h->flags)\012", 26));
+    vow_s[1253] = vow_immortal(vstr_new("                for (int64_t i = 0; i < VB(y)->used; i++) vow_release(VB(y)->items[i]);\012", 88));
+    vow_s[1254] = vow_immortal(vstr_new("        case VK_NODE:\012", 22));
+    vow_s[1255] = vow_immortal(vstr_new("            if (h->flags & VN_KEY_HEAP) vow_release(VN(y)->key);\012", 65));
+    vow_s[1256] = vow_immortal(vstr_new("            if (h->flags & VN_VAL_HEAP) vow_release(VN(y)->val);\012", 65));
+    vow_s[1257] = vow_immortal(vstr_new("            vow_release(VN(y)->left);\012", 38));
+    vow_s[1258] = vow_immortal(vstr_new("            vow_release(VN(y)->right);\012", 39));
+    vow_s[1259] = vow_immortal(vstr_new("        case VK_HASH:\012", 22));
+    vow_s[1260] = vow_immortal(vstr_new("            for (int64_t i = 0; i < VHM(y)->cap; i++) {\012", 56));
+    vow_s[1261] = vow_immortal(vstr_new("                if (!vhm_hashes(y)[i]) continue;\012", 49));
+    vow_s[1262] = vow_immortal(vstr_new("                if (h->flags & VN_KEY_HEAP) vow_release(vhm_keyarr(y)[i]);\012", 75));
+    vow_s[1263] = vow_immortal(vstr_new("                if (h->flags & VN_VAL_HEAP) vow_release(vhm_valarr(y)[i]);\012", 75));
+    vow_s[1264] = vow_immortal(vstr_new("            }\012", 14));
+    vow_s[1265] = vow_immortal(vstr_new("        default: break;\012", 24));
+    vow_s[1266] = vow_immortal(vstr_new("        vow_free_shell(y);\012", 27));
+    vow_s[1267] = vow_immortal(vstr_new("static void vow_report_leaks(void) {\012", 37));
+    vow_s[1268] = vow_immortal(vstr_new("    const char *e = getenv(\"VOW_LEAKS\");\012", 41));
+    vow_s[1269] = vow_immortal(vstr_new("    if (e && *e == '1') fprintf(stderr, \"vow: %lld objects live at exit\\n\", (long long)(vow_live - vow_immortals));\012", 116));
+    vow_s[1270] = vow_immortal(vstr_new("// ---- integers ----\012", 22));
+    vow_s[1271] = vow_immortal(vstr_new("static inline V vadd(V a, V b) {\012", 33));
+    vow_s[1272] = vow_immortal(vstr_new("    int64_t r;\012", 15));
+    vow_s[1273] = vow_immortal(vstr_new("    if (__builtin_add_overflow(VI(a), VI(b), &r)) vow_panic(\"integer overflow in '+'\");\012", 88));
+    vow_s[1274] = vow_immortal(vstr_new("    return (V)r;\012", 17));
+    vow_s[1275] = vow_immortal(vstr_new("static inline V vsub(V a, V b) {\012", 33));
+    vow_s[1276] = vow_immortal(vstr_new("    if (__builtin_sub_overflow(VI(a), VI(b), &r)) vow_panic(\"integer overflow in '-'\");\012", 88));
+    vow_s[1277] = vow_immortal(vstr_new("static inline V vmul(V a, V b) {\012", 33));
+    vow_s[1278] = vow_immortal(vstr_new("    if (__builtin_mul_overflow(VI(a), VI(b), &r)) vow_panic(\"integer overflow in '*'\");\012", 88));
+    vow_s[1279] = vow_immortal(vstr_new("static inline V vneg(V a) {\012", 28));
+    vow_s[1280] = vow_immortal(vstr_new("    if (VI(a) == INT64_MIN) vow_panic(\"integer overflow in unary '-'\");\012", 72));
+    vow_s[1281] = vow_immortal(vstr_new("    return (V)(-VI(a));\012", 24));
+    vow_s[1282] = vow_immortal(vstr_new("// Euclidean division: the remainder is always non-negative (matches SMT-LIB).\012", 79));
+    vow_s[1283] = vow_immortal(vstr_new("static inline V vdiv(V a, V b) {\012", 33));
+    vow_s[1284] = vow_immortal(vstr_new("    VOW_REQUIRE(VI(b) != 0, \"division by zero\");\012", 49));
+    vow_s[1285] = vow_immortal(vstr_new("    if (VI(a) == INT64_MIN && VI(b) == -1) vow_panic(\"integer overflow in '/'\");\012", 81));
+    vow_s[1286] = vow_immortal(vstr_new("    int64_t q = VI(a) / VI(b), r = VI(a) % VI(b);\012", 50));
+    vow_s[1287] = vow_immortal(vstr_new("    if (r < 0) q = VI(b) > 0 \? q - 1 : q + 1;\012", 46));
+    vow_s[1288] = vow_immortal(vstr_new("    return (V)q;\012", 17));
+    vow_s[1289] = vow_immortal(vstr_new("static inline V vmod(V a, V b) {\012", 33));
+    vow_s[1290] = vow_immortal(vstr_new("    if (VI(b) == -1) return 0;\012", 31));
+    vow_s[1291] = vow_immortal(vstr_new("    int64_t r = VI(a) % VI(b);\012", 31));
+    vow_s[1292] = vow_immortal(vstr_new("    if (r < 0) r = VI(b) > 0 \? r + VI(b) : r - VI(b);\012", 54));
+    vow_s[1293] = vow_immortal(vstr_new("// ---- strings (all functions borrow their arguments) ----\012", 60));
+    vow_s[1294] = vow_immortal(vstr_new("static V vstr_new(const char *p, int64_t n) {\012", 46));
+    vow_s[1295] = vow_immortal(vstr_new("    V s = vow_obj(VK_STR, 0, 0, 0, sizeof(VStr) + (size_t)n + 1);\012", 66));
+    vow_s[1296] = vow_immortal(vstr_new("    VS(s)->len = n;\012", 20));
+    vow_s[1297] = vow_immortal(vstr_new("    if (n) memcpy(VS(s)->data, p, (size_t)n);\012", 46));
+    vow_s[1298] = vow_immortal(vstr_new("    VS(s)->data[n] = 0;\012", 24));
+    vow_s[1299] = vow_immortal(vstr_new("    return s;\012", 14));
+    vow_s[1300] = vow_immortal(vstr_new("static inline V vstr_len(V s) { return (V)VS(s)->len; }\012", 56));
+    vow_s[1301] = vow_immortal(vstr_new("static V vstr_cat(V a, V b) {\012", 30));
+    vow_s[1302] = vow_immortal(vstr_new("    int64_t n = VS(a)->len + VS(b)->len;\012", 41));
+    vow_s[1303] = vow_immortal(vstr_new("    memcpy(VS(s)->data, VS(a)->data, (size_t)VS(a)->len);\012", 58));
+    vow_s[1304] = vow_immortal(vstr_new("    memcpy(VS(s)->data + VS(a)->len, VS(b)->data, (size_t)VS(b)->len);\012", 71));
+    vow_s[1305] = vow_immortal(vstr_new("static inline V vstr_eq(V a, V b) {\012", 36));
+    vow_s[1306] = vow_immortal(vstr_new("    return (V)(VS(a)->len == VS(b)->len && memcmp(VS(a)->data, VS(b)->data, (size_t)VS(a)->len) == 0);\012", 103));
+    vow_s[1307] = vow_immortal(vstr_new("static int vstr_cmp(V a, V b) {\012", 32));
+    vow_s[1308] = vow_immortal(vstr_new("    int64_t n = VS(a)->len < VS(b)->len \? VS(a)->len : VS(b)->len;\012", 67));
+    vow_s[1309] = vow_immortal(vstr_new("    int c = memcmp(VS(a)->data, VS(b)->data, (size_t)n);\012", 57));
+    vow_s[1310] = vow_immortal(vstr_new("    if (c) return c;\012", 21));
+    vow_s[1311] = vow_immortal(vstr_new("    return VS(a)->len < VS(b)->len \? -1 : (VS(a)->len > VS(b)->len \? 1 : 0);\012", 77));
+    vow_s[1312] = vow_immortal(vstr_new("static inline V vstr_byte(V s, V i) {\012", 38));
+    vow_s[1313] = vow_immortal(vstr_new("    VOW_REQUIRE(VI(i) >= 0 && VI(i) < VS(s)->len, \"string index out of bounds\");\012", 81));
+    vow_s[1314] = vow_immortal(vstr_new("    return (V)(unsigned char)VS(s)->data[VI(i)];\012", 49));
+    vow_s[1315] = vow_immortal(vstr_new("static V vstr_slice(V s, V from, V to) {\012", 41));
+    vow_s[1316] = vow_immortal(vstr_new("    VOW_REQUIRE(0 <= VI(from) && VI(from) <= VI(to) && VI(to) <= VS(s)->len, \"string slice out of bounds\");\012", 108));
+    vow_s[1317] = vow_immortal(vstr_new("    return vstr_new(VS(s)->data + VI(from), VI(to) - VI(from));\012", 64));
+    vow_s[1318] = vow_immortal(vstr_new("static V vchar(V code) {\012", 25));
+    vow_s[1319] = vow_immortal(vstr_new("    VOW_REQUIRE(VI(code) >= 0 && VI(code) < 256, \"char code out of range\");\012", 76));
+    vow_s[1320] = vow_immortal(vstr_new("    char c = (char)VI(code);\012", 29));
+    vow_s[1321] = vow_immortal(vstr_new("    return vstr_new(&c, 1);\012", 28));
+    vow_s[1322] = vow_immortal(vstr_new("static V vint_to_str(V n) {\012", 28));
+    vow_s[1323] = vow_immortal(vstr_new("    char buf[32];\012", 18));
+    vow_s[1324] = vow_immortal(vstr_new("    int k = snprintf(buf, sizeof buf, \"%lld\", (long long)VI(n));\012", 65));
+    vow_s[1325] = vow_immortal(vstr_new("    return vstr_new(buf, k);\012", 29));
+    vow_s[1326] = vow_immortal(vstr_new("static V vhash(V s) {\012", 22));
+    vow_s[1327] = vow_immortal(vstr_new("    uint64_t h = 14695981039346656037ull;\012", 42));
+    vow_s[1328] = vow_immortal(vstr_new("    for (int64_t i = 0; i < VS(s)->len; i++) {\012", 47));
+    vow_s[1329] = vow_immortal(vstr_new("        h ^= (unsigned char)VS(s)->data[i];\012", 44));
+    vow_s[1330] = vow_immortal(vstr_new("        h *= 1099511628211ull;\012", 31));
+    vow_s[1331] = vow_immortal(vstr_new("    char buf[17];\012", 18));
+    vow_s[1332] = vow_immortal(vstr_new("    snprintf(buf, sizeof buf, \"%016llx\", (unsigned long long)h);\012", 65));
+    vow_s[1333] = vow_immortal(vstr_new("    return vstr_new(buf, 16);\012", 30));
+    vow_s[1334] = vow_immortal(vstr_new("// ---- structs, enums and options ----\012", 40));
+    vow_s[1335] = vow_immortal(vstr_new("static V vow_fields(int64_t words, uint64_t mask) {\012", 52));
+    vow_s[1336] = vow_immortal(vstr_new("    size_t n = (size_t)(words > 0 \? words : 1) * sizeof(V);\012", 60));
+    vow_s[1337] = vow_immortal(vstr_new("    V r = vow_obj(VK_FIELDS, 0, (uint16_t)words, mask, n);\012", 59));
+    vow_s[1338] = vow_immortal(vstr_new("    memset(VP(r), 0, n);\012", 25));
+    vow_s[1339] = vow_immortal(vstr_new("    return r;\012", 14));
+    vow_s[1340] = vow_immortal(vstr_new("// Consumes base; returns an object the caller owns exclusively: base itself when it was\012", 89));
+    vow_s[1341] = vow_immortal(vstr_new("// unshared, otherwise a copy. The caller then replaces fields (dropping the old ones).\012", 88));
+    vow_s[1342] = vow_immortal(vstr_new("static V vow_with(V base) {\012", 28));
+    vow_s[1343] = vow_immortal(vstr_new("    VHdr *h = VH(base);\012", 24));
+    vow_s[1344] = vow_immortal(vstr_new("    if (h->rc == 1) return base;\012", 33));
+    vow_s[1345] = vow_immortal(vstr_new("    V r = vow_fields(h->words, h->mask);\012", 41));
+    vow_s[1346] = vow_immortal(vstr_new("    memcpy(VP(r), VP(base), (size_t)h->words * sizeof(V));\012", 59));
+    vow_s[1347] = vow_immortal(vstr_new("    for (int i = 0; i < h->words; i++)\012", 39));
+    vow_s[1348] = vow_immortal(vstr_new("        if (h->mask & ((uint64_t)1 << i)) vdup(VP(r)[i]);\012", 58));
+    vow_s[1349] = vow_immortal(vstr_new("    vdrop(base);\012", 17));
+    vow_s[1350] = vow_immortal(vstr_new("// Takes field i out of base for an update that `with` will write back: when base is\012", 85));
+    vow_s[1351] = vow_immortal(vstr_new("// unshared the field is moved out (its slot left empty), otherwise duplicated.\012", 80));
+    vow_s[1352] = vow_immortal(vstr_new("static V vow_steal(V base, int64_t i) {\012", 40));
+    vow_s[1353] = vow_immortal(vstr_new("    if (VH(base)->rc == 1) {\012", 29));
+    vow_s[1354] = vow_immortal(vstr_new("        V x = VP(base)[i];\012", 27));
+    vow_s[1355] = vow_immortal(vstr_new("        VP(base)[i] = 0;\012", 25));
+    vow_s[1356] = vow_immortal(vstr_new("        return x;\012", 18));
+    vow_s[1357] = vow_immortal(vstr_new("    return vdup(VP(base)[i]);\012", 30));
+    vow_s[1358] = vow_immortal(vstr_new("static V vow_variant0(int64_t tag) {\012", 37));
+    vow_s[1359] = vow_immortal(vstr_new("    V r = vow_fields(1, 0);\012", 28));
+    vow_s[1360] = vow_immortal(vstr_new("    VP(r)[0] = (V)tag;\012", 23));
+    vow_s[1361] = vow_immortal(vstr_new("static V vow_none_obj;\012", 23));
+    vow_s[1362] = vow_immortal(vstr_new("static V vnone(void) {\012", 23));
+    vow_s[1363] = vow_immortal(vstr_new("    if (!vow_none_obj) vow_none_obj = vow_immortal(vow_fields(1, 0));\012", 70));
+    vow_s[1364] = vow_immortal(vstr_new("    return vow_none_obj;\012", 25));
+    vow_s[1365] = vow_immortal(vstr_new("// Consumes x.\012", 15));
+    vow_s[1366] = vow_immortal(vstr_new("static V vsome(V x, int heap) {\012", 32));
+    vow_s[1367] = vow_immortal(vstr_new("    V r = vow_fields(2, heap \? 2 : 0);\012", 39));
+    vow_s[1368] = vow_immortal(vstr_new("    VP(r)[0] = 1;\012", 18));
+    vow_s[1369] = vow_immortal(vstr_new("    VP(r)[1] = x;\012", 18));
+    vow_s[1370] = vow_immortal(vstr_new("// Borrows o, consumes d.\012", 26));
+    vow_s[1371] = vow_immortal(vstr_new("static V vvalue_or(V o, V d, int heap) {\012", 41));
+    vow_s[1372] = vow_immortal(vstr_new("    if (VP(o)[0] == 1) {\012", 25));
+    vow_s[1373] = vow_immortal(vstr_new("        V r = VP(o)[1];\012", 24));
+    vow_s[1374] = vow_immortal(vstr_new("        if (heap) {\012", 20));
+    vow_s[1375] = vow_immortal(vstr_new("            vdup(r);\012", 21));
+    vow_s[1376] = vow_immortal(vstr_new("            vdrop(d);\012", 22));
+    vow_s[1377] = vow_immortal(vstr_new("        return r;\012", 18));
+    vow_s[1378] = vow_immortal(vstr_new("    return d;\012", 14));
+    vow_s[1379] = vow_immortal(vstr_new("static V vstr_to_int(V s) {\012", 28));
+    vow_s[1380] = vow_immortal(vstr_new("    int64_t n = VS(s)->len, i = 0, v = 0;\012", 42));
+    vow_s[1381] = vow_immortal(vstr_new("    int neg = 0;\012", 17));
+    vow_s[1382] = vow_immortal(vstr_new("    if (n == 0) return vnone();\012", 32));
+    vow_s[1383] = vow_immortal(vstr_new("    if (VS(s)->data[0] == '-') {\012", 33));
+    vow_s[1384] = vow_immortal(vstr_new("        neg = 1;\012", 17));
+    vow_s[1385] = vow_immortal(vstr_new("        i = 1;\012", 15));
+    vow_s[1386] = vow_immortal(vstr_new("        if (n == 1) return vnone();\012", 36));
+    vow_s[1387] = vow_immortal(vstr_new("    for (; i < n; i++) {\012", 25));
+    vow_s[1388] = vow_immortal(vstr_new("        char c = VS(s)->data[i];\012", 33));
+    vow_s[1389] = vow_immortal(vstr_new("        if (c < '0' || c > '9') return vnone();\012", 48));
+    vow_s[1390] = vow_immortal(vstr_new("        if (__builtin_mul_overflow(v, 10, &v)) return vnone();\012", 63));
+    vow_s[1391] = vow_immortal(vstr_new("        if (__builtin_add_overflow(v, (int64_t)(neg \? -(c - '0') : (c - '0')), &v)) return vnone();\012", 100));
+    vow_s[1392] = vow_immortal(vstr_new("    return vsome((V)v, 0);\012", 27));
+    vow_s[1393] = vow_immortal(vstr_new("// ---- lists ----\012", 19));
+    vow_s[1394] = vow_immortal(vstr_new("static V vbuf_new(int64_t cap, int heap) {\012", 43));
+    vow_s[1395] = vow_immortal(vstr_new("    if (cap < 4) cap = 4;\012", 26));
+    vow_s[1396] = vow_immortal(vstr_new("    V b = vow_obj(VK_BUF, (uint8_t)heap, 0, 0, sizeof(VBuf) + (size_t)cap * sizeof(V));\012", 88));
+    vow_s[1397] = vow_immortal(vstr_new("    VB(b)->cap = cap;\012", 22));
+    vow_s[1398] = vow_immortal(vstr_new("    VB(b)->used = 0;\012", 21));
+    vow_s[1399] = vow_immortal(vstr_new("    return b;\012", 14));
+    vow_s[1400] = vow_immortal(vstr_new("static V vlist_make(int64_t len, V buf, int heap) {\012", 52));
+    vow_s[1401] = vow_immortal(vstr_new("    V l = vow_obj(VK_LIST, (uint8_t)heap, 0, 0, sizeof(VList));\012", 64));
+    vow_s[1402] = vow_immortal(vstr_new("    VL(l)->len = len;\012", 22));
+    vow_s[1403] = vow_immortal(vstr_new("    VL(l)->buf = buf;\012", 22));
+    vow_s[1404] = vow_immortal(vstr_new("    return l;\012", 14));
+    vow_s[1405] = vow_immortal(vstr_new("static V vlist_empty(int heap) { return vlist_make(0, 0, heap); }\012", 66));
+    vow_s[1406] = vow_immortal(vstr_new("static inline V vlist_len(V l) { return (V)VL(l)->len; }\012", 57));
+    vow_s[1407] = vow_immortal(vstr_new("// Borrowed.\012", 13));
+    vow_s[1408] = vow_immortal(vstr_new("static inline V vlist_get(V l, V i) {\012", 38));
+    vow_s[1409] = vow_immortal(vstr_new("    VOW_REQUIRE(VI(i) >= 0 && VI(i) < VL(l)->len, \"list index out of bounds\");\012", 79));
+    vow_s[1410] = vow_immortal(vstr_new("    return VB(VL(l)->buf)->items[VI(i)];\012", 41));
+    vow_s[1411] = vow_immortal(vstr_new("// Consumes l and x. Appends in place when the buffer has room just past this list's\012", 85));
+    vow_s[1412] = vow_immortal(vstr_new("// end (no other list can see that slot); reuses the header when it is unshared.\012", 81));
+    vow_s[1413] = vow_immortal(vstr_new("static V vlist_push(V l, V x) {\012", 32));
+    vow_s[1414] = vow_immortal(vstr_new("    VList *L = VL(l);\012", 22));
+    vow_s[1415] = vow_immortal(vstr_new("    int heap = VH(l)->flags;\012", 29));
+    vow_s[1416] = vow_immortal(vstr_new("    V b = L->buf;\012", 18));
+    vow_s[1417] = vow_immortal(vstr_new("    int64_t n = L->len;\012", 24));
+    vow_s[1418] = vow_immortal(vstr_new("    if (b && VB(b)->used == n && n < VB(b)->cap) {\012", 51));
+    vow_s[1419] = vow_immortal(vstr_new("        VB(b)->items[n] = x;\012", 29));
+    vow_s[1420] = vow_immortal(vstr_new("        VB(b)->used = n + 1;\012", 29));
+    vow_s[1421] = vow_immortal(vstr_new("        if (VH(l)->rc == 1) {\012", 30));
+    vow_s[1422] = vow_immortal(vstr_new("            L->len = n + 1;\012", 28));
+    vow_s[1423] = vow_immortal(vstr_new("            return l;\012", 22));
+    vow_s[1424] = vow_immortal(vstr_new("        V r = vlist_make(n + 1, vdup(b), heap);\012", 48));
+    vow_s[1425] = vow_immortal(vstr_new("        vdrop(l);\012", 18));
+    vow_s[1426] = vow_immortal(vstr_new("    V nb = vbuf_new(n * 2, heap);\012", 34));
+    vow_s[1427] = vow_immortal(vstr_new("    if (n) {\012", 13));
+    vow_s[1428] = vow_immortal(vstr_new("        memcpy(VB(nb)->items, VB(b)->items, (size_t)n * sizeof(V));\012", 68));
+    vow_s[1429] = vow_immortal(vstr_new("        if (VH(l)->rc == 1 && VH(b)->rc == 1) {\012", 48));
+    vow_s[1430] = vow_immortal(vstr_new("            // Sole owner of both: move the elements; release any beyond this list's end.\012", 90));
+    vow_s[1431] = vow_immortal(vstr_new("            if (heap)\012", 22));
+    vow_s[1432] = vow_immortal(vstr_new("                for (int64_t i = n; i < VB(b)->used; i++) vdrop(VB(b)->items[i]);\012", 82));
+    vow_s[1433] = vow_immortal(vstr_new("            VB(b)->used = 0;\012", 29));
+    vow_s[1434] = vow_immortal(vstr_new("        } else if (heap) {\012", 27));
+    vow_s[1435] = vow_immortal(vstr_new("            for (int64_t i = 0; i < n; i++) vdup(VB(b)->items[i]);\012", 67));
+    vow_s[1436] = vow_immortal(vstr_new("    VB(nb)->items[n] = x;\012", 26));
+    vow_s[1437] = vow_immortal(vstr_new("    VB(nb)->used = n + 1;\012", 26));
+    vow_s[1438] = vow_immortal(vstr_new("    if (VH(l)->rc == 1) {\012", 26));
+    vow_s[1439] = vow_immortal(vstr_new("        vdrop(L->buf);\012", 23));
+    vow_s[1440] = vow_immortal(vstr_new("        L->buf = nb;\012", 21));
+    vow_s[1441] = vow_immortal(vstr_new("        L->len = n + 1;\012", 24));
+    vow_s[1442] = vow_immortal(vstr_new("        return l;\012", 18));
+    vow_s[1443] = vow_immortal(vstr_new("    V r = vlist_make(n + 1, nb, heap);\012", 39));
+    vow_s[1444] = vow_immortal(vstr_new("    vdrop(l);\012", 14));
+    vow_s[1445] = vow_immortal(vstr_new("// Consumes l and x: element i replaced, in place when l and its buffer are unshared.\012", 86));
+    vow_s[1446] = vow_immortal(vstr_new("static V vlist_set_at(V l, V i, V x) {\012", 39));
+    vow_s[1447] = vow_immortal(vstr_new("    VOW_REQUIRE(VI(i) >= 0 && VI(i) < VL(l)->len, \"set_at index out of bounds\");\012", 81));
+    vow_s[1448] = vow_immortal(vstr_new("    if (VH(l)->rc == 1 && VH(b)->rc == 1) {\012", 44));
+    vow_s[1449] = vow_immortal(vstr_new("        V old = VB(b)->items[VI(i)];\012", 37));
+    vow_s[1450] = vow_immortal(vstr_new("        VB(b)->items[VI(i)] = x;\012", 33));
+    vow_s[1451] = vow_immortal(vstr_new("        if (heap) vdrop(old);\012", 30));
+    vow_s[1452] = vow_immortal(vstr_new("    V nb = vbuf_new(n, heap);\012", 30));
+    vow_s[1453] = vow_immortal(vstr_new("    memcpy(VB(nb)->items, VB(b)->items, (size_t)n * sizeof(V));\012", 64));
+    vow_s[1454] = vow_immortal(vstr_new("    if (heap)\012", 14));
+    vow_s[1455] = vow_immortal(vstr_new("        for (int64_t j = 0; j < n; j++)\012", 40));
+    vow_s[1456] = vow_immortal(vstr_new("            if (j != VI(i)) vdup(VB(nb)->items[j]);\012", 52));
+    vow_s[1457] = vow_immortal(vstr_new("    VB(nb)->items[VI(i)] = x;\012", 30));
+    vow_s[1458] = vow_immortal(vstr_new("    VB(nb)->used = n;\012", 22));
+    vow_s[1459] = vow_immortal(vstr_new("    V r = vlist_make(n, nb, heap);\012", 35));
+    vow_s[1460] = vow_immortal(vstr_new("// Borrows l.\012", 14));
+    vow_s[1461] = vow_immortal(vstr_new("static V vlist_slice(V l, V from, V to) {\012", 42));
+    vow_s[1462] = vow_immortal(vstr_new("    VOW_REQUIRE(0 <= VI(from) && VI(from) <= VI(to) && VI(to) <= VL(l)->len, \"list slice out of bounds\");\012", 106));
+    vow_s[1463] = vow_immortal(vstr_new("    int64_t n = VI(to) - VI(from);\012", 35));
+    vow_s[1464] = vow_immortal(vstr_new("        memcpy(VB(nb)->items, VB(VL(l)->buf)->items + VI(from), (size_t)n * sizeof(V));\012", 88));
+    vow_s[1465] = vow_immortal(vstr_new("        if (heap)\012", 18));
+    vow_s[1466] = vow_immortal(vstr_new("            for (int64_t j = 0; j < n; j++) vdup(VB(nb)->items[j]);\012", 68));
+    vow_s[1467] = vow_immortal(vstr_new("    return vlist_make(n, nb, heap);\012", 36));
+    vow_s[1468] = vow_immortal(vstr_new("// Consumes a, borrows b.\012", 26));
+    vow_s[1469] = vow_immortal(vstr_new("static V vlist_cat(V a, V b) {\012", 31));
+    vow_s[1470] = vow_immortal(vstr_new("    int heap = VH(a)->flags;\012", 29));
+    vow_s[1471] = vow_immortal(vstr_new("    for (int64_t i = 0; i < VL(b)->len; i++) {\012", 47));
+    vow_s[1472] = vow_immortal(vstr_new("        V x = VB(VL(b)->buf)->items[i];\012", 40));
+    vow_s[1473] = vow_immortal(vstr_new("        a = vlist_push(a, heap \? vdup(x) : x);\012", 47));
+    vow_s[1474] = vow_immortal(vstr_new("    return a;\012", 14));
+    vow_s[1475] = vow_immortal(vstr_new("// Borrows both.\012", 17));
+    vow_s[1476] = vow_immortal(vstr_new("static V vjoin(V parts, V sep) {\012", 33));
+    vow_s[1477] = vow_immortal(vstr_new("    int64_t n = 0, k = VL(parts)->len;\012", 39));
+    vow_s[1478] = vow_immortal(vstr_new("    for (int64_t i = 0; i < k; i++) n += VS(VB(VL(parts)->buf)->items[i])->len;\012", 80));
+    vow_s[1479] = vow_immortal(vstr_new("    if (k > 1) n += (k - 1) * VS(sep)->len;\012", 44));
+    vow_s[1480] = vow_immortal(vstr_new("    char *p = VS(s)->data;\012", 27));
+    vow_s[1481] = vow_immortal(vstr_new("    for (int64_t i = 0; i < k; i++) {\012", 38));
+    vow_s[1482] = vow_immortal(vstr_new("        if (i) {\012", 17));
+    vow_s[1483] = vow_immortal(vstr_new("            memcpy(p, VS(sep)->data, (size_t)VS(sep)->len);\012", 60));
+    vow_s[1484] = vow_immortal(vstr_new("            p += VS(sep)->len;\012", 31));
+    vow_s[1485] = vow_immortal(vstr_new("        V x = VB(VL(parts)->buf)->items[i];\012", 44));
+    vow_s[1486] = vow_immortal(vstr_new("        memcpy(p, VS(x)->data, (size_t)VS(x)->len);\012", 52));
+    vow_s[1487] = vow_immortal(vstr_new("        p += VS(x)->len;\012", 25));
+    vow_s[1488] = vow_immortal(vstr_new("    *p = 0;\012", 12));
+    vow_s[1489] = vow_immortal(vstr_new("// ---- maps ----\012", 18));
+    vow_s[1490] = vow_immortal(vstr_new("static inline int64_t vn_h(V n) { return n \? VN(n)->height : 0; }\012", 66));
+    vow_s[1491] = vow_immortal(vstr_new("static inline int64_t vn_s(V n) { return n \? VN(n)->size : 0; }\012", 64));
+    vow_s[1492] = vow_immortal(vstr_new("static int vkey_cmp(V a, V b, int flags) {\012", 43));
+    vow_s[1493] = vow_immortal(vstr_new("    if (flags & VN_STR_KEYS) return vstr_cmp(a, b);\012", 52));
+    vow_s[1494] = vow_immortal(vstr_new("    return VI(a) < VI(b) \? -1 : (VI(a) > VI(b) \? 1 : 0);\012", 57));
+    vow_s[1495] = vow_immortal(vstr_new("// Consumes all four parts.\012", 28));
+    vow_s[1496] = vow_immortal(vstr_new("static V vn_make(V k, V v, V l, V r, int flags) {\012", 50));
+    vow_s[1497] = vow_immortal(vstr_new("    V n = vow_obj(VK_NODE, (uint8_t)flags, 0, 0, sizeof(VNode));\012", 65));
+    vow_s[1498] = vow_immortal(vstr_new("    VN(n)->key = k;\012", 20));
+    vow_s[1499] = vow_immortal(vstr_new("    VN(n)->val = v;\012", 20));
+    vow_s[1500] = vow_immortal(vstr_new("    VN(n)->left = l;\012", 21));
+    vow_s[1501] = vow_immortal(vstr_new("    VN(n)->right = r;\012", 22));
+    vow_s[1502] = vow_immortal(vstr_new("    int64_t hl = vn_h(l), hr = vn_h(r);\012", 40));
+    vow_s[1503] = vow_immortal(vstr_new("    VN(n)->height = (hl > hr \? hl : hr) + 1;\012", 45));
+    vow_s[1504] = vow_immortal(vstr_new("    VN(n)->size = vn_s(l) + vn_s(r) + 1;\012", 41));
+    vow_s[1505] = vow_immortal(vstr_new("    return n;\012", 14));
+    vow_s[1506] = vow_immortal(vstr_new("static void vn_fix(V n) {\012", 26));
+    vow_s[1507] = vow_immortal(vstr_new("    VNode *x = VN(n);\012", 22));
+    vow_s[1508] = vow_immortal(vstr_new("    int64_t hl = vn_h(x->left), hr = vn_h(x->right);\012", 53));
+    vow_s[1509] = vow_immortal(vstr_new("    x->height = (hl > hr \? hl : hr) + 1;\012", 41));
+    vow_s[1510] = vow_immortal(vstr_new("    x->size = vn_s(x->left) + vn_s(x->right) + 1;\012", 50));
+    vow_s[1511] = vow_immortal(vstr_new("// Consumes n; returns a node with the same contents that the caller owns exclusively:\012", 87));
+    vow_s[1512] = vow_immortal(vstr_new("// n itself when unshared, otherwise a copy (so updates copy only the path they touch).\012", 88));
+    vow_s[1513] = vow_immortal(vstr_new("static V vn_unshare(V n) {\012", 27));
+    vow_s[1514] = vow_immortal(vstr_new("    if (VH(n)->rc == 1) return n;\012", 34));
+    vow_s[1515] = vow_immortal(vstr_new("    int f = VH(n)->flags;\012", 26));
+    vow_s[1516] = vow_immortal(vstr_new("    V m = vn_make((f & VN_KEY_HEAP) \? vdup(x->key) : x->key, (f & VN_VAL_HEAP) \? vdup(x->val) : x->val,\012", 104));
+    vow_s[1517] = vow_immortal(vstr_new("                  vdup(x->left), vdup(x->right), f);\012", 53));
+    vow_s[1518] = vow_immortal(vstr_new("    vdrop(n);\012", 14));
+    vow_s[1519] = vow_immortal(vstr_new("    return m;\012", 14));
+    vow_s[1520] = vow_immortal(vstr_new("// Rotations relink nodes in place; n must be exclusively owned.\012", 65));
+    vow_s[1521] = vow_immortal(vstr_new("static V vn_rot_right(V n) {\012", 29));
+    vow_s[1522] = vow_immortal(vstr_new("    V l = vn_unshare(VN(n)->left);\012", 35));
+    vow_s[1523] = vow_immortal(vstr_new("    VN(n)->left = VN(l)->right;\012", 32));
+    vow_s[1524] = vow_immortal(vstr_new("    vn_fix(n);\012", 15));
+    vow_s[1525] = vow_immortal(vstr_new("    VN(l)->right = n;\012", 22));
+    vow_s[1526] = vow_immortal(vstr_new("    vn_fix(l);\012", 15));
+    vow_s[1527] = vow_immortal(vstr_new("static V vn_rot_left(V n) {\012", 28));
+    vow_s[1528] = vow_immortal(vstr_new("    V r = vn_unshare(VN(n)->right);\012", 36));
+    vow_s[1529] = vow_immortal(vstr_new("    VN(n)->right = VN(r)->left;\012", 32));
+    vow_s[1530] = vow_immortal(vstr_new("    VN(r)->left = n;\012", 21));
+    vow_s[1531] = vow_immortal(vstr_new("    vn_fix(r);\012", 15));
+    vow_s[1532] = vow_immortal(vstr_new("static V vn_rebalance(V n) {\012", 29));
+    vow_s[1533] = vow_immortal(vstr_new("    if (hl > hr + 1) {\012", 23));
+    vow_s[1534] = vow_immortal(vstr_new("        if (vn_h(VN(x->left)->left) < vn_h(VN(x->left)->right)) x->left = vn_rot_left(vn_unshare(x->left));\012", 108));
+    vow_s[1535] = vow_immortal(vstr_new("        return vn_rot_right(n);\012", 32));
+    vow_s[1536] = vow_immortal(vstr_new("    if (hr > hl + 1) {\012", 23));
+    vow_s[1537] = vow_immortal(vstr_new("        if (vn_h(VN(x->right)->right) < vn_h(VN(x->right)->left)) x->right = vn_rot_right(vn_unshare(x->right));\012", 113));
+    vow_s[1538] = vow_immortal(vstr_new("        return vn_rot_left(n);\012", 31));
+    vow_s[1539] = vow_immortal(vstr_new("// Consumes n, k and v. Unshared nodes on the path are updated in place; shared ones\012", 85));
+    vow_s[1540] = vow_immortal(vstr_new("// are copied first.\012", 21));
+    vow_s[1541] = vow_immortal(vstr_new("static V vn_insert(V n, V k, V v, int flags) {\012", 47));
+    vow_s[1542] = vow_immortal(vstr_new("    if (!n) return vn_make(k, v, 0, 0, flags);\012", 47));
+    vow_s[1543] = vow_immortal(vstr_new("    int c = vkey_cmp(k, VN(n)->key, flags);\012", 44));
+    vow_s[1544] = vow_immortal(vstr_new("    n = vn_unshare(n);\012", 23));
+    vow_s[1545] = vow_immortal(vstr_new("    if (c == 0) {\012", 18));
+    vow_s[1546] = vow_immortal(vstr_new("        if (flags & VN_KEY_HEAP) vdrop(x->key);\012", 48));
+    vow_s[1547] = vow_immortal(vstr_new("        if (flags & VN_VAL_HEAP) vdrop(x->val);\012", 48));
+    vow_s[1548] = vow_immortal(vstr_new("        x->key = k;\012", 20));
+    vow_s[1549] = vow_immortal(vstr_new("        x->val = v;\012", 20));
+    vow_s[1550] = vow_immortal(vstr_new("        return n;\012", 18));
+    vow_s[1551] = vow_immortal(vstr_new("    if (c < 0)\012", 15));
+    vow_s[1552] = vow_immortal(vstr_new("        x->left = vn_insert(x->left, k, v, flags);\012", 51));
+    vow_s[1553] = vow_immortal(vstr_new("        x->right = vn_insert(x->right, k, v, flags);\012", 53));
+    vow_s[1554] = vow_immortal(vstr_new("    return vn_rebalance(n);\012", 28));
+    vow_s[1555] = vow_immortal(vstr_new("static V vmap_empty(void) { return 0; }\012", 40));
+    vow_s[1556] = vow_immortal(vstr_new("static inline V vmap_len(V m) { return (V)vn_s(m); }\012", 53));
+    vow_s[1557] = vow_immortal(vstr_new("static V vmap_insert(V m, V k, V v, int flags) { return vn_insert(m, k, v, flags); }\012", 85));
+    vow_s[1558] = vow_immortal(vstr_new("static V vn_find(V m, V k, int flags) {\012", 40));
+    vow_s[1559] = vow_immortal(vstr_new("    V n = m;\012", 13));
+    vow_s[1560] = vow_immortal(vstr_new("    while (n) {\012", 16));
+    vow_s[1561] = vow_immortal(vstr_new("        int c = vkey_cmp(k, VN(n)->key, flags);\012", 48));
+    vow_s[1562] = vow_immortal(vstr_new("        if (c == 0) return n;\012", 30));
+    vow_s[1563] = vow_immortal(vstr_new("        n = c < 0 \? VN(n)->left : VN(n)->right;\012", 48));
+    vow_s[1564] = vow_immortal(vstr_new("    return 0;\012", 14));
+    vow_s[1565] = vow_immortal(vstr_new("// Borrows m and k; the result owns a reference to the value.\012", 62));
+    vow_s[1566] = vow_immortal(vstr_new("static V vmap_lookup(V m, V k, int flags) {\012", 44));
+    vow_s[1567] = vow_immortal(vstr_new("    V n = vn_find(m, k, flags);\012", 32));
+    vow_s[1568] = vow_immortal(vstr_new("    if (!n) return vnone();\012", 28));
+    vow_s[1569] = vow_immortal(vstr_new("    V v = VN(n)->val;\012", 22));
+    vow_s[1570] = vow_immortal(vstr_new("    if (flags & VN_VAL_HEAP) vdup(v);\012", 38));
+    vow_s[1571] = vow_immortal(vstr_new("    return vsome(v, flags & VN_VAL_HEAP);\012", 42));
+    vow_s[1572] = vow_immortal(vstr_new("static V vmap_has(V m, V k, int flags) { return (V)(vn_find(m, k, flags) != 0); }\012", 82));
+    vow_s[1573] = vow_immortal(vstr_new("static V vn_keys(V n, V acc, int flags) {\012", 42));
+    vow_s[1574] = vow_immortal(vstr_new("    if (!n) return acc;\012", 24));
+    vow_s[1575] = vow_immortal(vstr_new("    acc = vn_keys(VN(n)->left, acc, flags);\012", 44));
+    vow_s[1576] = vow_immortal(vstr_new("    V k = VN(n)->key;\012", 22));
+    vow_s[1577] = vow_immortal(vstr_new("    acc = vlist_push(acc, (flags & VN_KEY_HEAP) \? vdup(k) : k);\012", 64));
+    vow_s[1578] = vow_immortal(vstr_new("    return vn_keys(VN(n)->right, acc, flags);\012", 46));
+    vow_s[1579] = vow_immortal(vstr_new("static V vmap_keys(V m, int flags) { return vn_keys(m, vlist_empty(flags & VN_KEY_HEAP), flags); }\012", 99));
+    vow_s[1580] = vow_immortal(vstr_new("// ---- hash maps ----\012", 23));
+    vow_s[1581] = vow_immortal(vstr_new("static int vow_name_cmp(const void *a, const void *b);\012", 55));
+    vow_s[1582] = vow_immortal(vstr_new("static uint64_t vhm_hash(V k, int flags) {\012", 43));
+    vow_s[1583] = vow_immortal(vstr_new("    uint64_t h;\012", 16));
+    vow_s[1584] = vow_immortal(vstr_new("    if (flags & VN_STR_KEYS) {\012", 31));
+    vow_s[1585] = vow_immortal(vstr_new("        h = 14695981039346656037ull;\012", 37));
+    vow_s[1586] = vow_immortal(vstr_new("        for (int64_t i = 0; i < VS(k)->len; i++) {\012", 51));
+    vow_s[1587] = vow_immortal(vstr_new("            h ^= (unsigned char)VS(k)->data[i];\012", 48));
+    vow_s[1588] = vow_immortal(vstr_new("            h *= 1099511628211ull;\012", 35));
+    vow_s[1589] = vow_immortal(vstr_new("        h = k;\012", 15));
+    vow_s[1590] = vow_immortal(vstr_new("        h ^= h >> 30;\012", 22));
+    vow_s[1591] = vow_immortal(vstr_new("        h *= 0xbf58476d1ce4e5b9ull;\012", 36));
+    vow_s[1592] = vow_immortal(vstr_new("        h ^= h >> 27;\012", 22));
+    vow_s[1593] = vow_immortal(vstr_new("        h *= 0x94d049bb133111ebull;\012", 36));
+    vow_s[1594] = vow_immortal(vstr_new("        h ^= h >> 31;\012", 22));
+    vow_s[1595] = vow_immortal(vstr_new("    return h \? h : 1;\012", 22));
+    vow_s[1596] = vow_immortal(vstr_new("static inline int vhm_eq(V a, V b, int flags) { return (flags & VN_STR_KEYS) \? (int)vstr_eq(a, b) : a == b; }\012", 110));
+    vow_s[1597] = vow_immortal(vstr_new("static V vhm_new(int64_t cap, int flags) {\012", 43));
+    vow_s[1598] = vow_immortal(vstr_new("    V h = vow_obj(VK_HASH, (uint8_t)flags, 0, 0, sizeof(VHash) + (size_t)cap * 3 * sizeof(V));\012", 95));
+    vow_s[1599] = vow_immortal(vstr_new("    VHM(h)->count = 0;\012", 23));
+    vow_s[1600] = vow_immortal(vstr_new("    VHM(h)->cap = cap;\012", 23));
+    vow_s[1601] = vow_immortal(vstr_new("    memset(vhm_hashes(h), 0, (size_t)cap * sizeof(uint64_t));\012", 62));
+    vow_s[1602] = vow_immortal(vstr_new("    return h;\012", 14));
+    vow_s[1603] = vow_immortal(vstr_new("// Consumes k and v; h must be exclusively owned and have a free slot.\012", 71));
+    vow_s[1604] = vow_immortal(vstr_new("static void vhm_place(V h, uint64_t hh, V k, V v, int flags) {\012", 63));
+    vow_s[1605] = vow_immortal(vstr_new("    int64_t cap = VHM(h)->cap, i = (int64_t)(hh & (uint64_t)(cap - 1));\012", 72));
+    vow_s[1606] = vow_immortal(vstr_new("    uint64_t *hs = vhm_hashes(h);\012", 34));
+    vow_s[1607] = vow_immortal(vstr_new("    V *ks = vhm_keyarr(h), *vs = vhm_valarr(h);\012", 48));
+    vow_s[1608] = vow_immortal(vstr_new("    while (hs[i]) {\012", 20));
+    vow_s[1609] = vow_immortal(vstr_new("        if (hs[i] == hh && vhm_eq(ks[i], k, flags)) {\012", 54));
+    vow_s[1610] = vow_immortal(vstr_new("            if (flags & VN_KEY_HEAP) vdrop(k);\012", 47));
+    vow_s[1611] = vow_immortal(vstr_new("            if (flags & VN_VAL_HEAP) vdrop(vs[i]);\012", 51));
+    vow_s[1612] = vow_immortal(vstr_new("            vs[i] = v;\012", 23));
+    vow_s[1613] = vow_immortal(vstr_new("            return;\012", 20));
+    vow_s[1614] = vow_immortal(vstr_new("        i = (i + 1) & (cap - 1);\012", 33));
+    vow_s[1615] = vow_immortal(vstr_new("    hs[i] = hh;\012", 16));
+    vow_s[1616] = vow_immortal(vstr_new("    ks[i] = k;\012", 15));
+    vow_s[1617] = vow_immortal(vstr_new("    vs[i] = v;\012", 15));
+    vow_s[1618] = vow_immortal(vstr_new("    VHM(h)->count++;\012", 21));
+    vow_s[1619] = vow_immortal(vstr_new("// Consumes h (exclusively owned): moves its entries into a table of capacity cap.\012", 83));
+    vow_s[1620] = vow_immortal(vstr_new("static V vhm_grow(V h, int64_t cap, int flags) {\012", 49));
+    vow_s[1621] = vow_immortal(vstr_new("    V n = vhm_new(cap, flags);\012", 31));
+    vow_s[1622] = vow_immortal(vstr_new("    for (int64_t i = 0; i < VHM(h)->cap; i++)\012", 46));
+    vow_s[1623] = vow_immortal(vstr_new("        if (vhm_hashes(h)[i]) vhm_place(n, vhm_hashes(h)[i], vhm_keyarr(h)[i], vhm_valarr(h)[i], flags);\012", 105));
+    vow_s[1624] = vow_immortal(vstr_new("    vow_free_shell(h);\012", 23));
+    vow_s[1625] = vow_immortal(vstr_new("// Consumes h, k and v. An unshared table is updated in place; a shared one is copied\012", 86));
+    vow_s[1626] = vow_immortal(vstr_new("// first (so value semantics hold).\012", 36));
+    vow_s[1627] = vow_immortal(vstr_new("static V vhm_insert(V h, V k, V v, int flags) {\012", 48));
+    vow_s[1628] = vow_immortal(vstr_new("    uint64_t hh = vhm_hash(k, flags);\012", 38));
+    vow_s[1629] = vow_immortal(vstr_new("    if (!h) {\012", 14));
+    vow_s[1630] = vow_immortal(vstr_new("        h = vhm_new(8, flags);\012", 31));
+    vow_s[1631] = vow_immortal(vstr_new("    } else if (VH(h)->rc != 1) {\012", 33));
+    vow_s[1632] = vow_immortal(vstr_new("        int64_t cap = VHM(h)->cap;\012", 35));
+    vow_s[1633] = vow_immortal(vstr_new("        V c = vhm_new(cap, flags);\012", 35));
+    vow_s[1634] = vow_immortal(vstr_new("        memcpy(vhm_hashes(c), vhm_hashes(h), (size_t)cap * 3 * sizeof(V));\012", 75));
+    vow_s[1635] = vow_immortal(vstr_new("        VHM(c)->count = VHM(h)->count;\012", 39));
+    vow_s[1636] = vow_immortal(vstr_new("        for (int64_t i = 0; i < cap; i++) {\012", 44));
+    vow_s[1637] = vow_immortal(vstr_new("            if (!vhm_hashes(c)[i]) continue;\012", 45));
+    vow_s[1638] = vow_immortal(vstr_new("            if (flags & VN_KEY_HEAP) vdup(vhm_keyarr(c)[i]);\012", 61));
+    vow_s[1639] = vow_immortal(vstr_new("            if (flags & VN_VAL_HEAP) vdup(vhm_valarr(c)[i]);\012", 61));
+    vow_s[1640] = vow_immortal(vstr_new("        vdrop(h);\012", 18));
+    vow_s[1641] = vow_immortal(vstr_new("        h = c;\012", 15));
+    vow_s[1642] = vow_immortal(vstr_new("    if ((VHM(h)->count + 1) * 4 > VHM(h)->cap * 3) h = vhm_grow(h, VHM(h)->cap * 2, flags);\012", 92));
+    vow_s[1643] = vow_immortal(vstr_new("    vhm_place(h, hh, k, v, flags);\012", 35));
+    vow_s[1644] = vow_immortal(vstr_new("static int64_t vhm_find(V h, V k, int flags) {\012", 47));
+    vow_s[1645] = vow_immortal(vstr_new("    if (!h) return -1;\012", 23));
+    vow_s[1646] = vow_immortal(vstr_new("    while (vhm_hashes(h)[i]) {\012", 31));
+    vow_s[1647] = vow_immortal(vstr_new("        if (vhm_hashes(h)[i] == hh && vhm_eq(vhm_keyarr(h)[i], k, flags)) return i;\012", 84));
+    vow_s[1648] = vow_immortal(vstr_new("    return -1;\012", 15));
+    vow_s[1649] = vow_immortal(vstr_new("// Borrows h and k; the result owns a reference to the value.\012", 62));
+    vow_s[1650] = vow_immortal(vstr_new("static V vhm_lookup(V h, V k, int flags) {\012", 43));
+    vow_s[1651] = vow_immortal(vstr_new("    int64_t i = vhm_find(h, k, flags);\012", 39));
+    vow_s[1652] = vow_immortal(vstr_new("    if (i < 0) return vnone();\012", 31));
+    vow_s[1653] = vow_immortal(vstr_new("    V v = vhm_valarr(h)[i];\012", 28));
+    vow_s[1654] = vow_immortal(vstr_new("static V vhm_has(V h, V k, int flags) { return (V)(vhm_find(h, k, flags) >= 0); }\012", 82));
+    vow_s[1655] = vow_immortal(vstr_new("static inline V vhm_len(V h) { return h \? (V)VHM(h)->count : 0; }\012", 66));
+    vow_s[1656] = vow_immortal(vstr_new("static int vow_int_cmp(const void *a, const void *b) {\012", 55));
+    vow_s[1657] = vow_immortal(vstr_new("    int64_t x = VI(*(const V *)a), y = VI(*(const V *)b);\012", 58));
+    vow_s[1658] = vow_immortal(vstr_new("    return x < y \? -1 : (x > y \? 1 : 0);\012", 41));
+    vow_s[1659] = vow_immortal(vstr_new("// The keys in ascending order, so programs stay deterministic.\012", 64));
+    vow_s[1660] = vow_immortal(vstr_new("static V vhm_keys(V h, int flags) {\012", 36));
+    vow_s[1661] = vow_immortal(vstr_new("    V l = vlist_empty(flags & VN_KEY_HEAP);\012", 44));
+    vow_s[1662] = vow_immortal(vstr_new("    if (!h) return l;\012", 22));
+    vow_s[1663] = vow_immortal(vstr_new("    int64_t n = 0;\012", 19));
+    vow_s[1664] = vow_immortal(vstr_new("    V *ks = (V *)malloc(sizeof(V) * (size_t)(VHM(h)->count + 1));\012", 66));
+    vow_s[1665] = vow_immortal(vstr_new("        if (vhm_hashes(h)[i]) ks[n++] = vhm_keyarr(h)[i];\012", 58));
+    vow_s[1666] = vow_immortal(vstr_new("    qsort(ks, (size_t)n, sizeof(V), (flags & VN_STR_KEYS) \? vow_name_cmp : vow_int_cmp);\012", 89));
+    vow_s[1667] = vow_immortal(vstr_new("    for (int64_t i = 0; i < n; i++) l = vlist_push(l, (flags & VN_KEY_HEAP) \? vdup(ks[i]) : ks[i]);\012", 100));
+    vow_s[1668] = vow_immortal(vstr_new("    free(ks);\012", 14));
+    vow_s[1669] = vow_immortal(vstr_new("// ---- effects (all borrow their arguments) ----\012", 50));
+    vow_s[1670] = vow_immortal(vstr_new("static int vow_argc;\012", 21));
+    vow_s[1671] = vow_immortal(vstr_new("static char **vow_argv;\012", 24));
+    vow_s[1672] = vow_immortal(vstr_new("static V vprint(V s) {\012", 23));
+    vow_s[1673] = vow_immortal(vstr_new("    fwrite(VS(s)->data, 1, (size_t)VS(s)->len, stdout);\012", 56));
+    vow_s[1674] = vow_immortal(vstr_new("static V veprint(V s) {\012", 24));
+    vow_s[1675] = vow_immortal(vstr_new("    fwrite(VS(s)->data, 1, (size_t)VS(s)->len, stderr);\012", 56));
+    vow_s[1676] = vow_immortal(vstr_new("static V vread_file(V path) {\012", 30));
+    vow_s[1677] = vow_immortal(vstr_new("    FILE *f = fopen(VS(path)->data, \"rb\");\012", 43));
+    vow_s[1678] = vow_immortal(vstr_new("    if (!f) return vnone();\012", 28));
+    vow_s[1679] = vow_immortal(vstr_new("    fseek(f, 0, SEEK_END);\012", 27));
+    vow_s[1680] = vow_immortal(vstr_new("    long n = ftell(f);\012", 23));
+    vow_s[1681] = vow_immortal(vstr_new("    fseek(f, 0, SEEK_SET);\012", 27));
+    vow_s[1682] = vow_immortal(vstr_new("    VS(s)->len = (int64_t)fread(VS(s)->data, 1, (size_t)n, f);\012", 63));
+    vow_s[1683] = vow_immortal(vstr_new("    VS(s)->data[VS(s)->len] = 0;\012", 33));
+    vow_s[1684] = vow_immortal(vstr_new("    fclose(f);\012", 15));
+    vow_s[1685] = vow_immortal(vstr_new("    return vsome(s, 1);\012", 24));
+    vow_s[1686] = vow_immortal(vstr_new("static V vwrite_file(V path, V contents) {\012", 43));
+    vow_s[1687] = vow_immortal(vstr_new("    FILE *f = fopen(VS(path)->data, \"wb\");\012", 43));
+    vow_s[1688] = vow_immortal(vstr_new("    if (!f) return 0;\012", 22));
+    vow_s[1689] = vow_immortal(vstr_new("    size_t w = fwrite(VS(contents)->data, 1, (size_t)VS(contents)->len, f);\012", 76));
+    vow_s[1690] = vow_immortal(vstr_new("    int ok = fclose(f) == 0 && w == (size_t)VS(contents)->len;\012", 63));
+    vow_s[1691] = vow_immortal(vstr_new("    return (V)ok;\012", 18));
+    vow_s[1692] = vow_immortal(vstr_new("// make_dir(path): create the directory and any missing parents, like `mkdir -p`.\012", 82));
+    vow_s[1693] = vow_immortal(vstr_new("static V vmake_dir(V path) {\012", 29));
+    vow_s[1694] = vow_immortal(vstr_new("    int64_t n = VS(path)->len;\012", 31));
+    vow_s[1695] = vow_immortal(vstr_new("    if (n == 0) return 0;\012", 26));
+    vow_s[1696] = vow_immortal(vstr_new("    char *p = (char *)malloc((size_t)n + 1);\012", 45));
+    vow_s[1697] = vow_immortal(vstr_new("    memcpy(p, VS(path)->data, (size_t)n + 1);\012", 46));
+    vow_s[1698] = vow_immortal(vstr_new("    for (int64_t i = 1; i < n; i++) {\012", 38));
+    vow_s[1699] = vow_immortal(vstr_new("        if (p[i] == '/') {\012", 27));
+    vow_s[1700] = vow_immortal(vstr_new("            p[i] = 0;\012", 22));
+    vow_s[1701] = vow_immortal(vstr_new("            mkdir(p, 0777);\012", 28));
+    vow_s[1702] = vow_immortal(vstr_new("            p[i] = '/';\012", 24));
+    vow_s[1703] = vow_immortal(vstr_new("    mkdir(p, 0777);\012", 20));
+    vow_s[1704] = vow_immortal(vstr_new("    struct stat st;\012", 20));
+    vow_s[1705] = vow_immortal(vstr_new("    int ok = stat(p, &st) == 0 && S_ISDIR(st.st_mode);\012", 55));
+    vow_s[1706] = vow_immortal(vstr_new("    free(p);\012", 13));
+    vow_s[1707] = vow_immortal(vstr_new("static int vow_name_cmp(const void *a, const void *b) { return vstr_cmp(*(const V *)a, *(const V *)b); }\012", 105));
+    vow_s[1708] = vow_immortal(vstr_new("// list_dir(path): the names in a directory, sorted, without \".\" and \"..\".\012", 75));
+    vow_s[1709] = vow_immortal(vstr_new("static V vlist_dir(V path) {\012", 29));
+    vow_s[1710] = vow_immortal(vstr_new("    DIR *d = opendir(VS(path)->data);\012", 38));
+    vow_s[1711] = vow_immortal(vstr_new("    if (!d) return vnone();\012", 28));
+    vow_s[1712] = vow_immortal(vstr_new("    int64_t cap = 16, n = 0;\012", 29));
+    vow_s[1713] = vow_immortal(vstr_new("    V *names = (V *)malloc(sizeof(V) * (size_t)cap);\012", 53));
+    vow_s[1714] = vow_immortal(vstr_new("    struct dirent *e;\012", 22));
+    vow_s[1715] = vow_immortal(vstr_new("    while ((e = readdir(d)) != 0) {\012", 36));
+    vow_s[1716] = vow_immortal(vstr_new("        if (strcmp(e->d_name, \".\") == 0 || strcmp(e->d_name, \"..\") == 0) continue;\012", 83));
+    vow_s[1717] = vow_immortal(vstr_new("        if (n == cap) names = (V *)realloc(names, sizeof(V) * (size_t)(cap *= 2));\012", 83));
+    vow_s[1718] = vow_immortal(vstr_new("        names[n++] = vstr_new(e->d_name, (int64_t)strlen(e->d_name));\012", 70));
+    vow_s[1719] = vow_immortal(vstr_new("    closedir(d);\012", 17));
+    vow_s[1720] = vow_immortal(vstr_new("    qsort(names, (size_t)n, sizeof(V), vow_name_cmp);\012", 54));
+    vow_s[1721] = vow_immortal(vstr_new("    V l = vlist_empty(1);\012", 26));
+    vow_s[1722] = vow_immortal(vstr_new("    for (int64_t i = 0; i < n; i++) l = vlist_push(l, names[i]);\012", 65));
+    vow_s[1723] = vow_immortal(vstr_new("    free(names);\012", 17));
+    vow_s[1724] = vow_immortal(vstr_new("    return vsome(l, 1);\012", 24));
+    vow_s[1725] = vow_immortal(vstr_new("static V vargs(void) {\012", 23));
+    vow_s[1726] = vow_immortal(vstr_new("    for (int i = 1; i < vow_argc; i++) l = vlist_push(l, vstr_new(vow_argv[i], (int64_t)strlen(vow_argv[i])));\012", 111));
+    vow_s[1727] = vow_immortal(vstr_new("static V vgetenv(V name) {\012", 27));
+    vow_s[1728] = vow_immortal(vstr_new("    const char *v = getenv(VS(name)->data);\012", 44));
+    vow_s[1729] = vow_immortal(vstr_new("    if (!v) return vnone();\012", 28));
+    vow_s[1730] = vow_immortal(vstr_new("    return vsome(vstr_new(v, (int64_t)strlen(v)), 1);\012", 54));
+    vow_s[1731] = vow_immortal(vstr_new("static __attribute__((noreturn)) void vexit(V code) {\012", 54));
+    vow_s[1732] = vow_immortal(vstr_new("    exit((int)VI(code));\012", 25));
+    vow_s[1733] = vow_immortal(vstr_new("// run(argv, input): stdin comes from a temporary file so that large inputs and outputs\012", 88));
+    vow_s[1734] = vow_immortal(vstr_new("// cannot deadlock on full pipes; stdout is captured, stderr is inherited.\012", 75));
+    vow_s[1735] = vow_immortal(vstr_new("static V vrun(V argv, V input) {\012", 33));
+    vow_s[1736] = vow_immortal(vstr_new("    int64_t n = VL(argv)->len;\012", 31));
+    vow_s[1737] = vow_immortal(vstr_new("    V out = vow_fields(2, 2);\012", 30));
+    vow_s[1738] = vow_immortal(vstr_new("    VP(out)[0] = (V)(int64_t)-1;\012", 33));
+    vow_s[1739] = vow_immortal(vstr_new("    char tmpl[] = \"/tmp/vow-run-XXXXXX\";\012", 41));
+    vow_s[1740] = vow_immortal(vstr_new("    int in_fd = n == 0 \? -1 : mkstemp(tmpl);\012", 45));
+    vow_s[1741] = vow_immortal(vstr_new("    if (in_fd < 0) {\012", 21));
+    vow_s[1742] = vow_immortal(vstr_new("        VP(out)[1] = vstr_new(\"\", 0);\012", 38));
+    vow_s[1743] = vow_immortal(vstr_new("        return out;\012", 20));
+    vow_s[1744] = vow_immortal(vstr_new("    unlink(tmpl);\012", 18));
+    vow_s[1745] = vow_immortal(vstr_new("    int pfd[2];\012", 16));
+    vow_s[1746] = vow_immortal(vstr_new("    if (write(in_fd, VS(input)->data, (size_t)VS(input)->len) != (ssize_t)VS(input)->len || pipe(pfd) != 0) {\012", 110));
+    vow_s[1747] = vow_immortal(vstr_new("        close(in_fd);\012", 22));
+    vow_s[1748] = vow_immortal(vstr_new("    lseek(in_fd, 0, SEEK_SET);\012", 31));
+    vow_s[1749] = vow_immortal(vstr_new("    pid_t pid = fork();\012", 24));
+    vow_s[1750] = vow_immortal(vstr_new("    if (pid == 0) {\012", 20));
+    vow_s[1751] = vow_immortal(vstr_new("        dup2(in_fd, 0);\012", 24));
+    vow_s[1752] = vow_immortal(vstr_new("        dup2(pfd[1], 1);\012", 25));
+    vow_s[1753] = vow_immortal(vstr_new("        close(pfd[0]);\012", 23));
+    vow_s[1754] = vow_immortal(vstr_new("        close(pfd[1]);\012", 23));
+    vow_s[1755] = vow_immortal(vstr_new("        char **av = (char **)malloc(sizeof(char *) * (size_t)(n + 1));\012", 71));
+    vow_s[1756] = vow_immortal(vstr_new("        for (int64_t i = 0; i < n; i++) av[i] = VS(VB(VL(argv)->buf)->items[i])->data;\012", 87));
+    vow_s[1757] = vow_immortal(vstr_new("        av[n] = 0;\012", 19));
+    vow_s[1758] = vow_immortal(vstr_new("        execvp(av[0], av);\012", 27));
+    vow_s[1759] = vow_immortal(vstr_new("        _exit(127);\012", 20));
+    vow_s[1760] = vow_immortal(vstr_new("    close(pfd[1]);\012", 19));
+    vow_s[1761] = vow_immortal(vstr_new("    close(in_fd);\012", 18));
+    vow_s[1762] = vow_immortal(vstr_new("    size_t cap = 4096, len = 0;\012", 32));
+    vow_s[1763] = vow_immortal(vstr_new("    char *buf = (char *)malloc(cap);\012", 37));
+    vow_s[1764] = vow_immortal(vstr_new("    for (;;) {\012", 15));
+    vow_s[1765] = vow_immortal(vstr_new("        if (len == cap) buf = (char *)realloc(buf, cap *= 2);\012", 62));
+    vow_s[1766] = vow_immortal(vstr_new("        ssize_t k = read(pfd[0], buf + len, cap - len);\012", 56));
+    vow_s[1767] = vow_immortal(vstr_new("        if (k <= 0) break;\012", 27));
+    vow_s[1768] = vow_immortal(vstr_new("        len += (size_t)k;\012", 26));
+    vow_s[1769] = vow_immortal(vstr_new("    close(pfd[0]);\012", 19));
+    vow_s[1770] = vow_immortal(vstr_new("    int status = 0;\012", 20));
+    vow_s[1771] = vow_immortal(vstr_new("    waitpid(pid, &status, 0);\012", 30));
+    vow_s[1772] = vow_immortal(vstr_new("    VP(out)[0] = (V)(int64_t)(WIFEXITED(status) \? WEXITSTATUS(status) : -1);\012", 77));
+    vow_s[1773] = vow_immortal(vstr_new("    VP(out)[1] = vstr_new(buf, (int64_t)len);\012", 46));
+    vow_s[1774] = vow_immortal(vstr_new("    free(buf);\012", 15));
+    vow_s[1775] = vow_immortal(vstr_new("    return out;\012", 16));
     f_main();
     fflush(stdout);
     vow_report_leaks();

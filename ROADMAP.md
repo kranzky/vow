@@ -47,7 +47,7 @@ Must-have, language and proofs:
 - [x] Keywords as labels (fields, argument labels, field access, pattern fields)
 - [x] `let _ =` discards; `value_or`, `is_some`, `is_none`
 - [x] `Result<T, E>` and `try` (also for `Option`)
-- [ ] Structural `==` for structs/enums (and then `==` on type parameters that allow it)
+- [x] Structural `==` for structs, enums, lists and options, and on type parameters
 - [ ] Modules with visibility, then packages
 
 Must-have, runtime and portability:

@@ -1,0 +1,16 @@
+// error: cannot prove assertion: a == b
+// language: 0.4
+
+struct Pair<A, B>
+  first: A,
+  second: B,
+end struct Pair
+
+// Nothing is known about equality on T, so equal second fields prove nothing.
+fn same<T>(a: Pair<T, Int>, b: Pair<T, Int>) requires a.second == b.second do
+  assert a == b
+end fn same
+
+fn main() do
+  same(a: Pair(first: 1, second: 2), b: Pair(first: 3, second: 2))
+end fn main

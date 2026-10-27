@@ -1,4 +1,4 @@
-// error: '==' works on Int, Bool and String, not T
+// error: '==' does not work on maps (Map<String, Int>); compare lookups instead, in same<Map<String, Int>>
 // language: 0.4
 
 fn same<T>(a: T, b: T) -> Bool do
@@ -6,5 +6,6 @@ fn same<T>(a: T, b: T) -> Bool do
 end fn same
 
 fn main() do
-  let _ = same(a: 1, b: 2)
+  var m: Map<String, Int> = {}
+  let _ = same(a: m, b: m)
 end fn main

@@ -156,6 +156,101 @@ fn binop_term(op: String, a: String, b: String) -> String do
   return "(" ++ o ++ " " ++ a ++ " " ++ b ++ ")"
 end fn binop_term
 
+// a == b (or a != b) for values of type t. Int, Bool, Unit and String values are equal
+// when their terms are; other values when their terms are, or when they are equal
+// part by part (eq_fn).
+fn eq_term(v: inout Verifier, op: String, t: Ty, a: String, b: String) -> String do
+  if ty_show(t) == "Unit" then
+    return binop_term(op: op, a: "0", b: "0")
+  end if
+  if simple_eq(t) then
+    return binop_term(op: op, a: a, b: b)
+  end if
+  let term = val_eq(v: inout v, t: t, a: a, b: b)
+  if op == "!=" then
+    return "(not " ++ term ++ ")"
+  end if
+  return term
+end fn eq_term
+
+fn val_eq(v: inout Verifier, t: Ty, a: String, b: String) -> String do
+  if ty_show(t) == "Unit" then
+    return "true"
+  end if
+  if simple_eq(t) then
+    return "(= " ++ a ++ " " ++ b ++ ")"
+  end if
+  let f = eq_fn(v: inout v, t: t)
+  return "(or (= " ++ a ++ " " ++ b ++ ") (" ++ f ++ " " ++ a ++ " " ++ b ++ "))"
+end fn val_eq
+
+// The predicate for structural equality on t, declared with its definition on first
+// use. The definition is an axiom unfolded only when the predicate is applied; for a
+// recursive type it has more than one solution, all of which agree on the finite
+// values a program builds. A type parameter's equality is left unknown, which covers
+// every type the parameter stands for.
+fn eq_fn(v: inout Verifier, t: Ty) -> String do
+  match t
+  case TParam(name: n) then
+    return global_fn(v: inout v, name: "peq_" ++ n, args: "Val Val", sort: "Bool")
+  else
+  end match
+  let name = "eq_" ++ mangle(ty_show(t))
+  if has(map: v.preamble, key: "(declare-fun " ++ name ++ " (Val Val) Bool)") then
+    return name
+  end if
+  // Declared before the body is built, since a recursive type's body refers to it.
+  let _ = global_fn(v: inout v, name: name, args: "Val Val", sort: "Bool")
+  let body = eq_body(v: inout v, t: t)
+  let app = "(" ++ name ++ " ea eb)"
+  let ax = "(assert (forall ((ea Val) (eb Val)) (! (= " ++ app ++ " " ++ body ++ ") :pattern (" ++ app ++ "))))"
+  set v = v with (preamble: insert(map: v.preamble, key: ax, value: true))
+  return name
+end fn eq_fn
+
+// Structural equality of ea and eb, values of type t.
+fn eq_body(v: inout Verifier, t: Ty) -> String do
+  match t
+  case TStruct(name: n) then
+    var parts: List<String> = []
+    for fl in struct_fields(info: v.info, name: n) do
+      let f = field_fn(v: inout v, sname: n, field: fl.name, t: fl.rty.ty)
+      set parts = push(list: parts, item: val_eq(v: inout v, t: fl.rty.ty, a: "(" ++ f ++ " ea)", b: "(" ++ f ++ " eb)"))
+    end for
+    return and_all(parts)
+  case TList(elem: et) then
+    let at = "(elem_" ++ sort_of(et) ++ " ea ei)"
+    let bt = "(elem_" ++ sort_of(et) ++ " eb ei)"
+    let each = "(=> (and (<= 0 ei) (< ei (len ea))) " ++ val_eq(v: inout v, t: et, a: at, b: bt) ++ ")"
+    return "(and (= (len ea) (len eb)) (forall ((ei Int)) (! " ++ each ++ " :pattern (" ++ at ++ ") :pattern (" ++ bt ++ "))))"
+  else
+  end match
+  var ename = ty_show(t)
+  match t
+  case TOpt(inner: x) then
+    set ename = "Option"
+  else
+  end match
+  match variants_of(info: v.info, t: t)
+  case Some(value: vs) then
+    var parts = ["(= (tag ea) (tag eb))"]
+    for i in 0..len(vs) do
+      var fs: List<String> = []
+      for fl in vs[i].fields do
+        let f = vfield_fn(v: inout v, ename: ename, vname: vs[i].name, field: fl.name, t: fl.rty.ty)
+        set fs = push(list: fs, item: val_eq(v: inout v, t: fl.rty.ty, a: "(" ++ f ++ " ea)", b: "(" ++ f ++ " eb)"))
+      end for
+      if len(fs) > 0 then
+        set parts = push(list: parts, item: "(=> (= (tag ea) " ++ int_to_str(i) ++ ") " ++ and_all(fs) ++ ")")
+      end if
+    end for
+    return and_all(parts)
+  case None then
+    // Maps: never compared (the checker rejects it).
+    return "false"
+  end match
+end fn eq_body
+
 fn add_unique(out: inout List<String>, n: String) do
   if not contains_str(xs: out, x: n) then
     set out = push(list: out, item: n)
@@ -540,6 +635,9 @@ fn sexpr(v: inout Verifier, e: Expr, sp: Spec) -> String do
   case Binary(op: op, l: l, r: r) then
     let a = sexpr(v: inout v, e: l, sp: sp)
     let b = sexpr(v: inout v, e: r, sp: sp)
+    if (op == "==") or (op == "!=") then
+      return eq_term(v: inout v, op: op, t: type_of(info: v.info, e: l), a: a, b: b)
+    end if
     return binop_term(op: op, a: a, b: b)
   else
     return "false"
@@ -1352,7 +1450,11 @@ fn vexpr(v: inout Verifier, e: Expr, st: inout St) -> String do
       end if
       return res
     end if
-    if contains_str(xs: ["==", "!=", "<", "<=", ">", ">="], x: op) then
+    if (op == "==") or (op == "!=") then
+      let eq = eq_term(v: inout v, op: op, t: type_of(info: v.info, e: l), a: a, b: b)
+      return define(v: inout v, sort: "Bool", term: eq)
+    end if
+    if contains_str(xs: ["<", "<=", ">", ">="], x: op) then
       return define(v: inout v, sort: "Bool", term: binop_term(op: op, a: a, b: b))
     end if
     return define(v: inout v, sort: "Int", term: binop_term(op: op, a: a, b: b))

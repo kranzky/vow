@@ -41,6 +41,8 @@ struct Gen
   inout_vars: List<String>,
   // Field reads `x.f` whose value `set x = x with (f: op(x.f, ...))` moves out of x.
   steal_ids: List<Int>,
+  // Types compared with '==' part by part, each needing a veq_ function.
+  eqs: List<Ty>,
 end struct Gen
 
 fn c_string(s: String) -> String do
@@ -81,7 +83,7 @@ end fn c_params
 fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool) -> String do
   var g = Gen(info: info, files: files, out: [], ind: 0, tmp: 0, strs: [], str_index: {}, io_params: [],
     owned_vars: [], scope_marks: [], loop_marks: [], temps: [], temp_marks: [], move_id: -1,
-    moved: false, inout_vars: [], steal_ids: [])
+    moved: false, inout_vars: [], steal_ids: [], eqs: [])
   // Generic functions are compiled through their instances.
   var fns: List<FnDecl> = []
   for item in items do
@@ -114,7 +116,19 @@ fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool) 
   for f in fns do
     set c = push(list: c, item: "static V " ++ c_fn(f.name) ++ "(" ++ c_params(f) ++ ");")
   end for
+  // Equality functions; generating one can call for more.
+  var eq_defs: List<String> = []
+  var done = 0
+  while done < len(g.eqs) invariant done >= 0 do
+    let t = g.eqs[done]
+    set done = done + 1
+    set eq_defs = eq_defs ++ gen_eq_fn(g: inout g, t: t)
+  end while
+  for t in g.eqs do
+    set c = push(list: c, item: "static V " ++ eq_c_name(t) ++ "(V a, V b);")
+  end for
   set c = push(list: c, item: "")
+  set c = c ++ eq_defs
   set c = c ++ body
   set c = push(list: c, item: "int main(int argc, char **argv) {")
   set c = push(list: c, item: "    vow_argc = argc;")
@@ -927,7 +941,21 @@ fn gen_expr(g: inout Gen, e: Expr) -> Val do
     match call_info(info: g.info, e: e)
     case Some(value: ci) then
       if ci.kind == "variant" then
-        return owned_tmp(g: inout g, rhs: "vow_variant0(" ++ int_to_str(ci.variant) ++ ")", heap: true)
+        // A variant written without its fields has none, or only Unit ones (zero).
+        var k = 0
+        match variants_of(info: g.info, t: type_of(info: g.info, e: e))
+        case Some(value: vs) then
+          if (ci.variant >= 0) and (ci.variant < len(vs)) then
+            set k = len(vs[ci.variant].fields)
+          end if
+        case None then
+        end match
+        if k == 0 then
+          return owned_tmp(g: inout g, rhs: "vow_variant0(" ++ int_to_str(ci.variant) ++ ")", heap: true)
+        end if
+        let r = owned_tmp(g: inout g, rhs: "vow_fields(" ++ int_to_str(k + 1) ++ ", 0)", heap: true)
+        line(g: inout g, s: "VP(" ++ r.c ++ ")[0] = " ++ int_to_str(ci.variant) ++ ";")
+        return r
       end if
     case None then
     end match
@@ -1063,19 +1091,90 @@ fn gen_binary(g: inout Gen, op: String, l: Expr, r: Expr) -> Val do
   case "%" then
     return plain_val(bind(g: inout g, rhs: "vmod(" ++ a.c ++ ", " ++ b.c ++ ")"))
   case "==" then
-    if is_str then
-      return plain_val(bind(g: inout g, rhs: "vstr_eq(" ++ a.c ++ ", " ++ b.c ++ ")"))
-    end if
-    return plain_val(bind(g: inout g, rhs: "(V)(" ++ a.c ++ " == " ++ b.c ++ ")"))
+    let t = type_of(info: g.info, e: l)
+    let cmp = c_eq(g: inout g, t: t, a: a.c, b: b.c)
+    return plain_val(bind(g: inout g, rhs: "(V)" ++ cmp))
   case "!=" then
-    if is_str then
-      return plain_val(bind(g: inout g, rhs: "(V)!vstr_eq(" ++ a.c ++ ", " ++ b.c ++ ")"))
-    end if
-    return plain_val(bind(g: inout g, rhs: "(V)!(V)(" ++ a.c ++ " == " ++ b.c ++ ")"))
+    let t = type_of(info: g.info, e: l)
+    let cmp = c_eq(g: inout g, t: t, a: a.c, b: b.c)
+    return plain_val(bind(g: inout g, rhs: "(V)!" ++ cmp))
   else
     return plain_val(bind(g: inout g, rhs: "(V)(VI(" ++ a.c ++ ") " ++ op ++ " VI(" ++ b.c ++ "))"))
   end match
 end fn gen_binary
+
+// ---- structural equality ----
+
+fn eq_c_name(t: Ty) -> String do
+  return "veq_" ++ mangle(ty_show(t))
+end fn eq_c_name
+
+// A C expression comparing a and b, values of type t (both borrowed).
+fn c_eq(g: inout Gen, t: Ty, a: String, b: String) -> String do
+  if ty_show(t) == "String" then
+    return "vstr_eq(" ++ a ++ ", " ++ b ++ ")"
+  end if
+  if simple_eq(t) then
+    return "(" ++ a ++ " == " ++ b ++ ")"
+  end if
+  let name = eq_c_name(t)
+  var known = false
+  for x in g.eqs do
+    if eq_c_name(x) == name then
+      set known = true
+    end if
+  end for
+  if not known then
+    set g = g with (eqs: push(list: g.eqs, item: t))
+  end if
+  return name ++ "(" ++ a ++ ", " ++ b ++ ")"
+end fn c_eq
+
+// The definition of the equality function for t: shared values are equal at once,
+// otherwise the parts are compared in order.
+fn gen_eq_fn(g: inout Gen, t: Ty) -> List<String> do
+  var out = ["static V " ++ eq_c_name(t) ++ "(V a, V b) {", "    if (a == b) return 1;"]
+  match t
+  case TStruct(name: n) then
+    let fields = struct_fields(info: g.info, name: n)
+    for i in 0..len(fields) do
+      let at = "VP(a)[" ++ int_to_str(i) ++ "]"
+      let bt = "VP(b)[" ++ int_to_str(i) ++ "]"
+      set out = push(list: out, item: "    if (!" ++ c_eq(g: inout g, t: fields[i].rty.ty, a: at, b: bt) ++ ") return 0;")
+    end for
+  case TList(elem: et) then
+    set out = push(list: out, item: "    if (VL(a)->len != VL(b)->len) return 0;")
+    set out = push(list: out, item: "    for (int64_t i = 0; i < VL(a)->len; i++) {")
+    let at = "VB(VL(a)->buf)->items[i]"
+    let bt = "VB(VL(b)->buf)->items[i]"
+    set out = push(list: out, item: "        if (!" ++ c_eq(g: inout g, t: et, a: at, b: bt) ++ ") return 0;")
+    set out = push(list: out, item: "    }")
+  else
+    match variants_of(info: g.info, t: t)
+    case Some(value: vs) then
+      set out = push(list: out, item: "    if (VP(a)[0] != VP(b)[0]) return 0;")
+      set out = push(list: out, item: "    switch (VP(a)[0]) {")
+      for i in 0..len(vs) do
+        let fields = vs[i].fields
+        if len(fields) > 0 then
+          set out = push(list: out, item: "    case " ++ int_to_str(i) ++ ":")
+          for k in 0..len(fields) do
+            let at = "VP(a)[" ++ int_to_str(k + 1) ++ "]"
+            let bt = "VP(b)[" ++ int_to_str(k + 1) ++ "]"
+            set out = push(list: out, item: "        if (!" ++ c_eq(g: inout g, t: fields[k].rty.ty, a: at, b: bt) ++ ") return 0;")
+          end for
+          set out = push(list: out, item: "        break;")
+        end if
+      end for
+      set out = push(list: out, item: "    }")
+    case None then
+    end match
+  end match
+  set out = push(list: out, item: "    return 1;")
+  set out = push(list: out, item: "}")
+  set out = push(list: out, item: "")
+  return out
+end fn gen_eq_fn
 
 fn gen_call(g: inout Gen, e: Expr, args: List<Arg>) -> Val do
   var ci = CallInfo(kind: "", name: "", variant: 0, order: [])

@@ -1,0 +1,10 @@
+// error: variant 'Ok' has fields; construct it with Result.Ok(...)
+// language: 0.4
+
+fn answer() -> Result<Int, String> do
+  return Result.Ok
+end fn answer
+
+fn main() do
+  let _ = answer()
+end fn main

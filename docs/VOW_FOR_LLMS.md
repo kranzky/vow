@@ -57,7 +57,10 @@ Check your code against this list before running the compiler.
    `fn end struct enum type let var set return if then elif else while for in do
    match case invariant requires ensures uses assert check break continue and or not
    implies true false with import it result where inout forall exists decreases try`.
-7. **`==` and `!=` work on `Int`, `Bool` and `String` only.** For enums, use `match`.
+7. **`==` and `!=` compare structurally**: strings by bytes, lists element by element,
+   structs field by field, enums and options by variant and fields. Values that are or
+   contain maps cannot be compared. To test only which variant a value is, use
+   `match` (or `is_some`/`is_none`).
 8. **Empty literals need a type.** `[]`, `{}`, `Option.None` and variants of generic
    enums that don't fix every type parameter (`Result.Err(error: e)`, `Tree.Leaf`)
    need an annotation or an expected type: `var xs: List<Int> = []`,
@@ -73,7 +76,7 @@ Check your code against this list before running the compiler.
 12. **Generic type arguments are inferred, never written at calls.** Declare
     `fn last<T>(xs: List<T>) -> T` and call `last(xs)`; write types in full
     (`Pair<Int, String>`). Inside a generic function, a `T` can be stored, passed,
-    returned and put in lists and maps, but not compared with `==`, indexed or given
+    returned, compared with `==` and put in lists and maps, but not indexed or given
     fields, and generic functions cannot be called in specifications.
 13. **No floats yet.** `/` and `%` are integer division with Euclidean semantics: the
     remainder is never negative (`-7 / 2 == -4`, `-7 % 2 == 1`).
@@ -444,6 +447,9 @@ Contracts cannot look inside a `Result` (or an `Option`). When callers need a fa
 about the `Ok` value, return a struct with a refined field (`Result<Count, String>`
 where `Count` has `value: Int where it >= 0`): reading `count.value` gives the
 verifier the refinement.
+
+A function that can only succeed or fail returns `Result<Unit, E>`, writes
+`return Result.Ok` (no value), and its callers write `try check(...)` as a statement.
 
 **Generic helpers.** Write a helper once for every element type:
 

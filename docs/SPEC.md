@@ -184,8 +184,10 @@ end fn reversed
   `Result.Err(error: e)` need an expected type. When a parameter cannot be inferred,
   the error asks for an annotation.
 - Inside the declaration, a type parameter is a type about which nothing is known:
-  values of type `T` can be stored, passed, returned and put in lists, options, maps
-  and other generic types, but not compared, indexed, or given fields. A type
+  values of type `T` can be stored, passed, returned, compared with `==` and put in
+  lists, options, maps and other generic types, but not indexed or given fields. A
+  use of `==` on `T` is checked again for each type argument, so a generic function
+  that compares its `T` values cannot be used with a map type. A type
   parameter may be a map key; each use checks that its key type is `Int` or `String`.
 - Type parameters may not have the name of a type, and type arguments may not be
   refined (wrap the element in a struct with a refined field instead).
@@ -206,6 +208,10 @@ enum Result<T, E>
   Err(error: E),
 end enum Result
 ```
+
+A variant whose fields all have type `Unit` may be written without them, so a
+function that can only succeed or fail returns `Result<Unit, E>` and writes
+`return Result.Ok`.
 
 ## Statements
 
@@ -258,8 +264,15 @@ shorthand for the `match` it expands to, and the verifier sees that `match`.
 - Unary: `-e`, `not e`.
 - Bounded quantifiers: `forall i in a..b: P` and `exists i in a..b: P` over `a <= i < b`.
   They are proved symbolically in specifications and run as loops at runtime.
-- Binary: `+ - * / %` (Int), `++` (String or List concatenation), `== !=` (Int, Bool,
-  String), `< <= > >=` (Int), `and or implies` (Bool, short-circuit).
+- Binary: `+ - * / %` (Int), `++` (String or List concatenation), `== !=` (any two
+  values of the same type without maps; see Equality), `< <= > >=` (Int),
+  `and or implies` (Bool, short-circuit).
+
+**Equality.** `==` is structural: strings are equal when their bytes are; lists when
+they have the same length and equal elements; structs when every field is equal;
+enums and options when the variants are the same and their fields are equal. All
+`Unit` values are equal. Values whose type is or contains a `Map` or `HashMap` cannot
+be compared; compare lookups instead.
 - Holes: `?name`. A program with holes does not compile. The compiler reports each
   hole's expected type, the variables in scope and the facts known at that point.
 
@@ -343,6 +356,14 @@ calls to expression functions.
 
 Generic functions are verified once for all type arguments (see Generics); calls to
 them are checked against their contracts with the type arguments of the call.
+
+`==` on `Int` and `Bool` is equality of the logic, and on `String` equality of terms.
+On other types `a == b` is `a = b` or `eq_T(a, b)`, where `eq_T` is a predicate
+defined by an axiom that unfolds it one level: the fields, the tag and the variant's
+fields, or the length and every element, compared the same way. Equal values can
+therefore be proved equal however they were built, and equal values have equal parts.
+For a type parameter, `eq_T` is left undefined, so a generic function proves only what
+holds for every type's equality.
 
 ## Effects
 

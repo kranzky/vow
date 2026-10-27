@@ -1,0 +1,35 @@
+// language: 0.4
+// Result<Unit, E>: Ok has only a Unit field, so it is written without it.
+
+fn check_name(s: String) -> Result<Unit, String> do
+  if len(s) == 0 then
+    return Result.Err(error: "empty name")
+  end if
+  return Result.Ok
+end fn check_name
+
+fn setup(a: String, b: String) -> Result<Unit, String> do
+  try check_name(a)
+  try check_name(b)
+  return Result.Ok
+end fn setup
+
+fn report(r: Result<Unit, String>) uses console do
+  match r
+  case Ok(value: u) then
+    print("ok\n")
+  case Err(error: e) then
+    print("error: " ++ e ++ "\n")
+  end match
+end fn report
+
+fn main() uses console do
+  report(setup(a: "x", b: "y"))
+  report(setup(a: "x", b: ""))
+  let ok: Result<Unit, String> = Result.Ok
+  let r = setup(a: "p", b: "q")
+  assert ok == ok
+  if r == ok then
+    print("same\n")
+  end if
+end fn main

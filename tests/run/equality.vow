@@ -1,0 +1,112 @@
+// language: 0.4
+// Structural '==' on structs, enums, lists, options and generic types.
+
+struct Point
+  x: Int,
+  y: Int,
+end struct Point
+
+struct Named
+  name: String,
+  at: Point,
+  tags: List<String>,
+end struct Named
+
+enum Shape
+  Dot,
+  Circle(center: Point, r: Int),
+  Poly(points: List<Point>),
+end enum Shape
+
+enum Tree
+  Leaf,
+  Node(left: Tree, value: Int, right: Tree),
+end enum Tree
+
+struct Pair<A, B>
+  first: A,
+  second: B,
+end struct Pair
+
+fn index_of<T>(xs: List<T>, x: T) -> Int
+  ensures result >= -1
+  ensures result < len(xs)
+  ensures (result >= 0) implies (xs[result] == x)
+do
+  for i in 0..len(xs) do
+    if xs[i] == x then
+      return i
+    end if
+  end for
+  return -1
+end fn index_of
+
+fn dedupe<T>(xs: List<T>) -> List<T>
+  ensures len(result) <= len(xs)
+do
+  var out: List<T> = []
+  for x in xs invariant len(out) <= len(xs) do
+    if index_of(xs: out, x: x) < 0 then
+      if len(out) < len(xs) then
+        set out = push(list: out, item: x)
+      end if
+    end if
+  end for
+  return out
+end fn dedupe
+
+fn moved(p: Point) -> Point
+  ensures result != p
+do
+  return p with (x: p.x + 1)
+end fn moved
+
+fn same_origin(a: Point, b: Point) -> Bool
+  ensures result implies (a.x == b.x)
+do
+  return a == b
+end fn same_origin
+
+fn show(b: Bool) -> String do
+  if b then
+    return "yes"
+  end if
+  return "no"
+end fn show
+
+fn main() uses console do
+  let p = Point(x: 1, y: 2)
+  let q = Point(x: 1, y: 2)
+  assert p == p
+  assert p == q
+  let m = moved(p)
+  assert m != p
+  let l1 = [1, 2, 3]
+  let l2 = [1, 2, 3]
+  assert l1 == l2
+  let o1: Option<Point> = Option.Some(value: p)
+  let o2: Option<Point> = Option.None
+  assert o1 != o2
+  print(show(p == q) ++ " " ++ show(p != q) ++ " " ++ show(moved(p) == q) ++ "\n")
+  let a = Named(name: "a", at: p, tags: ["t", "u"])
+  let b = Named(name: "a", at: q, tags: ["t"] ++ ["u"])
+  print(show(a == b) ++ " " ++ show(a == (b with (tags: ["t"]))) ++ "\n")
+  let s1 = Shape.Circle(center: p, r: 3)
+  print(show(s1 == Shape.Circle(center: q, r: 3)) ++ " " ++ show(s1 == Shape.Dot) ++ " " ++ show(Shape.Dot == Shape.Dot) ++ "\n")
+  print(show(Shape.Poly(points: [p, Point(x: 0, y: 0)]) == Shape.Poly(points: [Point(x: 0, y: 0), p])) ++ "\n")
+  let t1 = Tree.Node(left: Tree.Leaf, value: 1, right: Tree.Node(left: Tree.Leaf, value: 2, right: Tree.Leaf))
+  let t2 = Tree.Node(left: Tree.Leaf, value: 1, right: Tree.Node(left: Tree.Leaf, value: 2, right: Tree.Leaf))
+  let t3 = Tree.Node(left: Tree.Leaf, value: 1, right: Tree.Leaf)
+  assert t1 == t2
+  assert t1 != t3
+  print(show(t1 == t2) ++ " " ++ show(t1 == t3) ++ "\n")
+  print(show([1, 2, 3] == [1, 2, 3]) ++ " " ++ show([1, 2] == [1, 2, 3]) ++ "\n")
+  let o: Option<Point> = Option.Some(value: q)
+  print(show(o == Option.Some(value: p)) ++ " " ++ show(o == Option.None) ++ "\n")
+  print(show(Pair(first: 1, second: "x") == Pair(first: 1, second: "x")) ++ "\n")
+  print(int_to_str(index_of(xs: [p, Point(x: 5, y: 5)], x: Point(x: 5, y: 5))) ++ "\n")
+  print(int_to_str(len(dedupe([p, q, Point(x: 0, y: 0), p]))) ++ " " ++ int_to_str(len(dedupe(["a", "b", "a"]))) ++ "\n")
+  let r: Result<Int, String> = Result.Ok(value: 4)
+  print(show(r == Result.Ok(value: 4)) ++ " " ++ show(r == Result.Err(error: "no")) ++ "\n")
+  print(show(same_origin(a: p, b: q)) ++ "\n")
+end fn main

@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.5.0 (unreleased)
+
+Structural equality.
+
+- `==` and `!=` work on every type without maps: lists element by element, structs
+  field by field, enums and options by variant and fields. The verifier can prove two
+  values equal however they were built, recursive types included.
+- `==` on a type parameter: a generic function such as `index_of<T>` or `dedupe<T>` is
+  verified once, knowing nothing about equality on `T`, and each use with a map type
+  is rejected, naming the instance.
+- A variant whose fields are all `Unit` is written without them: a function returning
+  `Result<Unit, E>` ends with `return Result.Ok`.
+
 ## v0.4.0
 
 Generics and errors as values.
