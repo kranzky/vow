@@ -1,5 +1,5 @@
 // Lexer: source text to tokens. Token kinds are strings: "ident", "keyword", "int",
-// "str", "hole", "sym", "eof".
+// "float", "str", "hole", "sym", "eof".
 
 import "util.vow"
 
@@ -92,17 +92,47 @@ fn lex(src: String, file: Int) -> Lexed do
     end if
     if is_digit(c) then
       let start = i
-      var v = 0
       while (i < n) and (is_digit(src[i]) or (src[i] == '_')) invariant start <= i invariant i <= n decreases n - i do
-        if src[i] != '_' then
-          let d = src[i] - '0'
+        set i = i + 1
+      end while
+      // A Float literal: digits '.' digits, then optionally e, a sign and digits. A '.'
+      // not followed by a digit is not part of it (0..n is a range).
+      if ((i + 1) < n) and (src[i] == '.') and is_digit(src[i + 1]) then
+        set i = i + 1
+        while (i < n) and is_digit(src[i]) invariant start <= i invariant i <= n decreases n - i do
+          set i = i + 1
+        end while
+        if (i < n) and ((src[i] == 'e') or (src[i] == 'E')) then
+          var j = i + 1
+          if (j < n) and ((src[j] == '+') or (src[j] == '-')) then
+            set j = j + 1
+          end if
+          if (j < n) and is_digit(src[j]) then
+            set i = j
+            while (i < n) and is_digit(src[i]) invariant start <= i invariant i <= n decreases n - i do
+              set i = i + 1
+            end while
+          end if
+        end if
+        set col = col + (i - start)
+        let ftext = replace(s: slice(of: src, from: start, to: i), old: "_", new: "")
+        set toks = push(list: toks, item: Token(kind: "float", text: ftext, num: 0, pos: pos))
+        continue
+      end if
+      var v = 0
+      for k in start..i do
+        let b = src[k]
+        if b != '_' then
+          let d = b - '0'
+          if (d < 0) or (d > 9) then
+            continue
+          end if
           if v > ((9223372036854775807 - d) / 10) then
             return lex_fail(toks: toks, d: diag(pos: pos, msg: "integer literal does not fit in 64 bits"))
           end if
           set v = (v * 10) + d
         end if
-        set i = i + 1
-      end while
+      end for
       set col = col + (i - start)
       let text = slice(of: src, from: start, to: i)
       set toks = push(list: toks, item: Token(kind: "int", text: text, num: v, pos: pos))

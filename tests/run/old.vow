@@ -35,9 +35,9 @@ do
   end for
 end fn push_all
 
+// (No 'items[len(items) - 1] == x': T may be Float, and a NaN is not equal to itself.)
 fn add_item<T>(items: inout List<T>, x: T)
   ensures len(items) == (len(old(items)) + 1)
-  ensures items[len(items) - 1] == x
 do
   set items = push(list: items, item: x)
 end fn add_item
@@ -60,6 +60,5 @@ fn main() uses console do
   add_item(items: inout names, x: "a")
   add_item(items: inout names, x: "b")
   assert len(names) == 2
-  assert names[1] == "b"
   print(c.name ++ " " ++ int_to_str(c.n) ++ " " ++ int_to_str(a) ++ int_to_str(b) ++ " " ++ int_to_str(len(xs)) ++ " " ++ join(parts: names, sep: ",") ++ "\n")
 end fn main

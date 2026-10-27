@@ -2,7 +2,7 @@
 []
 {}
 error: expected a JSON value at byte 6
-error: numbers with fractions or exponents are not supported at byte 1
+1.5
 error: unterminated string at byte 13
 error: expected ':' at byte 5
 initialize 7

@@ -27,6 +27,9 @@ SMT solver, and nothing depends on counting or on context far away.
 - Identifiers: `[A-Za-z_][A-Za-z0-9_]*`. Types, structs, enums and variants are
   capitalised by convention; this is not enforced.
 - Integers: decimal digits, `_` allowed as separator. No negative literals (use unary `-`).
+- Floats: digits, `.`, digits, then optionally `e`, a sign and digits: `1.5`, `0.0`,
+  `2.5e-3`. Both sides of the `.` need a digit (`1.` and `.5` are not literals), so
+  `0..n` is still a range.
 - Strings: `"..."` with escapes `\n \t \r \\ \" \0`.
 - Characters: `'a'`, `'\n'`, `'\''` are `Int` literals holding one byte.
 - Holes: `?name`.
@@ -84,6 +87,7 @@ Every program has `fn main()` that takes no parameters and returns `Unit`.
 | Type | Meaning |
 |---|---|
 | `Int` | 64-bit signed integer; overflow traps at runtime |
+| `Float` | 64-bit IEEE double; arithmetic never traps (dividing by zero gives an infinity or NaN) |
 | `Bool` | `true` / `false` |
 | `String` | immutable byte string |
 | `Unit` | the empty value; the return type of functions without `->` |
@@ -309,15 +313,18 @@ shorthand for the `match` it expands to, and the verifier sees that `match`.
 - Unary: `-e`, `not e`.
 - Bounded quantifiers: `forall i in a..b: P` and `exists i in a..b: P` over `a <= i < b`.
   They are proved symbolically in specifications and run as loops at runtime.
-- Binary: `+ - * / %` (Int), `++` (String or List concatenation), `== !=` (any two
-  values of the same type without maps; see Equality), `< <= > >=` (Int),
+- Binary: `+ - * / %` (Int), `+ - * /` (Float), `++` (String or List concatenation),
+  `== !=` (any two values of the same type without maps; see Equality), `< <= > >=`
+  (Int or Float). `Int` and `Float` never mix: convert with `int_to_float`.
   `and or implies` (Bool, short-circuit).
 
 **Equality.** `==` is structural: strings are equal when their bytes are; lists when
 they have the same length and equal elements; structs when every field is equal;
 enums and options when the variants are the same and their fields are equal. All
 `Unit` values are equal. Values whose type is or contains a `Map` or `HashMap` cannot
-be compared; compare lookups instead.
+be compared; compare lookups instead. Floats compare as IEEE doubles: a NaN is not equal
+to anything, itself included, so a struct, list or option holding a NaN is not equal to
+itself either.
 - Holes: `?name`. A program with holes does not compile. The compiler reports each
   hole's expected type, the variables in scope and the facts known at that point.
 
@@ -348,6 +355,12 @@ SMT-LIB. The divisor must be provably non-zero.
 | `hash(s) -> String` | FNV-1a 64-bit, 16 hex digits |
 | `panic(msg)` | prints `vow: panic at <file>:<line>: msg` to stderr, exits with status 101; never returns |
 | `print(s)`, `eprint(s)` | `uses console`; no newline is added |
+| `int_to_float(n) -> Float` | exact for magnitudes up to 2^53 |
+| `float_to_int(x) -> Option<Int>` | rounded toward zero; `None` for NaN or outside the `Int` range |
+| `float_to_str(x) -> String` | the shortest text that reads back as `x`, as Python prints it (`0.1`, `300.0`, `1e+16`, `nan`, `inf`) |
+| `str_to_float(s) -> Option<Float>` | the whole string must be a number |
+| `floor(x)`, `ceil(x)`, `round(x)`, `sqrt(x)`, `abs_float(x)` | `Float -> Float`; `round` rounds halves away from zero |
+| `is_nan(x) -> Bool` | |
 | `read_line() -> Option<String>` | `uses console`; the next line of standard input without its `\n`, or `None` at the end |
 | `read_bytes(n) -> String` | `uses console`; up to `n` bytes of standard input (fewer at the end) |
 | `read_file(path) -> Option<String>` | `uses fs` |
@@ -422,13 +435,27 @@ calls to specification functions, and (in `ensures` and loop invariants) `old(x)
 Generic functions are verified once for all type arguments (see Generics); calls to
 them are checked against their contracts with the type arguments of the call.
 
+**Floats.** A `Float` is a value the verifier knows only two things about: whether it is
+a NaN, and, if not, its place in the order of doubles (a real number that is the
+double's value, with the infinities beyond every finite double). Comparisons are
+defined through these, so facts about order (`x < y` and `y < z` give `x < z`; a
+comparison with a NaN is false) come for free. A literal is not a NaN; a literal that
+is a whole number below 10^15 has its exact value; and two literals are ordered as their
+decimal values are (strictly when both have at most 15 significant digits). Negation,
+`abs_float`, `floor`, `ceil`, `sqrt` and `int_to_float` of an integer up to 2^53 have
+their exact or monotone facts. Nothing else about arithmetic is assumed, since rounding
+makes most algebraic laws false (`(0.1 + 0.2) == 0.3` is false): state what a proof
+needs with `check` (tested at runtime), a refinement or a contract.
+
 `==` on `Int` and `Bool` is equality of the logic, and on `String` equality of terms.
 On other types `a == b` is `a = b` or `eq_T(a, b)`, where `eq_T` is a predicate
 defined by an axiom that unfolds it one level: the fields, the tag and the variant's
 fields, or the length and every element, compared the same way. Equal values can
 therefore be proved equal however they were built, and equal values have equal parts.
 For a type parameter, `eq_T` is left undefined, so a generic function proves only what
-holds for every type's equality.
+holds for every type's equality. Since a type parameter may stand for `Float`, and a type
+that can hold a float is not equal to itself when it holds a NaN, `x == x` is not
+assumed for such types.
 
 ## Effects
 

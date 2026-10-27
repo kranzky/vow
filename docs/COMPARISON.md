@@ -136,8 +136,8 @@ What the numbers say:
   `HashMap`, runs about three times as long as C and faster than JavaScript and
   Python. The ordered `Map`, a persistent tree with cheap snapshots, took 1.04 s.
 - **Proofs remove bounds checks**, so verified indexing costs nothing at runtime.
-- **Floating-point benchmarks can't run yet:** n-body, spectral-norm and mandelbrot
-  need `Float`, which Vow doesn't have.
+- **Floating-point benchmarks are not measured yet:** `Float` arrived in v0.8; n-body,
+  spectral-norm and mandelbrot are next.
 
 The in-place updates follow the approach of Koka's Perceus, Lean 4 and Swift's
 copy-on-write. Before them (Vow 0.1, which never freed memory), fannkuch-redux took
@@ -161,7 +161,7 @@ copy-on-write. Before them (Vow 0.1, which never freed memory), fannkuch-redux t
 
 Today, for most things. Vow v0 is an experiment:
 
-- no floating-point numbers, modules, closures or concurrency;
+- no modules, closures or concurrency;
 - macOS and Linux only;
 - no package ecosystem;
 - termination and overflow are not proved unless you ask for them (`decreases`) or

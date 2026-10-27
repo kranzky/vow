@@ -80,8 +80,14 @@ Check your code against this list before running the compiler.
     (`Pair<Int, String>`). Inside a generic function, a `T` can be stored, passed,
     returned, compared with `==` and put in lists and maps, but not indexed or given
     fields, and generic functions cannot be called in specifications.
-13. **No floats yet.** `/` and `%` are integer division with Euclidean semantics: the
-    remainder is never negative (`-7 / 2 == -4`, `-7 % 2 == 1`).
+13. **`Int` and `Float` never mix.** Write `1.0`, not `1`, for a Float, and convert
+    with `int_to_float`. `/` and `%` on `Int` are integer division with Euclidean
+    semantics: the remainder is never negative (`-7 / 2 == -4`, `-7 % 2 == 1`).
+    `Float` has `+ - * /` (no `%`), never traps, and follows IEEE: dividing by zero
+    gives an infinity or NaN, and a NaN is not equal to itself. The verifier knows the
+    order of floats but almost nothing about their arithmetic, so `ensures result > x`
+    for `x + 1.0` is not provable (it is false for NaN and large `x`). Test what you need
+    with `check` (`check total >= 0.0`), then rely on it.
 14. **Statements start with a keyword or a call.** `x = 1` is not a statement; use
     `set x = 1`. A bare expression that is not a call is an error.
 15. **`exit` and `panic` end a path.** Code after them in the same block is an
@@ -137,7 +143,8 @@ end fn main
 ```
 
 Built-ins: `len push slice join int_to_str str_to_int char insert lookup has keys hash
-panic print eprint read_line read_bytes read_file write_file args getenv run exit`. Signatures are in the
+panic print eprint read_line read_bytes read_file write_file args getenv run exit
+int_to_float float_to_int float_to_str str_to_float floor ceil round sqrt abs_float is_nan`. Signatures are in the
 spec. `print` adds no newline.
 
 ### The standard library
@@ -160,11 +167,11 @@ your own string helpers:
 | `to_lower(s)`, `to_upper(s)` | same length; no upper (lower) case letters |
 
 `import "std/json.vow"` parses and prints JSON. A value is a `Json`: `JNull`,
-`JBool(value)`, `JNum(value)` (integers only, until Vow has floats), `JStr(value)`,
+`JBool(value)`, `JNum(value)` (an Int), `JFloat(value)` (any other number), `JStr(value)`,
 `JArr(items)` or `JObj(keys, values)`. `json_parse(s) -> Result<Json, String>` (the
 error gives the byte offset), `json_text(j)` prints compact JSON, `json_quote(s)` makes a
 JSON string literal, and `json_get(j, key)`, `json_get_string`, `json_get_int`,
-`json_string(j)` and `json_int(j)` read values (`None` when absent or of another type).
+`json_string(j)`, `json_int(j)` and `json_float(j)` read values (`None` when absent or of another type).
 | `compare(a: x, b: y) -> Int` | byte-wise order: -1, 0 or 1 (strings have no `<`) |
 
 Library names share the global namespace, so don't define your own `trim` in a file

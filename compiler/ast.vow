@@ -11,6 +11,8 @@ end struct Expr
 
 enum EK
   IntLit(value: Int),
+  // The literal as written (digits, '.', digits, optional exponent).
+  FloatLit(text: String),
   StrLit(value: String),
   BoolLit(value: Bool),
   Var(name: String),

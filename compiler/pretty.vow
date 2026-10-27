@@ -56,6 +56,8 @@ fn pretty_expr(e: Expr) -> String do
   match e.kind
   case IntLit(value: n) then
     return int_to_str(n)
+  case FloatLit(text: t) then
+    return t
   case StrLit(value: s) then
     return quote(s)
   case BoolLit(value: b) then

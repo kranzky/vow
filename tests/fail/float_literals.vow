@@ -1,0 +1,7 @@
+// error: cannot prove assertion: 0.1 != 0.10000000000000000001
+// language: 0.8
+
+// Both literals round to the same double, so they are equal at runtime.
+fn main() do
+  assert 0.1 != 0.10000000000000000001
+end fn main

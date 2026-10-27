@@ -263,7 +263,7 @@ fn compile_c(c: String, exe: String) -> String uses fs, proc do
     end for
   case None then
   end match
-  let r = run(argv: argv ++ ["-o", exe, cfile], input: "")
+  let r = run(argv: argv ++ ["-o", exe, cfile, "-lm"], input: "")
   let _ = run(argv: ["rm", "-rf", dir], input: "")
   if r.code != 0 then
     return "C compiler '" ++ cc ++ "' failed"

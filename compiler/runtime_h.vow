@@ -28,7 +28,9 @@ fn runtime_header() -> String do
     "#ifndef _GNU_SOURCE\n" ++
     "#define _GNU_SOURCE\n" ++
     "#endif\n" ++
+    "#include <ctype.h>\n" ++
     "#include <dirent.h>\n" ++
+    "#include <math.h>\n" ++
     "#include <fcntl.h>\n" ++
     "#include <stdint.h>\n" ++
     "#include <stdio.h>\n" ++
@@ -351,6 +353,32 @@ fn runtime_header() -> String do
     "#define vdiv(a, b) vdiv_at((a), (b), __FILE__, __LINE__)\n" ++
     "#define vmod(a, b) vmod_at((a), (b), __FILE__, __LINE__)\n" ++
     "\n" ++
+    "// ---- floats: a Float is a double stored in the bits of a V ----\n" ++
+    "\n" ++
+    "static inline double VD(V x) {\n" ++
+    "    double d;\n" ++
+    "    memcpy(&d, &x, sizeof d);\n" ++
+    "    return d;\n" ++
+    "}\n" ++
+    "static inline V DV(double d) {\n" ++
+    "    V x;\n" ++
+    "    memcpy(&x, &d, sizeof x);\n" ++
+    "    return x;\n" ++
+    "}\n" ++
+    "// IEEE arithmetic: never panics (division by zero gives an infinity or NaN).\n" ++
+    "static inline V vfadd(V a, V b) { return DV(VD(a) + VD(b)); }\n" ++
+    "static inline V vfsub(V a, V b) { return DV(VD(a) - VD(b)); }\n" ++
+    "static inline V vfmul(V a, V b) { return DV(VD(a) * VD(b)); }\n" ++
+    "static inline V vfdiv(V a, V b) { return DV(VD(a) / VD(b)); }\n" ++
+    "static inline V vfneg(V a) { return DV(-VD(a)); }\n" ++
+    "static inline V vint_to_float(V n) { return DV((double)VI(n)); }\n" ++
+    "static inline V vfloor(V x) { return DV(floor(VD(x))); }\n" ++
+    "static inline V vceil(V x) { return DV(ceil(VD(x))); }\n" ++
+    "static inline V vround(V x) { return DV(round(VD(x))); }\n" ++
+    "static inline V vsqrt(V x) { return DV(sqrt(VD(x))); }\n" ++
+    "static inline V vabs_float(V x) { return DV(fabs(VD(x))); }\n" ++
+    "static inline V vis_nan(V x) { return (V)(isnan(VD(x)) != 0); }\n" ++
+    "\n" ++
     "// ---- strings (all functions borrow their arguments) ----\n" ++
     "\n" ++
     "static V vstr_new(const char *p, int64_t n) {\n" ++
@@ -405,6 +433,37 @@ fn runtime_header() -> String do
     "}\n" ++
     "\n" ++
     "#define vchar(code) vchar_at((code), __FILE__, __LINE__)\n" ++
+    "\n" ++
+    "// The shortest text that reads back as the same double, always with a '.' or an\n" ++
+    "// exponent (1.0, not 1): 0.1, 300.0, 1e+16, 1.5e-05; \"nan\", \"inf\" or \"-inf\".\n" ++
+    "static V vfloat_to_str(V x) {\n" ++
+    "    double d = VD(x);\n" ++
+    "    char buf[48];\n" ++
+    "    if (isnan(d)) return vstr_new(\"nan\", 3);\n" ++
+    "    if (isinf(d)) return d > 0 ? vstr_new(\"inf\", 3) : vstr_new(\"-inf\", 4);\n" ++
+    "    // The fewest significant digits that read back as d; then, as Python's repr does,\n" ++
+    "    // plain notation for magnitudes from 1e-4 up to 1e16 and an exponent otherwise.\n" ++
+    "    int p = 1;\n" ++
+    "    for (; p < 17; p++) {\n" ++
+    "        snprintf(buf, sizeof buf, \"%.*e\", p - 1, d);\n" ++
+    "        if (strtod(buf, NULL) == d) break;\n" ++
+    "    }\n" ++
+    "    snprintf(buf, sizeof buf, \"%.*e\", p - 1, d);\n" ++
+    "    int e = atoi(strchr(buf, 'e') + 1);\n" ++
+    "    if (d != 0 && (e < -4 || e >= 16)) {\n" ++
+    "        // Python's form: 1e+16, 6.02e+23, 1.5e-05.\n" ++
+    "        char mant[32];\n" ++
+    "        int len = (int)(strchr(buf, 'e') - buf);\n" ++
+    "        memcpy(mant, buf, (size_t)len);\n" ++
+    "        mant[len] = 0;\n" ++
+    "        snprintf(buf, sizeof buf, \"%se%c%02d\", mant, e < 0 ? '-' : '+', e < 0 ? -e : e);\n" ++
+    "    } else {\n" ++
+    "        int decimals = p - 1 - e;\n" ++
+    "        if (decimals < 1) decimals = 1;\n" ++
+    "        snprintf(buf, sizeof buf, \"%.*f\", decimals, d);\n" ++
+    "    }\n" ++
+    "    return vstr_new(buf, (int64_t)strlen(buf));\n" ++
+    "}\n" ++
     "\n" ++
     "static V vint_to_str(V n) {\n" ++
     "    char buf[32];\n" ++
@@ -488,6 +547,23 @@ fn runtime_header() -> String do
     "        return r;\n" ++
     "    }\n" ++
     "    return d;\n" ++
+    "}\n" ++
+    "\n" ++
+    "// The whole string must be a number (as C's strtod reads it).\n" ++
+    "static V vstr_to_float(V s) {\n" ++
+    "    const char *p = VS(s)->data;\n" ++
+    "    if (VS(s)->len == 0 || isspace((unsigned char)p[0])) return vnone();\n" ++
+    "    char *end;\n" ++
+    "    double d = strtod(p, &end);\n" ++
+    "    if (end != p + VS(s)->len) return vnone();\n" ++
+    "    return vsome(DV(d), 0);\n" ++
+    "}\n" ++
+    "\n" ++
+    "// None for NaN and for values outside the Int range; otherwise rounded toward zero.\n" ++
+    "static V vfloat_to_int(V x) {\n" ++
+    "    double d = VD(x);\n" ++
+    "    if (isnan(d) || d < -9223372036854775808.0 || d >= 9223372036854775808.0) return vnone();\n" ++
+    "    return vsome((V)(int64_t)d, 0);\n" ++
     "}\n" ++
     "\n" ++
     "static V vstr_to_int(V s) {\n" ++

@@ -93,6 +93,9 @@ struct Verifier
   // structural equality predicates it defines.
   sf_done: List<String>,
   eq_done: List<String>,
+  // Float literals defined in this function's queries, and whether it uses floats.
+  flits: List<FloatLit>,
+  floats: Bool,
   // For the language server: the line (in the root file) whose known facts to record
   // in probe when its first statement is reached, or -1.
   probe_line: Int,
@@ -121,13 +124,16 @@ fn new_verifier(info: Info) -> Verifier do
   end for
   let loops: List<LoopCtx> = []
   return Verifier(info: info, n: 0, decls: [], defs: [], qdefs: [], obs: [], preamble: pre, strs: {}, loops: loops,
-    fname: "", ret: plain(Ty.TUnit), post: [], dec: Option.None, params: {}, hole_facts: {}, sf_done: [], eq_done: [], probe_line: -1, probe: [], hyps: true)
+    fname: "", ret: plain(Ty.TUnit), post: [], dec: Option.None, params: {}, hole_facts: {}, sf_done: [], eq_done: [], flits: [], floats: false, probe_line: -1, probe: [],
+    hyps: true)
 end fn new_verifier
 
 fn sort_of(t: Ty) -> String do
   match t
   case TInt then
     return "Int"
+  case TFloat then
+    return "Flt"
   case TUnit then
     return "Int"
   case TBool then
@@ -179,6 +185,9 @@ end fn binop_term
 // when their terms are; other values when their terms are, or when they are equal
 // part by part (eq_fn).
 fn eq_term(v: inout Verifier, op: String, t: Ty, a: String, b: String) -> String do
+  if ty_show(t) == "Float" then
+    return float_op(v: inout v, op: op, a: a, b: b)
+  end if
   if ty_show(t) == "Unit" then
     return binop_term(op: op, a: "0", b: "0")
   end if
@@ -196,10 +205,18 @@ fn val_eq(v: inout Verifier, t: Ty, a: String, b: String) -> String do
   if ty_show(t) == "Unit" then
     return "true"
   end if
+  if ty_show(t) == "Float" then
+    return float_op(v: inout v, op: "==", a: a, b: b)
+  end if
   if simple_eq(t) then
     return "(= " ++ a ++ " " ++ b ++ ")"
   end if
   let f = eq_fn(v: inout v, t: t)
+  // A value holding a NaN is not equal to itself, so being the same value proves
+  // equality only for types without floats.
+  if contains_float(info: v.info, t: t) then
+    return "(" ++ f ++ " " ++ a ++ " " ++ b ++ ")"
+  end if
   return "(or (= " ++ a ++ " " ++ b ++ ") (" ++ f ++ " " ++ a ++ " " ++ b ++ "))"
 end fn val_eq
 
@@ -379,6 +396,9 @@ end fn assigned
 // ---- state helpers ----
 
 fn fresh(v: inout Verifier, sort: String) -> String do
+  if sort == "Flt" then
+    use_floats(inout v)
+  end if
   set v = v with (n: v.n + 1)
   let name = "v" ++ int_to_str(v.n)
   set v = v with (decls: push(list: v.decls, item: "(declare-const " ++ name ++ " " ++ sort ++ ")"))
@@ -400,6 +420,9 @@ fn add_qdef(v: inout Verifier, d: String) do
 end fn add_qdef
 
 fn global_fn(v: inout Verifier, name: String, args: String, sort: String) -> String do
+  if (sort == "Flt") or contains(s: args, p: "Flt") then
+    use_floats(inout v)
+  end if
   set v = v with (preamble: insert(map: v.preamble, key: "(declare-fun " ++ name ++ " (" ++ args ++ ") " ++ sort ++ ")", value: true))
   return name
 end fn global_fn
@@ -495,7 +518,7 @@ fn verify_fn(v: inout Verifier, f: FnDecl) -> FnVc do
   // A generic function is verified once, with its type parameters as unknown types
   // (values of the uninterpreted sort Val), which covers every instance.
   let info = v.info
-  set v = v with (n: 0, decls: [], defs: [], qdefs: [], obs: [], strs: {}, loops: empty_loops, fname: f.name, params: {}, sf_done: [], eq_done: [],
+  set v = v with (n: 0, decls: [], defs: [], qdefs: [], obs: [], strs: {}, loops: empty_loops, fname: f.name, params: {}, sf_done: [], eq_done: [], flits: [], floats: false,
     info: info with (tenv: identity_env(f.tparams)))
   var fi = FnInfo(name: f.name, params: [], io: [], ret: plain(Ty.TUnit), effects: [], pre: [], post: [],
     dec: Option.None, inline: Option.None, spec_body: Option.None, spec_rec: false, pos: f.pos)
@@ -530,7 +553,7 @@ fn verify_fn(v: inout Verifier, f: FnDecl) -> FnVc do
   if (not st.dead) and (ty_show(fi.ret.ty) == "Unit") then
     check_post(v: inout v, st: st, pos: f.pos, val: "0")
   end if
-  return FnVc(name: f.name, decls: v.decls, defs: v.defs, qdefs: v.qdefs, obs: v.obs, axioms: len(v.sf_done) > 0)
+  return FnVc(name: f.name, decls: v.decls, defs: v.defs, qdefs: v.qdefs, obs: v.obs, axioms: (len(v.sf_done) > 0) or v.floats)
 end fn verify_fn
 
 fn check_post(v: inout Verifier, st: St, pos: Pos, val: String) do
@@ -720,6 +743,8 @@ fn sexpr(v: inout Verifier, e: Expr, sp: Spec) -> String do
   match e.kind
   case IntLit(value: n) then
     return int_lit(n)
+  case FloatLit(text: t) then
+    return float_lit(v: inout v, text: t)
   case BoolLit(value: b) then
     if b then
       return "true"
@@ -764,6 +789,8 @@ fn sexpr(v: inout Verifier, e: Expr, sp: Spec) -> String do
       return "(= (tag " ++ a0 ++ ") 1)"
     elif ci.name == "is_none" then
       return "(= (tag " ++ a0 ++ ") 0)"
+    elif (ci.name == "is_nan") or (ci.name == "int_to_float") then
+      return float_builtin(v: inout v, name: ci.name, a: a0)
     end if
     let f = vfield_fn(v: inout v, ename: "Option", vname: "Some", field: "value", t: type_of(info: v.info, e: e))
     return "(ite (= (tag " ++ a0 ++ ") 1) (" ++ f ++ " " ++ a0 ++ ") " ++ arg_str(p: p, i: 1) ++ ")"
@@ -810,12 +837,18 @@ fn sexpr(v: inout Verifier, e: Expr, sp: Spec) -> String do
   case Unary(op: op, x: x) then
     let a = sexpr(v: inout v, e: x, sp: sp)
     if op == "-" then
+      if ty_show(type_of(info: v.info, e: x)) == "Float" then
+        return float_neg(v: inout v, a: a)
+      end if
       return "(- " ++ a ++ ")"
     end if
     return "(not " ++ a ++ ")"
   case Binary(op: op, l: l, r: r) then
     let a = sexpr(v: inout v, e: l, sp: sp)
     let b = sexpr(v: inout v, e: r, sp: sp)
+    if ty_show(type_of(info: v.info, e: l)) == "Float" then
+      return float_op(v: inout v, op: op, a: a, b: b)
+    end if
     if (op == "==") or (op == "!=") then
       return eq_term(v: inout v, op: op, t: type_of(info: v.info, e: l), a: a, b: b)
     end if
@@ -1193,6 +1226,271 @@ end fn push_loop
 fn plain_loop(invs: List<Expr>) -> LoopCtx do
   return LoopCtx(invs: invs, next_var: "", next_term: "", dec: Option.None, d0: "")
 end fn plain_loop
+
+// ---- floats ----
+// A Float is a value of the sort Flt about which the verifier knows only two things:
+// whether it is a NaN (fnan) and, if not, its place in the order of doubles, as a real
+// key (fkey) that is the double's value (with -0 and +0 at 0, and the infinities beyond
+// every finite double). Comparisons are defined through these, so the usual facts about
+// order hold with no axioms. Arithmetic results are otherwise unknown: rounding makes
+// most algebraic laws false, so the program states what it needs (check, contracts).
+
+struct FloatLit
+  key: String,
+  term: String,
+  dec: Decimal,
+end struct FloatLit
+
+fn use_floats(v: inout Verifier) do
+  if not has(map: v.preamble, key: "(declare-sort Flt 0)") then
+    var pre = v.preamble
+    for d in ["(declare-sort Flt 0)", "(declare-fun fkey (Flt) Real)", "(declare-fun fnan (Flt) Bool)",
+        "(declare-fun elem_Flt (Val Int) Flt)"] do
+      set pre = insert(map: pre, key: d, value: true)
+    end for
+    set v = v with (preamble: pre)
+  end if
+  if v.floats then
+    return
+  end if
+  set v = v with (floats: true)
+  // Sound facts about the operations that are exact or monotone, as axioms that fire
+  // only on the operations a function uses.
+  var ax: List<String> = []
+  for d in ["(declare-fun fneg (Flt) Flt)", "(declare-fun i2f (Int) Flt)", "(declare-fun fabs_ (Flt) Flt)",
+      "(declare-fun ffloor (Flt) Flt)", "(declare-fun fceil (Flt) Flt)", "(declare-fun fsqrt (Flt) Flt)"] do
+    set v = v with (preamble: insert(map: v.preamble, key: d, value: true))
+  end for
+  let n = "(not (fnan x))"
+  set ax = push(list: ax, item: "(forall ((x Flt)) (! (and (= (fnan (fneg x)) (fnan x)) (=> " ++ n ++ " (= (fkey (fneg x)) (- (fkey x))))) :pattern ((fneg x))))")
+  set ax = push(list: ax, item: "(forall ((i Int)) (! (and (not (fnan (i2f i))) (=> (and (<= (- 9007199254740992) i) (<= i 9007199254740992)) (= (fkey (i2f i)) (to_real i)))) :pattern ((i2f i))))")
+  set ax = push(list: ax, item: "(forall ((x Flt)) (! (and (= (fnan (fabs_ x)) (fnan x)) (=> " ++ n ++ " (= (fkey (fabs_ x)) (ite (>= (fkey x) 0.0) (fkey x) (- (fkey x)))))) :pattern ((fabs_ x))))")
+  set ax = push(list: ax, item: "(forall ((x Flt)) (! (and (= (fnan (ffloor x)) (fnan x)) (=> " ++ n ++ " (<= (fkey (ffloor x)) (fkey x)))) :pattern ((ffloor x))))")
+  set ax = push(list: ax, item: "(forall ((x Flt)) (! (and (= (fnan (fceil x)) (fnan x)) (=> " ++ n ++ " (>= (fkey (fceil x)) (fkey x)))) :pattern ((fceil x))))")
+  set ax = push(list: ax, item: "(forall ((x Flt)) (! (=> (and " ++ n ++ " (>= (fkey x) 0.0)) (and (not (fnan (fsqrt x))) (>= (fkey (fsqrt x)) 0.0))) :pattern ((fsqrt x))))")
+  for a in ax do
+    add_qdef(v: inout v, d: "(assert " ++ a ++ ")")
+  end for
+end fn use_floats
+
+// The term for a Float built-in the logic knows something about (see use_floats), or "".
+// round has no facts; float_to_int, float_to_str and str_to_float are unknown values.
+fn float_builtin(v: inout Verifier, name: String, a: String) -> String do
+  var f = ""
+  match name
+  case "int_to_float" then
+    set f = "i2f"
+  case "is_nan" then
+    set f = "fnan"
+  case "abs_float" then
+    set f = "fabs_"
+  case "floor" then
+    set f = "ffloor"
+  case "ceil" then
+    set f = "fceil"
+  case "sqrt" then
+    set f = "fsqrt"
+  case "round" then
+    let _ = global_fn(v: inout v, name: "fround", args: "Flt", sort: "Flt")
+    set f = "fround"
+  else
+    return ""
+  end match
+  use_floats(inout v)
+  return "(" ++ f ++ " " ++ a ++ ")"
+end fn float_builtin
+
+fn float_neg(v: inout Verifier, a: String) -> String do
+  use_floats(inout v)
+  return "(fneg " ++ a ++ ")"
+end fn float_neg
+
+// a op b on Floats: arithmetic gives an (unknown) Float; comparisons follow IEEE, so
+// any comparison with a NaN is false (and != true).
+fn float_op(v: inout Verifier, op: String, a: String, b: String) -> String do
+  use_floats(inout v)
+  let ok = "(not (fnan " ++ a ++ ")) (not (fnan " ++ b ++ "))"
+  let ka = "(fkey " ++ a ++ ")"
+  let kb = "(fkey " ++ b ++ ")"
+  match op
+  case "+" then
+    return "(" ++ global_fn(v: inout v, name: "fadd", args: "Flt Flt", sort: "Flt") ++ " " ++ a ++ " " ++ b ++ ")"
+  case "-" then
+    return "(" ++ global_fn(v: inout v, name: "fsub", args: "Flt Flt", sort: "Flt") ++ " " ++ a ++ " " ++ b ++ ")"
+  case "*" then
+    return "(" ++ global_fn(v: inout v, name: "fmul", args: "Flt Flt", sort: "Flt") ++ " " ++ a ++ " " ++ b ++ ")"
+  case "/" then
+    return "(" ++ global_fn(v: inout v, name: "fdiv", args: "Flt Flt", sort: "Flt") ++ " " ++ a ++ " " ++ b ++ ")"
+  case "==" then
+    return "(and " ++ ok ++ " (= " ++ ka ++ " " ++ kb ++ "))"
+  case "!=" then
+    return "(not (and " ++ ok ++ " (= " ++ ka ++ " " ++ kb ++ ")))"
+  case "<" then
+    return "(and " ++ ok ++ " (< " ++ ka ++ " " ++ kb ++ "))"
+  case "<=" then
+    return "(and " ++ ok ++ " (<= " ++ ka ++ " " ++ kb ++ "))"
+  case ">" then
+    return "(and " ++ ok ++ " (> " ++ ka ++ " " ++ kb ++ "))"
+  case ">=" then
+    return "(and " ++ ok ++ " (>= " ++ ka ++ " " ++ kb ++ "))"
+  else
+    return "false"
+  end match
+end fn float_op
+
+// A Float literal: a constant that is not NaN. A whole number below 10^15 has its exact
+// key; any two literals are ordered as their decimal values are, strictly when both
+// have at most 15 significant digits and are well inside the double range (then they
+// are distinct doubles), and otherwise not strictly, since rounding to the nearest
+// double can only merge neighbours. Literals with the same value share a constant.
+fn float_lit(v: inout Verifier, text: String) -> String do
+  use_floats(inout v)
+  let d = decimal_of(text)
+  let key = d.digits ++ "e" ++ int_to_str(d.exp)
+  for f in v.flits do
+    if f.key == key then
+      return f.term
+    end if
+  end for
+  let c = fresh(v: inout v, sort: "Flt")
+  add_def(v: inout v, d: "(assert (not (fnan " ++ c ++ ")))")
+  if len(d.digits) == 0 then
+    add_def(v: inout v, d: "(assert (= (fkey " ++ c ++ ") 0.0))")
+  elif (d.exp >= 0) and ((len(d.digits) + d.exp) <= 15) then
+    add_def(v: inout v, d: "(assert (= (fkey " ++ c ++ ") " ++ d.digits ++ repeat(s: "0", n: d.exp) ++ ".0))")
+  end if
+  for f in v.flits do
+    let r = decimal_cmp(a: d, b: f.dec)
+    var op = "<="
+    if exact_decimal(d) and exact_decimal(f.dec) then
+      set op = "<"
+    end if
+    if r < 0 then
+      add_def(v: inout v, d: "(assert (" ++ op ++ " (fkey " ++ c ++ ") (fkey " ++ f.term ++ ")))")
+    elif r > 0 then
+      add_def(v: inout v, d: "(assert (" ++ op ++ " (fkey " ++ f.term ++ ") (fkey " ++ c ++ ")))")
+    end if
+  end for
+  set v = v with (flits: push(list: v.flits, item: FloatLit(key: key, term: c, dec: d)))
+  return c
+end fn float_lit
+
+// A decimal value as digits D, without leading or trailing zeros ("" for zero), and an
+// exponent E: the value is D * 10^E.
+struct Decimal
+  digits: String,
+  exp: Int,
+end struct Decimal
+
+fn decimal_of(text: String) -> Decimal do
+  var mant = text
+  var e = 0
+  let cut = find_byte(s: text, c: 'e', from: 0)
+  var cut2 = find_byte(s: text, c: 'E', from: 0)
+  var at = cut
+  if (at < 0) or ((cut2 >= 0) and (cut2 < at)) then
+    set at = cut2
+  end if
+  if (at >= 0) and (at < len(text)) then
+    set mant = slice(of: text, from: 0, to: at)
+    var digits = slice(of: text, from: at + 1, to: len(text))
+    var neg = false
+    if starts_with(s: digits, p: "-") or starts_with(s: digits, p: "+") then
+      set neg = starts_with(s: digits, p: "-")
+      set digits = slice(of: digits, from: 1, to: len(digits))
+    end if
+    if len(digits) > 6 then
+      set e = 1000000
+    else
+      set e = value_or(opt: str_to_int(digits), default: 0)
+    end if
+    if neg then
+      set e = -e
+    end if
+  end if
+  var parts: List<String> = []
+  var frac = 0
+  var point = false
+  for i in 0..len(mant) do
+    let ch = mant[i]
+    if ch == '.' then
+      set point = true
+    elif is_digit(ch) then
+      set parts = push(list: parts, item: char(ch))
+      if point then
+        set frac = frac + 1
+      end if
+    end if
+  end for
+  var ds = join(parts: parts, sep: "")
+  var exp = e - frac
+  var a = 0
+  while (a < len(ds)) and (ds[a] == '0') invariant (0 <= a) and (a <= len(ds)) do
+    set a = a + 1
+  end while
+  set ds = slice(of: ds, from: a, to: len(ds))
+  if len(ds) == 0 then
+    return Decimal(digits: "", exp: 0)
+  end if
+  var b = len(ds)
+  while (b > 0) and (ds[b - 1] == '0') invariant (0 <= b) and (b <= len(ds)) do
+    set b = b - 1
+    set exp = exp + 1
+  end while
+  return Decimal(digits: slice(of: ds, from: 0, to: b), exp: exp)
+end fn decimal_of
+
+// At most 15 significant digits and well inside the range of normal doubles: two such
+// decimals that differ are different doubles.
+fn exact_decimal(d: Decimal) -> Bool do
+  if len(d.digits) == 0 then
+    return true
+  end if
+  let mag = len(d.digits) + d.exp
+  return (len(d.digits) <= 15) and (mag > -300) and (mag < 300)
+end fn exact_decimal
+
+// -1, 0 or 1 as a is less than, equal to or greater than b (both non-negative).
+fn decimal_cmp(a: Decimal, b: Decimal) -> Int do
+  if (len(a.digits) == 0) or (len(b.digits) == 0) then
+    if len(a.digits) == len(b.digits) then
+      return 0
+    elif len(a.digits) == 0 then
+      return -1
+    end if
+    return 1
+  end if
+  let ma = len(a.digits) + a.exp
+  let mb = len(b.digits) + b.exp
+  if ma != mb then
+    if ma < mb then
+      return -1
+    end if
+    return 1
+  end if
+  var n = len(a.digits)
+  if len(b.digits) > n then
+    set n = len(b.digits)
+  end if
+  for i in 0..n do
+    // A missing digit is a trailing zero.
+    var x = '0'
+    if i < len(a.digits) then
+      set x = a.digits[i]
+    end if
+    var y = '0'
+    if i < len(b.digits) then
+      set y = b.digits[i]
+    end if
+    if x != y then
+      if x < y then
+        return -1
+      end if
+      return 1
+    end if
+  end for
+  return 0
+end fn decimal_cmp
 
 // ---- measures ----
 
@@ -1712,6 +2010,8 @@ fn vexpr(v: inout Verifier, e: Expr, st: inout St) -> String do
   match e.kind
   case IntLit(value: n) then
     return int_lit(n)
+  case FloatLit(text: t) then
+    return float_lit(v: inout v, text: t)
   case BoolLit(value: b) then
     if b then
       return "true"
@@ -1852,6 +2152,10 @@ fn vexpr(v: inout Verifier, e: Expr, st: inout St) -> String do
   case Unary(op: op, x: x) then
     let a = vexpr(v: inout v, e: x, st: inout st)
     if op == "-" then
+      if ty_show(type_of(info: v.info, e: x)) == "Float" then
+        let nt = float_neg(v: inout v, a: a)
+        return define(v: inout v, sort: "Flt", term: nt)
+      end if
       return "(- " ++ a ++ ")"
     end if
     return "(not " ++ a ++ ")"
@@ -1898,6 +2202,15 @@ fn vexpr(v: inout Verifier, e: Expr, st: inout St) -> String do
     end if
     let a = vexpr(v: inout v, e: l, st: inout st)
     let b = vexpr(v: inout v, e: r, st: inout st)
+    if ty_show(type_of(info: v.info, e: l)) == "Float" then
+      // IEEE arithmetic never fails, so there is nothing to prove.
+      var fsort = "Flt"
+      if contains_str(xs: ["<", "<=", ">", ">=", "==", "!="], x: op) then
+        set fsort = "Bool"
+      end if
+      let ft = float_op(v: inout v, op: op, a: a, b: b)
+      return define(v: inout v, sort: fsort, term: ft)
+    end if
     if (op == "/") or (op == "%") then
       obligation(v: inout v, st: st, pos: e.pos, what: "divisor is not zero: " ++ pretty_expr(r), goal: "(not (= " ++ b ++ " 0))")
       return define(v: inout v, sort: "Int", term: binop_term(op: op, a: a, b: b))
@@ -2119,6 +2432,10 @@ fn vbuiltin(v: inout Verifier, e: Expr, name: String, p: List<String>, pe: List<
   let a0 = arg_str(p: p, i: 0)
   let a1 = arg_str(p: p, i: 1)
   let a2 = arg_str(p: p, i: 2)
+  let ft = float_builtin(v: inout v, name: name, a: a0)
+  if len(ft) > 0 then
+    return define(v: inout v, sort: sort_of(rty), term: ft)
+  end if
   match name
   case "len" then
     return define(v: inout v, sort: "Int", term: "(len " ++ a0 ++ ")")
@@ -2461,7 +2778,7 @@ end fn discharge
 fn failure_diag(f: Failure) -> Diag do
   var d = diag(pos: f.ob.pos, msg: "cannot prove " ++ f.ob.what)
   if f.verdict == "unknown-unfolded" then
-    set d = with_note(d: d, note: "not proved: it may be false, or need more steps than the verifier takes (a recursive specification function is unfolded at most twice per use); assert the intermediate steps")
+    set d = with_note(d: d, note: "not proved: it may be false, or need facts the verifier does not have (it knows only order and NaN-ness of Float values, and unfolds a recursive specification function at most twice per use); state them with check, assert or a contract")
   elif f.verdict == "unknown" then
     set d = with_note(d: d, note: "Z3 gave up (timeout or incomplete theory); add an assertion, invariant or check to help it")
   elif len(f.model) > 0 then

@@ -263,6 +263,8 @@ fn is_heap(t: Ty) -> Bool do
   match t
   case TInt then
     return false
+  case TFloat then
+    return false
   case TBool then
     return false
   case TUnit then
@@ -942,6 +944,8 @@ fn gen_expr(g: inout Gen, e: Expr) -> Val do
   match e.kind
   case IntLit(value: n) then
     return plain_val("(V)INT64_C(" ++ int_to_str(n) ++ ")")
+  case FloatLit(text: t) then
+    return plain_val("DV(" ++ t ++ ")")
   case StrLit(value: s) then
     return plain_val(str_lit(g: inout g, s: s))
   case BoolLit(value: b) then
@@ -1070,6 +1074,9 @@ fn gen_expr(g: inout Gen, e: Expr) -> Val do
   case Unary(op: op, x: x) then
     let v = gen_expr(g: inout g, e: x)
     if op == "-" then
+      if ty_show(type_of(info: g.info, e: x)) == "Float" then
+        return plain_val(bind(g: inout g, rhs: "vfneg(" ++ v.c ++ ")"))
+      end if
       return plain_val(bind(g: inout g, rhs: "vneg(" ++ v.c ++ ")"))
     end if
     return plain_val(bind(g: inout g, rhs: "(V)!" ++ v.c))
@@ -1126,6 +1133,24 @@ fn gen_binary(g: inout Gen, op: String, l: Expr, r: Expr) -> Val do
   let a = gen_expr(g: inout g, e: l)
   let b = gen_expr(g: inout g, e: r)
   let is_str = ty_show(type_of(info: g.info, e: l)) == "String"
+  if ty_show(type_of(info: g.info, e: l)) == "Float" then
+    match op
+    case "+" then
+      return plain_val(bind(g: inout g, rhs: "vfadd(" ++ a.c ++ ", " ++ b.c ++ ")"))
+    case "-" then
+      return plain_val(bind(g: inout g, rhs: "vfsub(" ++ a.c ++ ", " ++ b.c ++ ")"))
+    case "*" then
+      return plain_val(bind(g: inout g, rhs: "vfmul(" ++ a.c ++ ", " ++ b.c ++ ")"))
+    case "/" then
+      return plain_val(bind(g: inout g, rhs: "vfdiv(" ++ a.c ++ ", " ++ b.c ++ ")"))
+    case "==" then
+      return plain_val(bind(g: inout g, rhs: "(V)(VD(" ++ a.c ++ ") == VD(" ++ b.c ++ "))"))
+    case "!=" then
+      return plain_val(bind(g: inout g, rhs: "(V)(VD(" ++ a.c ++ ") != VD(" ++ b.c ++ "))"))
+    else
+      return plain_val(bind(g: inout g, rhs: "(V)(VD(" ++ a.c ++ ") " ++ op ++ " VD(" ++ b.c ++ "))"))
+    end match
+  end if
   match op
   case "++" then
     if is_str then
@@ -1167,6 +1192,9 @@ fn c_eq(g: inout Gen, t: Ty, a: String, b: String) -> String do
   if ty_show(t) == "String" then
     return "vstr_eq(" ++ a ++ ", " ++ b ++ ")"
   end if
+  if ty_show(t) == "Float" then
+    return "(VD(" ++ a ++ ") == VD(" ++ b ++ "))"
+  end if
   if simple_eq(t) then
     return "(" ++ a ++ " == " ++ b ++ ")"
   end if
@@ -1186,7 +1214,12 @@ end fn c_eq
 // The definition of the equality function for t: shared values are equal at once,
 // otherwise the parts are compared in order.
 fn gen_eq_fn(g: inout Gen, t: Ty) -> List<String> do
-  var out = ["static V " ++ eq_c_name(t) ++ "(V a, V b) {", "    if (a == b) return 1;"]
+  var out = ["static V " ++ eq_c_name(t) ++ "(V a, V b) {"]
+  // A value is not equal to itself when it holds a NaN, so only values without floats
+  // may be equal because they are the same object.
+  if not contains_float(info: g.info, t: t) then
+    set out = push(list: out, item: "    if (a == b) return 1;")
+  end if
   match t
   case TStruct(name: n) then
     let fields = struct_fields(info: g.info, name: n)
@@ -1407,6 +1440,26 @@ fn gen_builtin(g: inout Gen, e: Expr, name: String, p: List<Val>, pe: List<Expr>
     return owned_tmp(g: inout g, rhs: "vgetenv(" ++ v0.c ++ ")", heap: true)
   case "read_line" then
     return owned_tmp(g: inout g, rhs: "vread_line()", heap: true)
+  case "int_to_float" then
+    return plain_val(bind(g: inout g, rhs: "vint_to_float(" ++ v0.c ++ ")"))
+  case "float_to_int" then
+    return owned_tmp(g: inout g, rhs: "vfloat_to_int(" ++ v0.c ++ ")", heap: true)
+  case "float_to_str" then
+    return owned_tmp(g: inout g, rhs: "vfloat_to_str(" ++ v0.c ++ ")", heap: true)
+  case "str_to_float" then
+    return owned_tmp(g: inout g, rhs: "vstr_to_float(" ++ v0.c ++ ")", heap: true)
+  case "floor" then
+    return plain_val(bind(g: inout g, rhs: "vfloor(" ++ v0.c ++ ")"))
+  case "ceil" then
+    return plain_val(bind(g: inout g, rhs: "vceil(" ++ v0.c ++ ")"))
+  case "round" then
+    return plain_val(bind(g: inout g, rhs: "vround(" ++ v0.c ++ ")"))
+  case "sqrt" then
+    return plain_val(bind(g: inout g, rhs: "vsqrt(" ++ v0.c ++ ")"))
+  case "abs_float" then
+    return plain_val(bind(g: inout g, rhs: "vabs_float(" ++ v0.c ++ ")"))
+  case "is_nan" then
+    return plain_val(bind(g: inout g, rhs: "vis_nan(" ++ v0.c ++ ")"))
   case "read_bytes" then
     return owned_tmp(g: inout g, rhs: "vread_bytes(" ++ v0.c ++ ")", heap: true)
   case "run" then

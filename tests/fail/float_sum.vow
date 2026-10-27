@@ -1,0 +1,7 @@
+// error: cannot prove assertion: (0.1 + 0.2) == 0.3
+// language: 0.8
+
+// False at runtime (0.1 + 0.2 is 0.30000000000000004): arithmetic is not real arithmetic.
+fn main() do
+  assert (0.1 + 0.2) == 0.3
+end fn main

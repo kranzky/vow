@@ -1,0 +1,11 @@
+// error: cannot prove postcondition of 'next': result > x
+// language: 0.8
+
+// False for NaN, for infinity, and for large x (x + 1.0 rounds back to x).
+fn next(x: Float) -> Float ensures result > x do
+  return x + 1.0
+end fn next
+
+fn main() do
+  let _ = next(1.0)
+end fn main

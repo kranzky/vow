@@ -3,8 +3,7 @@
 fn std_json() -> String do
   return "// std/json.vow: JSON values, parsing and printing. Import with `import \"std/json.vow\"`.\n" ++
     "//\n" ++
-    "// Numbers are integers, since Vow has no floats yet: a number with a fraction or an\n" ++
-    "// exponent is a parse error. An object keeps its members in order, duplicates included;\n" ++
+    "// A number is a JNum (an Int) when it is an integer that fits, and otherwise a JFloat. An object keeps its members in order, duplicates included;\n" ++
     "// json_get finds the first member with a key. Strings are bytes: \\u escapes are decoded\n" ++
     "// to UTF-8, and printing escapes only '\"', '\\' and control characters.\n" ++
     "\n" ++
@@ -14,6 +13,7 @@ fn std_json() -> String do
     "  JNull,\n" ++
     "  JBool(value: Bool),\n" ++
     "  JNum(value: Int),\n" ++
+    "  JFloat(value: Float),\n" ++
     "  JStr(value: String),\n" ++
     "  JArr(items: List<Json>),\n" ++
     "  JObj(keys: List<String>, values: List<Json>),\n" ++
@@ -65,6 +65,13 @@ fn std_json() -> String do
     "    return \"false\"\n" ++
     "  case JNum(value: n) then\n" ++
     "    return int_to_str(n)\n" ++
+    "  case JFloat(value: x) then\n" ++
+    "    // JSON has no NaN or infinities.\n" ++
+    "    let t = float_to_str(x)\n" ++
+    "    if is_nan(x) or (t == \"inf\") or (t == \"-inf\") then\n" ++
+    "      return \"null\"\n" ++
+    "    end if\n" ++
+    "    return t\n" ++
     "  case JStr(value: s) then\n" ++
     "    return json_quote(s)\n" ++
     "  case JArr(items: xs) then\n" ++
@@ -110,6 +117,18 @@ fn std_json() -> String do
     "    return Option.None\n" ++
     "  end match\n" ++
     "end fn json_string\n" ++
+    "\n" ++
+    "// A number as a Float (a JNum converted).\n" ++
+    "fn json_float(j: Json) -> Option<Float> do\n" ++
+    "  match j\n" ++
+    "  case JFloat(value: x) then\n" ++
+    "    return Option.Some(value: x)\n" ++
+    "  case JNum(value: n) then\n" ++
+    "    return Option.Some(value: int_to_float(n))\n" ++
+    "  else\n" ++
+    "    return Option.None\n" ++
+    "  end match\n" ++
+    "end fn json_float\n" ++
     "\n" ++
     "fn json_int(j: Json) -> Option<Int> do\n" ++
     "  match j\n" ++
@@ -283,7 +302,10 @@ fn std_json() -> String do
     "  end while\n" ++
     "end fn json_array\n" ++
     "\n" ++
+    "// A number: an integer that fits in an Int is a JNum; one with a fraction or an exponent,\n" ++
+    "// or too large for an Int, is a JFloat.\n" ++
     "fn json_number(r: inout JsonReader) -> Result<Json, String> do\n" ++
+    "  let start = r.pos\n" ++
     "  var negative = false\n" ++
     "  if jr_peek(r) == '-' then\n" ++
     "    set negative = true\n" ++
@@ -293,23 +315,64 @@ fn std_json() -> String do
     "    return Result.Err(error: jr_error(r: r, msg: \"expected a digit\"))\n" ++
     "  end if\n" ++
     "  var n = 0\n" ++
+    "  var fits = true\n" ++
     "  while (r.pos < len(r.s)) and is_digit(r.s[r.pos]) decreases len(r.s) - r.pos do\n" ++
     "    let d = r.s[r.pos] - '0'\n" ++
     "    if n > ((9223372036854775807 - d) / 10) then\n" ++
-    "      return Result.Err(error: jr_error(r: r, msg: \"number does not fit in 64 bits\"))\n" ++
+    "      set fits = false\n" ++
+    "    else\n" ++
+    "      set n = (n * 10) + d\n" ++
     "    end if\n" ++
-    "    set n = (n * 10) + d\n" ++
     "    set r = r with (pos: r.pos + 1)\n" ++
     "  end while\n" ++
-    "  let c = jr_peek(r)\n" ++
-    "  if (c == '.') or (c == 'e') or (c == 'E') then\n" ++
-    "    return Result.Err(error: jr_error(r: r, msg: \"numbers with fractions or exponents are not supported\"))\n" ++
+    "  var float = not fits\n" ++
+    "  if jr_peek(r) == '.' then\n" ++
+    "    set float = true\n" ++
+    "    jr_advance(inout r)\n" ++
+    "    if not is_digit(jr_peek(r)) then\n" ++
+    "      return Result.Err(error: jr_error(r: r, msg: \"expected a digit after '.'\"))\n" ++
+    "    end if\n" ++
+    "    jr_digits(inout r)\n" ++
+    "  end if\n" ++
+    "  if (jr_peek(r) == 'e') or (jr_peek(r) == 'E') then\n" ++
+    "    set float = true\n" ++
+    "    jr_advance(inout r)\n" ++
+    "    if (jr_peek(r) == '+') or (jr_peek(r) == '-') then\n" ++
+    "      jr_advance(inout r)\n" ++
+    "    end if\n" ++
+    "    if not is_digit(jr_peek(r)) then\n" ++
+    "      return Result.Err(error: jr_error(r: r, msg: \"expected a digit in the exponent\"))\n" ++
+    "    end if\n" ++
+    "    jr_digits(inout r)\n" ++
+    "  end if\n" ++
+    "  if float then\n" ++
+    "    if (0 <= start) and (start <= r.pos) and (r.pos <= len(r.s)) then\n" ++
+    "      match str_to_float(slice(of: r.s, from: start, to: r.pos))\n" ++
+    "      case Some(value: x) then\n" ++
+    "        return Result.Ok(value: Json.JFloat(value: x))\n" ++
+    "      case None then\n" ++
+    "      end match\n" ++
+    "    end if\n" ++
+    "    return Result.Err(error: jr_error(r: r, msg: \"malformed number\"))\n" ++
     "  end if\n" ++
     "  if negative then\n" ++
     "    return Result.Ok(value: Json.JNum(value: -n))\n" ++
     "  end if\n" ++
     "  return Result.Ok(value: Json.JNum(value: n))\n" ++
     "end fn json_number\n" ++
+    "\n" ++
+    "fn jr_digits(r: inout JsonReader)\n" ++
+    "  ensures r.s == old(r).s\n" ++
+    "  ensures r.pos >= old(r).pos\n" ++
+    "do\n" ++
+    "  while (r.pos < len(r.s)) and is_digit(r.s[r.pos])\n" ++
+    "    invariant r.s == old(r).s\n" ++
+    "    invariant r.pos >= old(r).pos\n" ++
+    "    decreases len(r.s) - r.pos\n" ++
+    "  do\n" ++
+    "    set r = r with (pos: r.pos + 1)\n" ++
+    "  end while\n" ++
+    "end fn jr_digits\n" ++
     "\n" ++
     "// A string literal (the reader is at its opening quote), with escapes decoded.\n" ++
     "fn json_string_lit(r: inout JsonReader) -> Result<String, String> do\n" ++

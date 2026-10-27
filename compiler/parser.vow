@@ -730,6 +730,8 @@ fn parse_primary(p: inout Parser) -> Expr do
   let pos = t.pos
   if t.kind == "int" then
     return mk(p: inout p, pos: pos, kind: EK.IntLit(value: t.num))
+  elif t.kind == "float" then
+    return mk(p: inout p, pos: pos, kind: EK.FloatLit(text: t.text))
   elif t.kind == "str" then
     return mk(p: inout p, pos: pos, kind: EK.StrLit(value: t.text))
   elif t.kind == "hole" then

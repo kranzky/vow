@@ -1,0 +1,11 @@
+// error: cannot prove postcondition of 'keep': result == x
+// language: 0.8
+
+// T may be Float, and a NaN is not equal to itself.
+fn keep<T>(x: T) -> T ensures result == x do
+  return x
+end fn keep
+
+fn main() do
+  let _ = keep(1)
+end fn main

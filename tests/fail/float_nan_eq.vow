@@ -1,0 +1,15 @@
+// error: cannot prove assertion: r == r
+// language: 0.8
+
+// A struct holding a NaN is not equal to itself, so this must not be proved.
+struct Reading
+  value: Float,
+end struct Reading
+
+fn same(r: Reading) do
+  assert r == r
+end fn same
+
+fn main() do
+  same(Reading(value: 1.0))
+end fn main

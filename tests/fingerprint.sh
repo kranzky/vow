@@ -17,11 +17,14 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 sha() { (sha256sum "$1" 2>/dev/null || shasum -a 256 "$1") | cut -d' ' -f1; }
 echo "$version" > "$tmp/new"
+# A program's source includes the standard modules it may import.
+cat std/*.vow > "$tmp/std"
 for f in tests/run/*.vow examples/*.vow; do
   rm -f "$tmp/one.smt2"
   VOW_SMT_DUMP="$tmp/one.smt2" "$VOWC" check "$f" --no-cache >/dev/null 2>&1
   touch "$tmp/one.smt2"
-  echo "$f $(sha "$f") $(sha "$tmp/one.smt2")" >> "$tmp/new"
+  cat "$f" "$tmp/std" > "$tmp/src"
+  echo "$f $(sha "$tmp/src") $(sha "$tmp/one.smt2")" >> "$tmp/new"
 done
 if [ "$1" = "--update" ]; then
   cp "$tmp/new" tests/smt.fingerprint

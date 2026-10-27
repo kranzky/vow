@@ -5,6 +5,8 @@ import "ast.vow"
 
 enum Ty
   TInt,
+  // A 64-bit IEEE double.
+  TFloat,
   TBool,
   TStr,
   TUnit,
@@ -24,6 +26,8 @@ fn ty_show(t: Ty) -> String do
   match t
   case TInt then
     return "Int"
+  case TFloat then
+    return "Float"
   case TBool then
     return "Bool"
   case TStr then
@@ -222,10 +226,22 @@ fn builtin_params(name: String) -> Option<List<String>> do
     return Option.Some(value: none)
   case "read_bytes" then
     return Option.Some(value: ["n"])
+  case "int_to_float" then
+    return Option.Some(value: ["n"])
+  case "str_to_float" then
+    return Option.Some(value: ["s"])
   else
+    if contains_str(xs: float_unary_builtins(), x: name) then
+      return Option.Some(value: ["x"])
+    end if
     return Option.None
   end match
 end fn builtin_params
+
+// The built-ins that take one Float.
+fn float_unary_builtins() -> List<String> do
+  return ["float_to_int", "float_to_str", "floor", "ceil", "round", "sqrt", "abs_float", "is_nan"]
+end fn float_unary_builtins
 
 fn is_builtin(name: String) -> Bool do
   if name == "old" then
@@ -252,7 +268,7 @@ end fn builtin_effect
 
 // Built-ins that may appear in specifications.
 fn spec_builtin(name: String) -> Bool do
-  return contains_str(xs: ["len", "value_or", "is_some", "is_none"], x: name)
+  return contains_str(xs: ["len", "value_or", "is_some", "is_none", "is_nan", "int_to_float"], x: name)
 end fn spec_builtin
 
 fn builtin_noreturn(name: String) -> Bool do
@@ -360,10 +376,62 @@ fn eq_blocker(info: Info, t: Ty, seen: inout List<String>) -> String do
   end match
 end fn eq_blocker
 
+// Whether values of t can hold a Float (and so a NaN, which is not equal to itself).
+fn contains_float(info: Info, t: Ty) -> Bool do
+  var seen: List<String> = []
+  return has_float(info: info, t: t, seen: inout seen)
+end fn contains_float
+
+fn has_float(info: Info, t: Ty, seen: inout List<String>) -> Bool do
+  match t
+  case TFloat then
+    return true
+  case TList(elem: x) then
+    return has_float(info: info, t: x, seen: inout seen)
+  case TOpt(inner: x) then
+    return has_float(info: info, t: x, seen: inout seen)
+  case TStruct(name: n) then
+    if contains_str(xs: seen, x: n) then
+      return false
+    end if
+    set seen = push(list: seen, item: n)
+    for f in struct_fields(info: info, name: n) do
+      if has_float(info: info, t: f.rty.ty, seen: inout seen) then
+        return true
+      end if
+    end for
+    return false
+  case TEnum(name: n) then
+    if contains_str(xs: seen, x: n) then
+      return false
+    end if
+    set seen = push(list: seen, item: n)
+    match lookup(map: info.enums, key: n)
+    case Some(value: vs) then
+      for vi in vs do
+        for f in vi.fields do
+          if has_float(info: info, t: f.rty.ty, seen: inout seen) then
+            return true
+          end if
+        end for
+      end for
+    case None then
+    end match
+    return false
+  case TParam(name: n) then
+    // A type parameter may stand for Float.
+    return true
+  else
+    return false
+  end match
+end fn has_float
+
 // Int, Bool, Unit and String are compared directly; other types structurally.
 fn simple_eq(t: Ty) -> Bool do
   match t
   case TInt then
+    return true
+  case TFloat then
     return true
   case TBool then
     return true
@@ -419,13 +487,15 @@ fn resolve_type(info: inout Info, te: TypeExpr, errs: inout List<Diag>) -> RTy d
   case None then
   end match
   if is_param then
-  elif (te.name == "Int") or (te.name == "Bool") or (te.name == "String") or (te.name == "Unit") or (te.name == "Output") then
+  elif (te.name == "Int") or (te.name == "Float") or (te.name == "Bool") or (te.name == "String") or (te.name == "Unit") or (te.name == "Output") then
     if n != 0 then
       set errs = push(list: errs, item: diag(pos: te.pos, msg: msg ++ "0 type argument(s), got " ++ int_to_str(n)))
     end if
     match te.name
     case "Int" then
       set base = plain(Ty.TInt)
+    case "Float" then
+      set base = plain(Ty.TFloat)
     case "Bool" then
       set base = plain(Ty.TBool)
     case "String" then
@@ -965,7 +1035,7 @@ fn alias_ready(info: Info, te: TypeExpr, alias_names: List<String>) -> Bool do
 end fn alias_ready
 
 fn primitive_types() -> List<String> do
-  return ["Int", "Bool", "String", "Unit", "List", "Map", "HashMap", "Option", "Output"]
+  return ["Int", "Float", "Bool", "String", "Unit", "List", "Map", "HashMap", "Option", "Output"]
 end fn primitive_types
 
 fn check_program(items: List<Item>, files: List<String>, next_id: Int) -> Checker do
@@ -2531,6 +2601,8 @@ fn check_expr_inner(c: inout Checker, e: Expr, expected: Option<Ty>) -> Ty do
   match e.kind
   case IntLit(value: n) then
     return Ty.TInt
+  case FloatLit(text: t) then
+    return Ty.TFloat
   case StrLit(value: s) then
     return Ty.TStr
   case BoolLit(value: b) then
@@ -2712,6 +2784,13 @@ fn check_expr_inner(c: inout Checker, e: Expr, expected: Option<Ty>) -> Ty do
     var want = Ty.TBool
     if op == "-" then
       set want = Ty.TInt
+      // Negation works on Int and Float.
+      let t = check_expr(c: inout c, e: x, expected: numeric_expected(x))
+      if ty_show(t) == "Float" then
+        return Ty.TFloat
+      end if
+      expect_ty(c: inout c, pos: x.pos, got: t, want: want, what: "the operand of '-'")
+      return want
     end if
     let t = check_expr(c: inout c, e: x, expected: Option.Some(value: want))
     expect_ty(c: inout c, pos: x.pos, got: t, want: want, what: "the operand of '" ++ op ++ "'")
@@ -2732,10 +2811,33 @@ fn check_expr_inner(c: inout Checker, e: Expr, expected: Option<Ty>) -> Ty do
   end match
 end fn check_expr_inner
 
+// The expected type for an operand that may be Int or Float: Int for a hole, so that its
+// report is useful; otherwise none, since the operand decides.
+fn numeric_expected(e: Expr) -> Option<Ty> do
+  match e.kind
+  case Hole(name: n) then
+    return Option.Some(value: Ty.TInt)
+  else
+    return Option.None
+  end match
+end fn numeric_expected
+
 fn check_binary(c: inout Checker, e: Expr, op: String, l: Expr, r: Expr) -> Ty do
   let what = "the operands of '" ++ op ++ "'"
   if contains_str(xs: ["+", "-", "*", "/", "%", "<", "<=", ">", ">="], x: op) then
-    let a = check_expr(c: inout c, e: l, expected: Option.Some(value: Ty.TInt))
+    // Int with Int, or Float with Float (never mixed: convert with int_to_float).
+    let a = check_expr(c: inout c, e: l, expected: numeric_expected(l))
+    if ty_show(a) == "Float" then
+      let fb = check_expr(c: inout c, e: r, expected: Option.Some(value: Ty.TFloat))
+      expect_ty(c: inout c, pos: r.pos, got: fb, want: Ty.TFloat, what: what)
+      if op == "%" then
+        err(c: inout c, pos: e.pos, msg: "'%' works on Int, not Float")
+      end if
+      if contains_str(xs: ["+", "-", "*", "/", "%"], x: op) then
+        return Ty.TFloat
+      end if
+      return Ty.TBool
+    end if
     let b = check_expr(c: inout c, e: r, expected: Option.Some(value: Ty.TInt))
     expect_ty(c: inout c, pos: l.pos, got: a, want: Ty.TInt, what: what)
     expect_ty(c: inout c, pos: r.pos, got: b, want: Ty.TInt, what: what)
@@ -3367,6 +3469,21 @@ fn builtin_call(c: inout Checker, e: Expr, name: String, a: List<Expr> where len
   case "str_to_int" then
     want(c: inout c, x: a[0], t: Ty.TStr, what: "the argument")
     return Ty.TOpt(inner: Ty.TInt)
+  case "int_to_float" then
+    want(c: inout c, x: a[0], t: Ty.TInt, what: "the argument")
+    return Ty.TFloat
+  case "str_to_float" then
+    want(c: inout c, x: a[0], t: Ty.TStr, what: "the argument")
+    return Ty.TOpt(inner: Ty.TFloat)
+  case "float_to_int" then
+    want(c: inout c, x: a[0], t: Ty.TFloat, what: "the argument")
+    return Ty.TOpt(inner: Ty.TInt)
+  case "float_to_str" then
+    want(c: inout c, x: a[0], t: Ty.TFloat, what: "the argument")
+    return Ty.TStr
+  case "is_nan" then
+    want(c: inout c, x: a[0], t: Ty.TFloat, what: "the argument")
+    return Ty.TBool
   case "char" then
     want(c: inout c, x: a[0], t: Ty.TInt, what: "the character code")
     return Ty.TStr
@@ -3435,6 +3552,10 @@ fn builtin_call(c: inout Checker, e: Expr, name: String, a: List<Expr> where len
       return Ty.TUnknown
     end match
   else
+    if contains_str(xs: ["floor", "ceil", "round", "sqrt", "abs_float"], x: name) then
+      want(c: inout c, x: a[0], t: Ty.TFloat, what: "the argument")
+      return Ty.TFloat
+    end if
     return map_builtin(c: inout c, e: e, name: name, a: a, expected: expected)
   end match
 end fn builtin_call

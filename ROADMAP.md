@@ -46,7 +46,8 @@ Must-have, language and proofs:
       and lists); `vowc check --totality` reports which functions are proved to terminate
 - [x] Generics: functions, structs and enums; type arguments inferred; each generic
       function verified once for all types and compiled per type
-- [ ] Float, with documented verification semantics
+- [x] Float (IEEE doubles), with documented verification semantics: order and NaN-ness
+      are known, arithmetic only through what the program states
 - [x] Keywords as labels (fields, argument labels, field access, pattern fields)
 - [x] `let _ =` discards; `value_or`, `is_some`, `is_none`
 - [x] `Result<T, E>` and `try` (also for `Option`)

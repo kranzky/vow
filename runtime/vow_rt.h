@@ -25,7 +25,9 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
+#include <ctype.h>
 #include <dirent.h>
+#include <math.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -348,6 +350,32 @@ static inline V vmod_at(V a, V b, VOW_AT) {
 #define vdiv(a, b) vdiv_at((a), (b), __FILE__, __LINE__)
 #define vmod(a, b) vmod_at((a), (b), __FILE__, __LINE__)
 
+// ---- floats: a Float is a double stored in the bits of a V ----
+
+static inline double VD(V x) {
+    double d;
+    memcpy(&d, &x, sizeof d);
+    return d;
+}
+static inline V DV(double d) {
+    V x;
+    memcpy(&x, &d, sizeof x);
+    return x;
+}
+// IEEE arithmetic: never panics (division by zero gives an infinity or NaN).
+static inline V vfadd(V a, V b) { return DV(VD(a) + VD(b)); }
+static inline V vfsub(V a, V b) { return DV(VD(a) - VD(b)); }
+static inline V vfmul(V a, V b) { return DV(VD(a) * VD(b)); }
+static inline V vfdiv(V a, V b) { return DV(VD(a) / VD(b)); }
+static inline V vfneg(V a) { return DV(-VD(a)); }
+static inline V vint_to_float(V n) { return DV((double)VI(n)); }
+static inline V vfloor(V x) { return DV(floor(VD(x))); }
+static inline V vceil(V x) { return DV(ceil(VD(x))); }
+static inline V vround(V x) { return DV(round(VD(x))); }
+static inline V vsqrt(V x) { return DV(sqrt(VD(x))); }
+static inline V vabs_float(V x) { return DV(fabs(VD(x))); }
+static inline V vis_nan(V x) { return (V)(isnan(VD(x)) != 0); }
+
 // ---- strings (all functions borrow their arguments) ----
 
 static V vstr_new(const char *p, int64_t n) {
@@ -402,6 +430,37 @@ static V vchar_at(V code, VOW_AT) {
 }
 
 #define vchar(code) vchar_at((code), __FILE__, __LINE__)
+
+// The shortest text that reads back as the same double, always with a '.' or an
+// exponent (1.0, not 1): 0.1, 300.0, 1e+16, 1.5e-05; "nan", "inf" or "-inf".
+static V vfloat_to_str(V x) {
+    double d = VD(x);
+    char buf[48];
+    if (isnan(d)) return vstr_new("nan", 3);
+    if (isinf(d)) return d > 0 ? vstr_new("inf", 3) : vstr_new("-inf", 4);
+    // The fewest significant digits that read back as d; then, as Python's repr does,
+    // plain notation for magnitudes from 1e-4 up to 1e16 and an exponent otherwise.
+    int p = 1;
+    for (; p < 17; p++) {
+        snprintf(buf, sizeof buf, "%.*e", p - 1, d);
+        if (strtod(buf, NULL) == d) break;
+    }
+    snprintf(buf, sizeof buf, "%.*e", p - 1, d);
+    int e = atoi(strchr(buf, 'e') + 1);
+    if (d != 0 && (e < -4 || e >= 16)) {
+        // Python's form: 1e+16, 6.02e+23, 1.5e-05.
+        char mant[32];
+        int len = (int)(strchr(buf, 'e') - buf);
+        memcpy(mant, buf, (size_t)len);
+        mant[len] = 0;
+        snprintf(buf, sizeof buf, "%se%c%02d", mant, e < 0 ? '-' : '+', e < 0 ? -e : e);
+    } else {
+        int decimals = p - 1 - e;
+        if (decimals < 1) decimals = 1;
+        snprintf(buf, sizeof buf, "%.*f", decimals, d);
+    }
+    return vstr_new(buf, (int64_t)strlen(buf));
+}
 
 static V vint_to_str(V n) {
     char buf[32];
@@ -485,6 +544,23 @@ static V vvalue_or(V o, V d, int heap) {
         return r;
     }
     return d;
+}
+
+// The whole string must be a number (as C's strtod reads it).
+static V vstr_to_float(V s) {
+    const char *p = VS(s)->data;
+    if (VS(s)->len == 0 || isspace((unsigned char)p[0])) return vnone();
+    char *end;
+    double d = strtod(p, &end);
+    if (end != p + VS(s)->len) return vnone();
+    return vsome(DV(d), 0);
+}
+
+// None for NaN and for values outside the Int range; otherwise rounded toward zero.
+static V vfloat_to_int(V x) {
+    double d = VD(x);
+    if (isnan(d) || d < -9223372036854775808.0 || d >= 9223372036854775808.0) return vnone();
+    return vsome((V)(int64_t)d, 0);
 }
 
 static V vstr_to_int(V s) {

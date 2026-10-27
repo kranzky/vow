@@ -1,5 +1,26 @@
 # Changelog
 
+## v0.8.0 (unreleased)
+
+Floats.
+
+- `Float`: 64-bit IEEE doubles, with literals (`1.5`, `2.5e-3`), `+ - * /`, negation,
+  comparisons, and `int_to_float`, `float_to_int`, `float_to_str`, `str_to_float`,
+  `floor`, `ceil`, `round`, `sqrt`, `abs_float` and `is_nan`. Floats are unboxed; their
+  arithmetic never traps. `Int` and `Float` never mix.
+- Verification: a float is known by its order and whether it is a NaN, so comparisons
+  reason soundly without axioms; literals, negation, `abs_float`, `floor`, `ceil`,
+  `sqrt` and `int_to_float` have their exact or monotone facts; nothing else about
+  arithmetic is assumed. Must-fail tests check that `(0.1 + 0.2) == 0.3`, `r == r` for a
+  struct that may hold a NaN, and `x + 1.0 > x` are not proved.
+- `==` on a type that can hold a float (including a type parameter) no longer assumes
+  that a value equals itself, since a NaN does not; generated code drops its
+  same-object shortcut for such types (verifier version 6).
+- `float_to_str` prints the shortest text that reads back as the same double, as Python
+  does (`0.1`, `300.0`, `1e+16`).
+- `std/json.vow` reads and writes fractional numbers (`JFloat`), and integers too large
+  for an `Int`.
+
 ## v0.7.0
 
 Tooling: a formatter, a test runner and a language server; JSON; a pinned Z3.

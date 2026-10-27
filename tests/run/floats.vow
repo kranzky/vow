@@ -1,0 +1,65 @@
+// language: 0.8
+// Float: arithmetic, comparisons, NaN, conversions, printing and JSON numbers.
+
+import "std/json.vow"
+
+struct Reading
+  label: String,
+  value: Float,
+end struct Reading
+
+fn mean(xs: List<Float>) -> Float do
+  var total = 0.0
+  for x in xs do
+    set total = total + x
+  end for
+  if len(xs) == 0 then
+    return 0.0
+  end if
+  return total / int_to_float(len(xs))
+end fn mean
+
+fn clamp(x: Float, lo: Float, hi: Float) -> Float
+  requires lo <= hi
+  ensures is_nan(x) or ((lo <= result) and (result <= hi))
+do
+  if x < lo then
+    return lo
+  end if
+  if x > hi then
+    return hi
+  end if
+  return x
+end fn clamp
+
+fn main() uses console do
+  let xs = [1.5, 2.5, 4.0]
+  print(float_to_str(mean(xs)) ++ "\n")
+  print(float_to_str(clamp(x: 7.25, lo: 0.0, hi: 5.0)) ++ " " ++ float_to_str(-0.1 + 0.2) ++ "\n")
+  let zero = 0.0
+  let nan = zero / zero
+  print(float_to_str(1.0 / zero) ++ " " ++ float_to_str(nan) ++ " " ++ float_to_str(sqrt(2.0)) ++ "\n")
+  let r = Reading(label: "n", value: nan)
+  if r == r then
+    print("equal\n")
+  else
+    print("a NaN reading is not equal to itself\n")
+  end if
+  print(int_to_str(value_or(opt: float_to_int(-2.75), default: 0)) ++ " " ++ float_to_str(round(2.5)) ++ " " ++ float_to_str(floor(-2.5)) ++ "\n")
+  match str_to_float("6.02e23")
+  case Some(value: av) then
+    print(float_to_str(av) ++ "\n")
+  case None then
+  end match
+  assert 1.0 < 2.5
+  assert int_to_float(3) == 3.0
+  let a = abs_float(-4.0)
+  assert a >= 0.0
+  match json_parse("[1, 2.5, -3e2, 12345678901234567890]")
+  case Ok(value: j) then
+    print(json_text(j) ++ "\n")
+  case Err(error: e) then
+    print(e ++ "\n")
+  end match
+  print(json_text(Json.JArr(items: [Json.JFloat(value: nan), Json.JFloat(value: 0.5)])) ++ "\n")
+end fn main
