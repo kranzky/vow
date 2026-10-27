@@ -1,6 +1,8 @@
 # Changelog
 
-## v0.6.0 (unreleased)
+## v0.6.0
+
+Termination, recursive specification functions and readable panics.
 
 - Mutual recursion is measured: functions that call each other form a recursive group;
   when one has `decreases`, all must, and every call within the group must decrease
