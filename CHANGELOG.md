@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+Soundness fixes.
+
+- Fixed (unsound): the refinement of a `var` or an `inout` parameter could name another
+  variable that changes, such as `var y: Int where it > x`. The refinement was checked
+  only when its own variable was assigned, but assumed again at loop heads and after
+  calls, so a program could prove a false postcondition. Such refinements are now
+  rejected: they may name only `let`s and parameters that are not `inout`.
+
 ## v0.9.0
 
 Modules and packages.

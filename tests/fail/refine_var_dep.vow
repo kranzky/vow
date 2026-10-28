@@ -1,0 +1,22 @@
+// error: the refinement of 'y' names 'x', which can change
+// language: 0.9
+// Unsound before: the loop head assumed y > x again after x had changed.
+fn b() -> Int
+  ensures result > 1000
+do
+  var x = 0
+  var y: Int where it > x = 1
+  set x = 1000
+  var i = 0
+  while i < 3
+    invariant i >= 0
+  do
+    set y = y + 1
+    set i = i + 1
+  end while
+  return y
+end fn b
+
+fn main() do
+  let n = b()
+end fn main

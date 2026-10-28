@@ -1,0 +1,23 @@
+// error: the refinement of 'xs' names 'n', which can change
+// language: 0.9
+// Unsound before: d changes n without xs's refinement being checked, and the caller
+// assumed it afterwards.
+fn d(n: inout Int, xs: inout List<Int> where len(it) == n) do
+  set n = n + 1
+end fn d
+
+fn e() -> Int
+  ensures result == 99
+do
+  var n = 0
+  var xs: List<Int> = []
+  d(n: inout n, xs: inout xs)
+  if len(xs) != n then
+    return 0
+  end if
+  return 99
+end fn e
+
+fn main() do
+  let r = e()
+end fn main

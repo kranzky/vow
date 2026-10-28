@@ -187,9 +187,13 @@ the caller afterwards.
 
 Refinements may appear on parameter types, return types, `let`/`var` annotations, struct
 and variant fields, and type aliases. A parameter refinement may refer to earlier
-parameters. A field refinement may refer to sibling fields. Refinements nested inside
-`List<...>`, `Map<...>` or `Option<...>` are not allowed; wrap the element in a struct
-with a refined field instead.
+parameters. A field refinement may refer to sibling fields. The refinement of a `var` or
+an `inout` parameter may name only variables that cannot change (`let`s and parameters
+that are not `inout`): it is checked when its own variable is assigned, and assumed
+again where that variable may have changed, so a change to another variable must not be
+able to falsify it. State such a fact as a loop invariant, a `check` or a
+postcondition. Refinements nested inside `List<...>`, `Map<...>` or `Option<...>` are not
+allowed; wrap the element in a struct with a refined field instead.
 
 ## Declarations
 
