@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Fixed (unsound cache): a function's cached proof was reused after another function
+  started calling it back, forming a recursive group with it. Calls within a group must
+  decrease the measure, so the proof no longer applied: `vowc check --totality` could
+  report as terminating two functions that call each other forever. A function's cache
+  key now includes its recursive group. `tests/cache/` checks such edits.
 - Fixed (unsound): a variable passed inout on the right of `and`, `or` or `implies`, as
   in `ok = (x > 0) and bump(y: inout y)`, kept its old value as far as the verifier knew,
   so a function could be proved to return 0 and return 100. The verifier now knows the

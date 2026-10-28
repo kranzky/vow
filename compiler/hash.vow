@@ -214,6 +214,19 @@ fn hash_program(items: List<Item>, info: Info) -> List<FnHash> do
         end match
       end for
       var material = verifier_version() ++ "\n" ++ body ++ "\n" ++ types_hash ++ "\n"
+      // The function's group of mutually recursive functions: a call into the group
+      // must decrease the measure, so the proof changes when the group does (say, when
+      // a callee's body starts calling back), even if this function does not.
+      let k = value_or(opt: lookup(map: info.scc, key: f.name), default: -1)
+      if k >= 0 then
+        var group: List<String> = []
+        for g in keys(info.scc) do
+          if value_or(opt: lookup(map: info.scc, key: g), default: -1) == k then
+            set group = push(list: group, item: g)
+          end if
+        end for
+        set material = material ++ "group=" ++ join(parts: group, sep: ",") ++ "\n"
+      end if
       for c in keys(sorted) do
         match lookup(map: sorted, key: c)
         case Some(value: h) then

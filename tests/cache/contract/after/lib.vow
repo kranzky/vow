@@ -1,0 +1,8 @@
+// language: 0.9
+// The contract main relied on is weaker now.
+fn helper(n: Int) -> Int
+  requires n >= 0
+  ensures result >= n
+do
+  return n
+end fn helper

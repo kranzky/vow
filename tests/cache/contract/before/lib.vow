@@ -1,0 +1,7 @@
+// language: 0.9
+fn helper(n: Int) -> Int
+  requires n >= 0
+  ensures result > n
+do
+  return n + 1
+end fn helper

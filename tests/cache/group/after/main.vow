@@ -1,0 +1,26 @@
+// error: cannot prove call to 'b' decreases the measure of 'a': n < n
+// language: 0.9
+// Only b changed, but now a and b call each other, so a's call to b must decrease a's
+// measure. a's cached proof predates the group and must not be reused.
+fn a(n: Int) -> Int uses console
+  requires n >= 0
+  decreases n
+do
+  print("a\n")
+  return b(n + 1)
+end fn a
+
+fn b(n: Int) -> Int uses console
+  requires n >= 0
+  decreases n
+do
+  print("b\n")
+  if n == 0 then
+    return 0
+  end if
+  return a(n - 1)
+end fn b
+
+fn main() uses console do
+  let x = a(0)
+end fn main

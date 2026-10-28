@@ -141,6 +141,28 @@ if [ -z "$VOW_FROZEN" ] && command -v git >/dev/null 2>&1; then
     fail=$((fail + 1)); echo "FAIL packages"
   fi
 fi
+# The verification cache reuses a proof only while everything it relied on is
+# unchanged: each tests/cache/<case>/before/ verifies (filling the cache), then the
+# files in after/ replace them, and main.vow must be rejected with the message on the
+# first line of whichever main.vow is in use.
+if [ -z "$VOW_FROZEN" ]; then
+  for case in cache/*/; do
+    cdir=$(mktemp -d)
+    cp "$case"before/*.vow "$cdir/"
+    if ! "$VOWC" check "$cdir/main.vow" >/dev/null 2>&1; then
+      fail=$((fail + 1)); echo "FAIL $case: before/ does not verify"
+    else
+      cp "$case"after/*.vow "$cdir/"
+      want=$(sed -n '1s|^// error: ||p' "$cdir/main.vow")
+      if "$VOWC" check "$cdir/main.vow" 2>&1 | grep -qF "$want"; then
+        pass=$((pass + 1))
+      else
+        fail=$((fail + 1)); echo "FAIL $case: after/ was not rejected with: $want"
+      fi
+    fi
+    rm -rf "$cdir"
+  done
+fi
 # The pinned Z3 version must be the same in the compiler and the installer.
 pinned=$(sed -n 's/^VERSION=//p' ../tools/install-z3.sh)
 if grep -A1 'fn tested_z3_version' ../compiler/verify.vow | grep -q "\"$pinned\""; then

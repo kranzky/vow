@@ -1,0 +1,15 @@
+// error: cannot prove postcondition of 'a': result > 0
+// language: 0.9
+// main.vow is unchanged; only the contract of the function it calls changes.
+import "lib.vow" as lib
+
+fn a(n: Int) -> Int
+  requires n >= 0
+  ensures result > 0
+do
+  return lib.helper(n)
+end fn a
+
+fn main() do
+  let x = a(1)
+end fn main
