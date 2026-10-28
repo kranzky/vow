@@ -51,5 +51,5 @@ fn main() uses console do
   case Err(error: e) then
     print(e ++ "\n")
   end match
-  print(json.text(json.Json.JArr(items: [json.Json.JNull, json.Json.JBool(value: true)])) ++ "\n")
+  print(json.text(json.Value.Array(items: [json.Value.Null, json.Value.Bool(value: true)])) ++ "\n")
 end fn main

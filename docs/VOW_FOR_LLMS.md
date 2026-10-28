@@ -79,10 +79,12 @@ Check your code against this list before running the compiler.
     (`case Box(...)`). `import "std/text.vow" (split, trim)` brings in just those names.
     A plain `import "file.vow"` merges the whole file (and whatever it merges) into one
     namespace, where names must be unique. `private fn` (or `private struct`, `enum`,
-    `type`) keeps a declaration visible only in its own file. A module's name cannot
-    also name a variable or parameter. Packages (git repositories of Vow code) are
-    imported as `import "@shapes/shapes.vow" as shapes`: `vowc add shapes <git URL>`
-    pins one in `vow.pkg`, and `vowc fetch` fetches what `vow.pkg` lists.
+    `type`) keeps a declaration visible only in its own file, and a public declaration
+    cannot name a private type. A module's name cannot also name a variable or
+    parameter. `examples/prices.vow` imports a module of its own. Packages (git
+    repositories of Vow code) are imported as `import "@shapes/shapes.vow" as shapes`:
+    `vowc add shapes <git URL>` pins one in `vow.pkg`, and `vowc fetch` fetches what
+    `vow.pkg` lists.
 12. **Generic type arguments are inferred, never written at calls.** Declare
     `fn last<T>(xs: List<T>) -> T` and call `last(xs)`; write types in full
     (`Pair<Int, String>`). Inside a generic function, a `T` can be stored, passed,
@@ -184,13 +186,14 @@ with `import "std/text.vow" as text` (then `text.split(...)`). A plain
 `import "std/text.vow"` merges every name, so then don't define your own `trim`.
 
 `import "std/json.vow" as json` parses and prints JSON (import it as a module: its
-names, such as `parse` and `get`, are too general to merge). A value is a `json.Json`:
-`JNull`, `JBool(value)`, `JNum(value)` (an Int), `JFloat(value)` (any other number),
-`JStr(value)`, `JArr(items)` or `JObj(keys, values)`.
-`json.parse(s) -> Result<json.Json, String>` (the error gives the byte offset),
-`json.text(j)` prints compact JSON, `json.quote(s)` makes a JSON string literal, and
-`json.get(j: j, key: k)`, `json.get_string`, `json.get_int`, `json.string(j)`,
-`json.int(j)` and `json.float(j)` read values (`None` when absent or of another type).
+names, such as `parse` and `get`, are too general to merge). A value is a `json.Value`:
+`Null`, `Bool(value)`, `Int(value)`, `Float(value)` (a number that is not an Int),
+`String(value)`, `Array(items)` or `Object(keys, values)`; build one as
+`json.Value.Int(value: 3)`. `json.parse(s) -> Result<json.Value, String>` (the error
+gives the byte offset), `json.text(j)` prints compact JSON, `json.quote(s)` makes a JSON
+string literal, and `json.get(j: j, key: k)`, `json.get_string`, `json.get_int`,
+`json.string(j)`, `json.int(j)` and `json.float(j)` read values (`None` when absent or
+of another type).
 
 ## 4. Making proofs go through
 

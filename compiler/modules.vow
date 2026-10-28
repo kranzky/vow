@@ -251,7 +251,11 @@ fn resolve_modules(files: List<ModFile>, shared: List<Int>) -> Resolved do
     set r = r with (scope: sc, file: f)
     let mf = files[f]
     let cs = canon_list(cs: canons, f: f)
+    let privs = private_types(mf)
     for k in 0..len(mf.items) do
+      if not contains_str(xs: mf.privates, x: item_name(mf.items[k])) then
+        check_public(r: inout r, privs: privs, item: mf.items[k])
+      end if
       set out = push(list: out, item: resolve_item(r: inout r, item: mf.items[k], canon: string_at(xs: cs, i: k)))
     end for
   end for
@@ -814,6 +818,60 @@ fn enter_decl(r: inout Resolver, locals: List<String>, tparams: List<String>, po
   end for
   set r = r with (locals: locals, tparams: tparams)
 end fn enter_decl
+
+// The names of a file's private types.
+fn private_types(mf: ModFile) -> List<String> do
+  var out: List<String> = []
+  for item in mf.items do
+    let n = item_name(item)
+    if (not is_fn_item(item)) and contains_str(xs: mf.privates, x: n) then
+      set out = push(list: out, item: n)
+    end if
+  end for
+  return out
+end fn private_types
+
+// A public declaration may not name a private type of its file in its signature,
+// fields or variants: a file that imports it could not name the type.
+fn check_public(r: inout Resolver, privs: List<String>, item: Item) do
+  if len(privs) == 0 then
+    return
+  end if
+  match item
+  case FnItem(decl: d) then
+    for p in d.params do
+      check_exposed(r: inout r, privs: privs, tparams: d.tparams, t: p.ty, what: "function '" ++ d.name ++ "'")
+    end for
+    match d.ret
+    case Some(value: t) then
+      check_exposed(r: inout r, privs: privs, tparams: d.tparams, t: t, what: "function '" ++ d.name ++ "'")
+    case None then
+    end match
+  case StructItem(decl: d) then
+    for p in d.fields do
+      check_exposed(r: inout r, privs: privs, tparams: d.tparams, t: p.ty, what: "struct '" ++ d.name ++ "'")
+    end for
+  case EnumItem(decl: d) then
+    for v in d.variants do
+      for p in v.fields do
+        check_exposed(r: inout r, privs: privs, tparams: d.tparams, t: p.ty, what: "enum '" ++ d.name ++ "'")
+      end for
+    end for
+  case AliasItem(decl: d) then
+    check_exposed(r: inout r, privs: privs, tparams: [], t: d.ty, what: "type '" ++ d.name ++ "'")
+  end match
+end fn check_public
+
+fn check_exposed(r: inout Resolver, privs: List<String>, tparams: List<String>, t: TypeExpr, what: String) do
+  if contains_str(xs: privs, x: t.name) and (not contains_str(xs: tparams, x: t.name)) then
+    let d = diag(pos: t.pos, msg: "the public " ++ what ++ " names the private type '" ++ t.name ++ "'")
+    let note = "files that import it could not name the type: mark this declaration private too, or make '" ++ t.name ++ "' public"
+    set r = r with (errs: push(list: r.errs, item: with_note(d: d, note: note)))
+  end if
+  for a in t.args do
+    check_exposed(r: inout r, privs: privs, tparams: tparams, t: a, what: what)
+  end for
+end fn check_exposed
 
 fn resolve_item(r: inout Resolver, item: Item, canon: String) -> Item do
   match item

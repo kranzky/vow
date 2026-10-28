@@ -1,0 +1,86 @@
+// money.vow: amounts of money in cents, read from and written as text like "12.34".
+// examples/prices.vow imports it as a module, `import "money/money.vow" as money`, and
+// names its declarations money.Amount, money.parse and so on. The helpers it uses
+// itself are private, so importing it brings in only what is below.
+
+import "std/text.vow" (is_digit)
+
+// An amount of money, in cents. A struct, not a refined alias, so that it can be held
+// in an Option or a List.
+struct Amount
+  cents: Int where it >= 0,
+end struct Amount
+
+// "12.34", "12.3", "12" or "12." as cents; None for anything else.
+fn parse(s: String) -> Option<Amount> do
+  let whole = read_digits(s: s, from: 0)
+  if whole.stop == 0 then
+    return Option.None
+  end if
+  if whole.stop == len(s) then
+    return Option.Some(value: Amount(cents: whole.value * 100))
+  end if
+  if s[whole.stop] != '.' then
+    return Option.None
+  end if
+  let frac = read_digits(s: s, from: whole.stop + 1)
+  let n = frac.stop - (whole.stop + 1)
+  if (frac.stop != len(s)) or (n > 2) then
+    return Option.None
+  end if
+  var cents = frac.value
+  if n == 1 then
+    set cents = cents * 10
+  end if
+  return Option.Some(value: Amount(cents: (whole.value * 100) + cents))
+end fn parse
+
+// "12.34": always two digits after the point.
+fn format(a: Amount) -> String do
+  let rest = a.cents % 100
+  if rest < 10 then
+    return int_to_str(a.cents / 100) ++ ".0" ++ int_to_str(rest)
+  end if
+  return int_to_str(a.cents / 100) ++ "." ++ int_to_str(rest)
+end fn format
+
+fn total(amounts: List<Amount>) -> Amount do
+  var sum = 0
+  for a in amounts
+    invariant sum >= 0
+  do
+    set sum = sum + a.cents
+  end for
+  return Amount(cents: sum)
+end fn total
+
+// The amount less a discount of some percent, rounded down to the cent.
+fn discount(a: Amount, percent: Int) -> Amount
+  requires (percent >= 0) and (percent <= 100)
+  ensures result.cents <= a.cents
+do
+  return Amount(cents: a.cents - ((a.cents * percent) / 100))
+end fn discount
+
+// The digits of s starting at from, and where they stop.
+private struct Digits
+  value: Int where it >= 0,
+  stop: Int,
+end struct Digits
+
+private fn read_digits(s: String, from: Int) -> Digits
+  requires (from >= 0) and (from <= len(s))
+  ensures (result.stop >= from) and (result.stop <= len(s))
+do
+  var value = 0
+  var i = from
+  while (i < len(s)) and is_digit(s[i])
+    invariant (i >= from) and (i <= len(s))
+    invariant value >= 0
+    decreases len(s) - i
+  do
+    set value = (value * 10) + (s[i] - '0')
+    set i = i + 1
+  end while
+  return Digits(value: value, stop: i)
+end fn read_digits

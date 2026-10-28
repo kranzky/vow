@@ -9,12 +9,15 @@ Modules and packages.
   comes along. `import "std/text.vow" (split, trim)` brings in just those names.
   A plain `import "file.vow"` still merges the file, as before.
 - `private fn` (and `private struct`, `enum`, `type`) keeps a declaration visible only
-  in its own file, however the file is imported.
+  in its own file, however the file is imported. A public declaration cannot name a
+  private type in its signature, fields or variants.
 - `std/json.vow` is meant to be imported as a module, and its functions lose their
   prefix: `json.parse`, `json.text`, `json.quote`, `json.get`, `json.get_string`,
   `json.get_int`, `json.string`, `json.int`, `json.float` and `json.hex_digit` (they
-  were `json_parse` and so on). Its reader internals are private, and it imports only
-  the three text functions it uses.
+  were `json_parse` and so on). The type `Json` is now `json.Value`, and its variants
+  lose their `J`: `Null`, `Bool`, `Int` (was `JNum`), `Float`, `String`, `Array` and
+  `Object`. Its reader internals are private, and it imports only the three text
+  functions it uses.
 - Using a name the file cannot see says why: it is private, it is in a module (write
   `geo.origin`), or it is declared in a file that is not imported (with the import
   line that would fix it).
@@ -24,6 +27,9 @@ Modules and packages.
   `.vow/pkg/`. Package code is verified with the program that uses it.
 - The language server's hover and go-to-definition follow qualified names into
   modules; `vowc fmt` lays out the new forms.
+- `examples/prices.vow` uses a module of its own, `examples/money/money.vow`.
+- The site has a [Packages](https://vow.kranzky.com/packages.html) page: how to use
+  and publish a package, and a list of published ones.
 - Programs without modules are unchanged: their declarations keep their names, and
   the verifier emits the same SMT.
 

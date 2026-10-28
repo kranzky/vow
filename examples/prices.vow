@@ -1,0 +1,22 @@
+// language: 0.9
+// A module of your own: examples/money/money.vow, imported with `as`, so its
+// declarations are named money.parse, money.Amount and so on. Its contracts cross the
+// import: discount's precondition is proved here, at the call.
+
+import "money/money.vow" as money
+import "std/text.vow" (lines, trim)
+
+fn main() uses console do
+  let text = "4.50\n12\n0.99\nfree\n3.5\n"
+  var prices: List<money.Amount> = []
+  for line in lines(text) do
+    match money.parse(trim(line))
+    case Some(value: c) then
+      set prices = push(list: prices, item: c)
+    case None then
+      print("skipped '" ++ line ++ "'\n")
+    end match
+  end for
+  let sum = money.total(prices)
+  print("total " ++ money.format(sum) ++ ", or " ++ money.format(money.discount(a: sum, percent: 10)) ++ " with 10% off\n")
+end fn main

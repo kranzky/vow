@@ -1,0 +1,13 @@
+// error: the public function 'make' names the private type 'Secret'
+// language: 0.9
+private struct Secret
+  n: Int,
+end struct Secret
+
+fn make() -> Secret do
+  return Secret(n: 1)
+end fn make
+
+fn main() do
+  let s = make()
+end fn main

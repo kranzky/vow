@@ -61,5 +61,5 @@ fn main() uses console do
   case Err(error: e) then
     print(e ++ "\n")
   end match
-  print(json.text(json.Json.JArr(items: [json.Json.JFloat(value: nan), json.Json.JFloat(value: 0.5)])) ++ "\n")
+  print(json.text(json.Value.Array(items: [json.Value.Float(value: nan), json.Value.Float(value: 0.5)])) ++ "\n")
 end fn main

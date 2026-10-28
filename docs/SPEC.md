@@ -71,8 +71,10 @@ beginning with `std/` name standard library modules built into the compiler, suc
 A declaration marked `private` (`private fn`, `private struct`, `private enum`,
 `private type`) is visible only in its own file, however the file is imported; two
 files may each have a private declaration of the same name. Every other declaration
-is public. Diagnostics name a module's declarations by their qualified names
-(`json.Json`), using the file's name for the module.
+is public, and a public declaration may not name a private type in its signature,
+fields or variants, since a file that imports it could not name that type.
+Diagnostics name a module's declarations by their qualified names (`json.Value`),
+using the file's name for the module.
 
 ```
 import "util.vow"

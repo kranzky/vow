@@ -18,7 +18,7 @@ trap 'rm -rf "$tmp"' EXIT
 sha() { (sha256sum "$1" 2>/dev/null || shasum -a 256 "$1") | cut -d' ' -f1; }
 echo "$version" > "$tmp/new"
 # A program's source includes the standard modules and test modules it may import.
-cat std/*.vow tests/modules/*.vow > "$tmp/std"
+cat std/*.vow tests/modules/*.vow examples/*/*.vow > "$tmp/std"
 for f in tests/run/*.vow examples/*.vow; do
   rm -f "$tmp/one.smt2"
   VOW_SMT_DUMP="$tmp/one.smt2" "$VOWC" check "$f" --no-cache >/dev/null 2>&1

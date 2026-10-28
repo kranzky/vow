@@ -1,0 +1,14 @@
+// error: the public struct 'Box' names the private type 'Secret'
+// language: 0.9
+private enum Secret
+  A,
+  B,
+end enum Secret
+
+struct Box
+  items: List<Secret>,
+end struct Box
+
+fn main() do
+  let b = Box(items: [Secret.A])
+end fn main
