@@ -1,0 +1,14 @@
+// error: cannot prove field 'n' of Box<T> satisfies it > 0
+// language: 0.9
+struct Box<T>
+  n: Int where it > 0,
+  v: T,
+end struct Box
+
+fn wrap<T>(x: T, k: Int) -> Box<T> do
+  return Box(n: k, v: x)
+end fn wrap
+
+fn main() do
+  let b = wrap(x: "s", k: 0)
+end fn main

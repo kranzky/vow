@@ -1,0 +1,22 @@
+// error: cannot prove loop measure decreases: i
+// language: 0.9
+// 'continue' skips the decrement, so the measure is not smaller at the continue.
+fn spin(n: Int) -> Int
+  requires n >= 0
+do
+  var i = n
+  while i > 0
+    invariant i >= 0
+    decreases i
+  do
+    if i == 3 then
+      continue
+    end if
+    set i = i - 1
+  end while
+  return i
+end fn spin
+
+fn main() do
+  let x = spin(5)
+end fn main

@@ -1,0 +1,14 @@
+// error: cannot prove field 'n' of Ev.A satisfies it > 10
+// language: 0.9
+enum Ev
+  A(n: Int where it > 10),
+  B,
+end enum Ev
+
+fn mk(k: Int) -> Ev do
+  return Ev.A(n: k)
+end fn mk
+
+fn main() do
+  let e = mk(1)
+end fn main

@@ -1,0 +1,18 @@
+// error: cannot prove postcondition of 'f': result == (f(n) + 1)
+// language: 0.9
+// A postcondition that contradicts the function's own definition must not be provable
+// from its own axioms.
+fn f(n: Int) -> Int
+  requires n >= 0
+  ensures result == (f(n) + 1)
+  decreases n
+do
+  if n == 0 then
+    return 0
+  end if
+  return f(n - 1)
+end fn f
+
+fn main() do
+  let x = f(3)
+end fn main

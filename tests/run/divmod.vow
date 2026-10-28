@@ -1,0 +1,37 @@
+// language: 0.9
+// Integer division is Euclidean, in the verifier (SMT-LIB div and mod) and at runtime
+// alike: the remainder is never negative. Each postcondition is proved, and the
+// printed values must agree with it.
+
+fn q(a: Int, b: Int) -> Int
+  requires b != 0
+  ensures result == (a / b)
+do
+  return a / b
+end fn q
+
+fn signs() -> List<Int>
+  ensures len(result) == 8
+do
+  let a = q(a: 7, b: 2)
+  let b = q(a: -7, b: 2)
+  let c = q(a: 7, b: -2)
+  let d = q(a: -7, b: -2)
+  check (a == 3) and (b == -4) and (c == -3) and (d == 4)
+  return [a, b, c, d, 7 % 2, -7 % 2, 7 % -2, -7 % -2]
+end fn signs
+
+fn proved() -> Bool
+  ensures result
+do
+  return ((-7 / 2) == -4) and ((-7 % 2) == 1) and ((7 / -2) == -3) and ((-7 % -2) == 1)
+end fn proved
+
+fn main() uses console do
+  for x in signs() do
+    print(int_to_str(x) ++ " ")
+  end for
+  if proved() then
+    print("proved\n")
+  end if
+end fn main

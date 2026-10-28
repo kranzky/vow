@@ -1,0 +1,23 @@
+// error: cannot prove postcondition of 'stop': result == 0
+// language: 0.9
+// After a loop with 'break', the negated condition is not known.
+fn stop(n: Int) -> Int
+  requires n >= 10
+  ensures result == 0
+do
+  var i = n
+  while i > 0
+    invariant i >= 0
+    decreases i
+  do
+    if i == 5 then
+      break
+    end if
+    set i = i - 1
+  end while
+  return i
+end fn stop
+
+fn main() do
+  let n = stop(10)
+end fn main
