@@ -172,6 +172,8 @@ Emacs (Eglot):
 - [`docs/VOW_FOR_LLMS.md`](docs/VOW_FOR_LLMS.md): for language models writing Vow
 - [`docs/VOW_FOR_HUMANS.md`](docs/VOW_FOR_HUMANS.md): what people gain when their LLM colleagues write Vow
 - [`docs/COMPARISON.md`](docs/COMPARISON.md): how Vow compares with other languages, and where its ideas come from
+- [`docs/SOUNDNESS.md`](docs/SOUNDNESS.md): why the verifier is sound, what it trusts, and how that is tested
+- [`docs/PACKAGES.md`](docs/PACKAGES.md): using, publishing and listing packages
 - [`ROADMAP.md`](ROADMAP.md): milestones and the V1 scope
 
 ## Status

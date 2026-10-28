@@ -35,7 +35,8 @@
 ## V1 scope (after the milestones above)
 
 Must-have, language and proofs:
-- [ ] Soundness hardening: written soundness argument, large must-fail suite, mutation
+- [ ] Soundness hardening: written soundness argument (a first version is
+      `docs/SOUNDNESS.md`), large must-fail suite, mutation
       fuzzing with runtime-checked contracts as the oracle (`--check-contracts` and
       `tests/fuzz.py` exist; a mutant that verifies and then fails a check is a verifier
       bug), and differential fuzzing of the two verifiers

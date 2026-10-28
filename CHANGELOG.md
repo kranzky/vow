@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- `docs/SOUNDNESS.md`: the argument that the verifier is sound, rule by rule, with what
+  it trusts, how it is tested and the soundness bugs found so far.
 - Fixed (unsound cache): a function's cached proof was reused after another function
   started calling it back, forming a recursive group with it. Calls within a group must
   decrease the measure, so the proof no longer applied: `vowc check --totality` could

@@ -11,6 +11,7 @@ Read the guide for LLMs before writing Vow. Every pattern in it comes from verif
 
 - [Vow for LLMs](https://vow.kranzky.com/md/VOW_FOR_LLMS.md): rules, the proof workflow, reading diagnostics, idioms
 - [Specification](https://vow.kranzky.com/md/SPEC.md): grammar, types, built-ins and verification semantics
+- [Soundness](https://vow.kranzky.com/md/SOUNDNESS.md): why the verifier's rules are sound, what is trusted, and how it is tested
 - [Standard text library](https://github.com/kranzky/vow/blob/main/std/text.vow): verified string utilities with contracts
 
 ## Optional

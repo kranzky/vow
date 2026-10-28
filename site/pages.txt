@@ -5,6 +5,7 @@ benchmarks bench/RESULTS.md
 llms docs/VOW_FOR_LLMS.md
 humans docs/VOW_FOR_HUMANS.md
 spec docs/SPEC.md
+soundness docs/SOUNDNESS.md
 packages docs/PACKAGES.md
 roadmap ROADMAP.md
 changelog CHANGELOG.md
