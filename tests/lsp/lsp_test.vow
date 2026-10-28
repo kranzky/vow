@@ -62,3 +62,21 @@ fn test_known_facts() uses proc do
   let known = contains(s: o.out, p: "x: Int\\n// known here:\\nx > 3")
   check known
 end fn test_known_facts
+
+fn test_modules() uses proc do
+  let dir = value_or(opt: getenv("PWD"), default: ".")
+  let uri = "file://" ++ dir ++ "/tests/lsp/sample.vow"
+  // Line 3 (from 0), character 15 is on dist2 in geo.dist2.
+  let text = "import \"../modules/geo.vow\" as geo\n\nfn main() uses console do\n  let d = geo.dist2(a: geo.origin(), b: geo.origin())\n  print(int_to_str(d))\nend fn main\n"
+  let doc = "{\"textDocument\":{\"uri\":\"" ++ uri ++ "\"}"
+  let open = "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didOpen\",\"params\":{\"textDocument\":{\"uri\":\"" ++ uri ++ "\",\"languageId\":\"vow\",\"version\":1,\"text\":" ++ json_quote(text) ++ "}}}"
+  let hover = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"textDocument/hover\",\"params\":" ++ doc ++ ",\"position\":{\"line\":3,\"character\":15}}}"
+  let def = "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"textDocument/definition\",\"params\":" ++ doc ++ ",\"position\":{\"line\":3,\"character\":15}}}"
+  var input = frame("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}") ++ frame(open) ++ frame(hover) ++ frame(def)
+  set input = input ++ frame("{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"shutdown\"}") ++ frame("{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}")
+  let o = run(argv: ["build/vow-lsp"], input: input)
+  let contract = contains(s: o.out, p: "fn geo.dist2(a: geo.Point, b: geo.Point) -> Int ensures result >= 0")
+  check contract
+  let defined = contains(s: o.out, p: "\"id\":3,\"result\":{\"uri\":\"file://" ++ dir ++ "/tests/modules/geo.vow\"")
+  check defined
+end fn test_modules

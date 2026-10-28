@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+Modules.
+
+- `import "geo.vow" as geo` imports a file as a module: its public declarations are
+  named `geo.dist(...)`, `geo.Point`, `geo.Shape.Box(...)`, and nothing else it imports
+  comes along. `import "std/text.vow" (split, trim)` brings in just those names.
+  A plain `import "file.vow"` still merges the file, as before.
+- `private fn` (and `private struct`, `enum`, `type`) keeps a declaration visible only
+  in its own file, however the file is imported. The JSON reader's internals in
+  `std/json.vow` are now private.
+- Using a name the file cannot see says why: it is private, it is in a module (write
+  `geo.origin`), or it is declared in a file that is not imported (with the import
+  line that would fix it).
+- The language server's hover and go-to-definition follow qualified names into
+  modules; `vowc fmt` lays out the new forms.
+- Programs without modules are unchanged: their declarations keep their names, and
+  the verifier emits the same SMT.
+
 ## v0.8.0
 
 Floats.

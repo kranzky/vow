@@ -40,20 +40,43 @@ Keywords:
 invariant requires ensures uses assert check break continue and or not implies true false
 with import it result where inout forall exists decreases try`
 
+`as` and `private` are not keywords: they have their meaning only in an import and
+before a declaration, and remain ordinary names elsewhere.
+
 A keyword may be used as a **label**: a struct or variant field name, a named-argument
 label, a field access (`d.type`), a `with` field or a pattern field. Keywords may not
 name variables, parameters or binders.
 
 ## Program structure
 
-A program is a sequence of declarations. `import "path.vow"` textually merges another
-file (resolved relative to the importing file; each file is included once). Paths
+A program is a sequence of declarations, which may appear in any order. Import paths
+are resolved relative to the importing file, and each file is loaded once. Paths
 beginning with `std/` name standard library modules built into the compiler, such as
-`import "std/text.vow"`. All
-declarations share one global namespace and may appear in any order.
+`std/text.vow`. There are three forms of import:
+
+- `import "util.vow"` merges util.vow into the importing file's namespace. The main
+  file and every file reached from it by merging imports share one global namespace,
+  in which every public name must be unique.
+- `import "geo.vow" as geo` makes geo.vow a module: its public declarations are named
+  `geo.name`. Functions are called as `geo.dist(...)`, structs constructed as
+  `geo.Point(x: 1, y: 2)`, variants as `geo.Shape.Box(...)` and `geo.Shape.Empty`, and
+  types written `geo.Point` and `List<geo.Point>`. Patterns use the bare variant name,
+  as always. Only geo.vow's own declarations are reachable this way, not those of the
+  files it imports. A module name may not also name a variable, parameter or field,
+  and two imports in a file may not use the same one.
+- `import "std/text.vow" (split, trim)` brings just those public declarations of the
+  file into the importing file's namespace, unqualified. A file's own declaration of
+  the same name is an error.
+
+A declaration marked `private` (`private fn`, `private struct`, `private enum`,
+`private type`) is visible only in its own file, however the file is imported; two
+files may each have a private declaration of the same name. Every other declaration
+is public. Diagnostics name a module's declarations by their qualified names
+(`json.Json`), using the file's name for the module.
 
 ```
 import "util.vow"
+import "std/json.vow" as json
 
 type Nat = Int where it >= 0
 

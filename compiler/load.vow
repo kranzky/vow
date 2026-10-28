@@ -1,6 +1,6 @@
 // Loading source files and their imports.
 
-import "parser.vow"
+import "modules.vow"
 import "std_text.vow"
 import "std_json.vow"
 
@@ -82,6 +82,12 @@ struct Pending
   from: Pos,
 end struct Pending
 
+// An import as loaded: the normalised path of the imported file.
+struct RawImport
+  path: String,
+  imp: Import,
+end struct RawImport
+
 fn load(root: String) -> Source uses fs do
   return load_with(root: root, overrides: {})
 end fn load
@@ -90,7 +96,8 @@ end fn load
 // instead of what is on disk: an editor's unsaved buffer.
 fn load_with(root: String, overrides: Map<String, String>) -> Source uses fs do
   var files: List<String> = []
-  var items: List<Item> = []
+  var mods: List<ModFile> = []
+  var raws: List<List<RawImport>> = []
   var errs: List<Diag> = []
   var next_id = 0
   var queue: List<Pending> = [Pending(path: normalize(root), from: no_pos())]
@@ -102,6 +109,8 @@ fn load_with(root: String, overrides: Map<String, String>) -> Source uses fs do
     end if
     let file_id = len(files)
     set files = push(list: files, item: top.path)
+    var mf = ModFile(path: top.path, items: [], imports: [], privates: [])
+    var raw: List<RawImport> = []
     var source: Option<String> = Option.None
     var missing = "cannot open '" ++ top.path ++ "'"
     if starts_with(s: top.path, p: "<std>/") then
@@ -138,29 +147,54 @@ fn load_with(root: String, overrides: Map<String, String>) -> Source uses fs do
               set queue = push(list: queue, item: Pending(path: join_path(dir: dir, rel: imp.path), from: imp.pos))
               set k = k - 1
             end while
-            set items = items ++ parsed.items
+            for imp in parsed.imports do
+              set raw = push(list: raw, item: RawImport(path: join_path(dir: dir, rel: imp.path), imp: imp))
+            end for
+            set mf = mf with (items: parsed.items, privates: parsed.privates)
           end match
         end if
       end match
     end match
+    set mods = push(list: mods, item: mf)
+    set raws = push(list: raws, item: raw)
   end while
+  // Each import, with the index of the file it names.
+  var linked: List<ModFile> = []
+  for i in 0..len(mods) do
+    var imps: List<ModImport> = []
+    if i < len(raws) then
+      for ri in raws[i] do
+        let t = index_of_str(xs: files, x: ri.path)
+        set imps = push(list: imps, item: ModImport(target: t, alias: ri.imp.alias, names: ri.imp.names, pos: ri.imp.pos))
+      end for
+    end if
+    set linked = push(list: linked, item: mods[i] with (imports: imps))
+  end for
+  // The prelude, unless the program's global namespace declares Result.
   var declared = false
-  for item in items do
-    if item_name(item) == "Result" then
-      set declared = true
+  for f in merge_closure(files: linked, start: 0) do
+    if (f >= 0) and (f < len(linked)) then
+      for item in linked[f].items do
+        if item_name(item) == "Result" then
+          set declared = true
+        end if
+      end for
     end if
   end for
+  var shared: List<Int> = []
   if (len(errs) == 0) and not declared then
     let lx = lex(src: prelude_source(), file: len(files))
     if len(lx.toks) > 0 then
       var p = new_parser(toks: lx.toks, first_id: next_id)
       let parsed = parse_file(inout p)
+      set shared = [len(files)]
       set files = push(list: files, item: "<std>/prelude.vow")
-      set items = items ++ parsed.items
+      set linked = push(list: linked, item: ModFile(path: "<std>/prelude.vow", items: parsed.items, imports: [], privates: []))
       set next_id = p.next_id
     end if
   end if
-  return Source(files: files, items: items, errs: errs, next_id: next_id)
+  let res = resolve_modules(files: linked, shared: shared)
+  return Source(files: files, items: res.items, errs: errs ++ res.errs, next_id: next_id)
 end fn load_with
 
 fn render_diag(d: Diag, files: List<String>) -> String do

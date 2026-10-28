@@ -1,0 +1,10 @@
+// error: 'origin' is imported from modules/geo.vow but this file already has a declaration of that name
+// language: 0.9
+import "../modules/geo.vow" (origin)
+
+fn origin() -> Int do
+  return 0
+end fn origin
+
+fn main() do
+end fn main

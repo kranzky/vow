@@ -1,0 +1,58 @@
+// language: 0.9
+// A module for tests/run/modules.vow and the tests/fail/module_* programs.
+
+import "util.vow"
+
+struct Point
+  x: Int,
+  y: Int,
+end struct Point
+
+enum Shape
+  Dot(at: Point),
+  Box(lo: Point, hi: Point where (it.x >= lo.x) and (it.y >= lo.y)),
+end enum Shape
+
+struct Pair<T>
+  a: T,
+  b: T,
+end struct Pair
+
+// The same name as a function in the main program: each file sees its own.
+private fn sq(n: Int) -> Int
+  ensures result >= 0
+do
+  return n * n
+end fn sq
+
+fn dist2(a: Point, b: Point) -> Int
+  ensures result >= 0
+do
+  return sq(a.x - b.x) + sq(a.y - b.y)
+end fn dist2
+
+fn origin() -> Point
+  ensures (result.x == 0) and (result.y == 0)
+do
+  return Point(x: 0, y: 0)
+end fn origin
+
+fn area(s: Shape) -> Int
+  ensures result >= 0
+do
+  match s
+  case Dot(at: p) then
+    return 0
+  case Box(lo: a, hi: b) then
+    return (b.x - a.x) * (b.y - a.y)
+  end match
+end fn area
+
+fn swap<T>(p: Pair<T>) -> Pair<T> do
+  return Pair(a: p.b, b: p.a)
+end fn swap
+
+// Uses a function from a file this one merges.
+fn label(p: Point) -> String do
+  return "(" ++ show(p.x) ++ ", " ++ show(p.y) ++ ")"
+end fn label

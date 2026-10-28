@@ -1,7 +1,10 @@
-// std/json.vow: JSON values, parsing and printing. Import with `import "std/json.vow"`.
+// std/json.vow: JSON values, parsing and printing. Import with
+// `import "std/json.vow" as json` (then json.Json, json.json_parse(...)), or with
+// `import "std/json.vow"` to merge its names into the importing file.
 //
-// A number is a JNum (an Int) when it is an integer that fits, and otherwise a JFloat. An object keeps its members in order, duplicates included;
-// json_get finds the first member with a key. Strings are bytes: \u escapes are decoded
+// A number is a JNum (an Int) when it is an integer that fits, and otherwise a JFloat.
+// An object keeps its members in order, duplicates included; json_get finds the first
+// member with a key. Strings are bytes: \u escapes are decoded
 // to UTF-8, and printing escapes only '"', '\' and control characters.
 
 import "std/text.vow"
@@ -46,7 +49,7 @@ fn json_hex_digit(n: Int where (0 <= it) and (it < 16)) -> String do
   return char(json_byte_at(s: "0123456789abcdef", i: n))
 end fn json_hex_digit
 
-fn json_byte_at(s: String, i: Int where (0 <= it) and (it < len(s))) -> Int where (0 <= it) and (it < 256) do
+private fn json_byte_at(s: String, i: Int where (0 <= it) and (it < len(s))) -> Int where (0 <= it) and (it < 256) do
   return s[i]
 end fn json_byte_at
 
@@ -157,20 +160,20 @@ end fn json_get_int
 
 // ---- parsing ----
 
-struct JsonReader
+private struct JsonReader
   s: String,
   pos: Int where (0 <= it) and (it <= len(s)),
 end struct JsonReader
 
 // The byte at the reader's position, or -1 at the end.
-fn jr_peek(r: JsonReader) -> Int do
+private fn jr_peek(r: JsonReader) -> Int do
   if r.pos < len(r.s) then
     return r.s[r.pos]
   end if
   return -1
 end fn jr_peek
 
-fn jr_advance(r: inout JsonReader)
+private fn jr_advance(r: inout JsonReader)
   ensures r.s == old(r).s
   ensures r.pos >= old(r).pos
 do
@@ -179,7 +182,7 @@ do
   end if
 end fn jr_advance
 
-fn jr_skip_space(r: inout JsonReader)
+private fn jr_skip_space(r: inout JsonReader)
   ensures r.s == old(r).s
   ensures r.pos >= old(r).pos
 do
@@ -192,12 +195,12 @@ do
   end while
 end fn jr_skip_space
 
-fn jr_error(r: JsonReader, msg: String) -> String do
+private fn jr_error(r: JsonReader, msg: String) -> String do
   return msg ++ " at byte " ++ int_to_str(r.pos)
 end fn jr_error
 
 // Consumes the literal word if it comes next.
-fn jr_word(r: inout JsonReader, word: String) -> Bool
+private fn jr_word(r: inout JsonReader, word: String) -> Bool
   ensures r.s == old(r).s
   ensures r.pos >= old(r).pos
 do
@@ -219,7 +222,7 @@ fn json_parse(s: String) -> Result<Json, String> do
   return Result.Ok(value: v)
 end fn json_parse
 
-fn json_value(r: inout JsonReader) -> Result<Json, String> do
+private fn json_value(r: inout JsonReader) -> Result<Json, String> do
   jr_skip_space(inout r)
   let c = jr_peek(r)
   if c == '{' then
@@ -241,7 +244,7 @@ fn json_value(r: inout JsonReader) -> Result<Json, String> do
   return Result.Err(error: jr_error(r: r, msg: "expected a JSON value"))
 end fn json_value
 
-fn json_object(r: inout JsonReader) -> Result<Json, String> do
+private fn json_object(r: inout JsonReader) -> Result<Json, String> do
   jr_advance(inout r)
   var keys: List<String> = []
   var values: List<Json> = []
@@ -276,7 +279,7 @@ fn json_object(r: inout JsonReader) -> Result<Json, String> do
   end while
 end fn json_object
 
-fn json_array(r: inout JsonReader) -> Result<Json, String> do
+private fn json_array(r: inout JsonReader) -> Result<Json, String> do
   jr_advance(inout r)
   var items: List<Json> = []
   jr_skip_space(inout r)
@@ -301,7 +304,7 @@ end fn json_array
 
 // A number: an integer that fits in an Int is a JNum; one with a fraction or an exponent,
 // or too large for an Int, is a JFloat.
-fn json_number(r: inout JsonReader) -> Result<Json, String> do
+private fn json_number(r: inout JsonReader) -> Result<Json, String> do
   let start = r.pos
   var negative = false
   if jr_peek(r) == '-' then
@@ -358,7 +361,7 @@ fn json_number(r: inout JsonReader) -> Result<Json, String> do
   return Result.Ok(value: Json.JNum(value: n))
 end fn json_number
 
-fn jr_digits(r: inout JsonReader)
+private fn jr_digits(r: inout JsonReader)
   ensures r.s == old(r).s
   ensures r.pos >= old(r).pos
 do
@@ -372,7 +375,7 @@ do
 end fn jr_digits
 
 // A string literal (the reader is at its opening quote), with escapes decoded.
-fn json_string_lit(r: inout JsonReader) -> Result<String, String> do
+private fn json_string_lit(r: inout JsonReader) -> Result<String, String> do
   jr_advance(inout r)
   var parts: List<String> = []
   while r.pos < len(r.s) decreases len(r.s) - r.pos do
@@ -416,7 +419,7 @@ fn json_string_lit(r: inout JsonReader) -> Result<String, String> do
   return Result.Err(error: jr_error(r: r, msg: "unterminated string"))
 end fn json_string_lit
 
-fn json_hex4(r: inout JsonReader) -> Result<Int, String>
+private fn json_hex4(r: inout JsonReader) -> Result<Int, String>
   ensures r.s == old(r).s
   ensures r.pos >= old(r).pos
 do
@@ -445,7 +448,7 @@ do
 end fn json_hex4
 
 // The UTF-8 encoding of a code point (U+FFFD for one out of range).
-fn json_utf8(code: Int) -> String do
+private fn json_utf8(code: Int) -> String do
   if (code < 0) or (code > 1114111) then
     return json_utf8(65533)
   end if

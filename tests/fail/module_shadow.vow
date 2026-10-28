@@ -1,0 +1,7 @@
+// error: 'geo' names an imported module, so it cannot also name a variable, parameter or field
+// language: 0.9
+import "../modules/geo.vow" as geo
+
+fn main() do
+  let geo = 1
+end fn main

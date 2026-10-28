@@ -52,7 +52,9 @@ Must-have, language and proofs:
 - [x] `let _ =` discards; `value_or`, `is_some`, `is_none`
 - [x] `Result<T, E>` and `try` (also for `Option`)
 - [x] Structural `==` for structs, enums, lists and options, and on type parameters
-- [ ] Modules with visibility, then packages
+- [x] Modules: `import "m.vow" as m` (qualified names), `import "m.vow" (a, b)`, and
+      `private` declarations
+- [ ] Packages: dependencies pinned to git commits, fetched by `vowc fetch`
 - [x] Field refinements assumed inside specifications: a goal assumes the field
       refinements of the struct values it names
 - [ ] Generic functions usable in specifications

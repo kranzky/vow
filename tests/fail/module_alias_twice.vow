@@ -1,0 +1,7 @@
+// error: the module name 'm' is already used by another import
+// language: 0.9
+import "../modules/geo.vow" as m
+import "std/json.vow" as m
+
+fn main() do
+end fn main

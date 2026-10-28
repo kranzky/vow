@@ -1,0 +1,6 @@
+// error: 'sq' is private to modules/geo.vow
+// language: 0.9
+import "../modules/geo.vow" (sq)
+
+fn main() do
+end fn main

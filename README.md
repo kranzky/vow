@@ -68,7 +68,10 @@ holds the target, `-1` means the target is absent, and the loop terminates.
 ## Standard library
 
 `import "std/text.vow"` gives verified text utilities (`find`, `split`, `lines`,
-`trim`, `replace`, `starts_with`, ...), each with a contract the verifier can use.
+`trim`, `replace`, `starts_with`, ...), each with a contract the verifier can use, and
+`import "std/json.vow" as json` reads and writes JSON. Any file can be imported as a
+module (`import "geo.vow" as geo`, then `geo.dist(...)`) or by name
+(`import "std/text.vow" (split, trim)`), and `private` declarations stay in their file.
 
 ## Self-hosting
 

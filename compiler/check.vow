@@ -674,7 +674,8 @@ fn is_instance_name(name: String) -> Bool do
   return len(generic_base(name)) < len(name)
 end fn is_instance_name
 
-// A form of an instance name that is a valid C and SMT identifier fragment. Distinct
+// A form of an instance name, or a module-qualified name, that is a valid C and SMT
+// identifier fragment. Distinct
 // names give distinct results ('_' is doubled), and the result is only ever used with
 // a prefix that no plain name gets.
 fn mangle(name: String) -> String do
@@ -689,6 +690,8 @@ fn mangle(name: String) -> String do
       set parts = push(list: parts, item: "_R")
     elif ch == ',' then
       set parts = push(list: parts, item: "_C")
+    elif ch == '.' then
+      set parts = push(list: parts, item: "_D")
     elif ch != ' ' then
       set parts = push(list: parts, item: char(ch))
     end if
@@ -1058,8 +1061,8 @@ fn check_program(items: List<Item>, files: List<String>, next_id: Int) -> Checke
     else
     end match
     if is_type then
-      if contains_str(xs: primitive_types(), x: name) then
-        err(c: inout c, pos: pos, msg: "'" ++ name ++ "' is a built-in type")
+      if contains_str(xs: primitive_types(), x: local_name(name)) then
+        err(c: inout c, pos: pos, msg: "'" ++ local_name(name) ++ "' is a built-in type")
       else
         match lookup(map: seen_types, key: name)
         case Some(value: p) then
@@ -1069,8 +1072,8 @@ fn check_program(items: List<Item>, files: List<String>, next_id: Int) -> Checke
       end if
       set seen_types = insert(map: seen_types, key: name, value: pos)
     else
-      if is_builtin(name) then
-        err(c: inout c, pos: pos, msg: "'" ++ name ++ "' is a built-in function")
+      if is_builtin(local_name(name)) then
+        err(c: inout c, pos: pos, msg: "'" ++ local_name(name) ++ "' is a built-in function")
       else
         match lookup(map: seen_fns, key: name)
         case Some(value: p) then

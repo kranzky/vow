@@ -16,14 +16,20 @@ struct Parser
   tried: Bool,
 end struct Parser
 
+// alias is "" and names is empty for an import that merges the whole file;
+// `import "m.vow" as m` sets alias, `import "m.vow" (a, b)` sets names.
 struct Import
   path: String,
+  alias: String,
+  names: List<String>,
   pos: Pos,
 end struct Import
 
 struct Parsed
   items: List<Item>,
   imports: List<Import>,
+  // The names of the declarations marked `private`.
+  privates: List<String>,
 end struct Parsed
 
 fn new_parser(toks: List<Token> where len(it) > 0, first_id: Int) -> Parser do
@@ -158,14 +164,38 @@ end fn close_block
 fn parse_file(p: inout Parser) -> Parsed do
   var items: List<Item> = []
   var imports: List<Import> = []
+  var privates: List<String> = []
   while peek(p).kind != "eof" do
     let t = peek(p)
+    let nx = peek_at(p: p, k: 1)
+    if (t.kind == "ident") and (t.text == "private") and ((nx.text == "fn") or (nx.text == "struct") or (nx.text == "enum") or (nx.text == "type")) then
+      let _ = advance(inout p)
+      let n = peek_at(p: p, k: 1)
+      if (n.kind == "ident") or (n.kind == "keyword") then
+        set privates = push(list: privates, item: n.text)
+      end if
+      continue
+    end if
     if accept(p: inout p, text: "import") then
       let s = advance(inout p)
       if s.kind != "str" then
         fail(p: inout p, d: diag(pos: s.pos, msg: "expected a string path after 'import'"))
       else
-        set imports = push(list: imports, item: Import(path: s.text, pos: t.pos))
+        var alias = ""
+        var names: List<String> = []
+        let a = peek(p)
+        if (a.kind == "ident") and (a.text == "as") then
+          let _ = advance(inout p)
+          set alias = ident(p: inout p, ctx: "for the module after 'as'").text
+        elif accept(p: inout p, text: "(") then
+          var more = true
+          while more and not failed(p) do
+            set names = push(list: names, item: ident(p: inout p, ctx: "in the import list").text)
+            set more = accept(p: inout p, text: ",") and not is_tok(p: p, text: ")")
+          end while
+          let _ = expect(p: inout p, text: ")", ctx: "to close the import list")
+        end if
+        set imports = push(list: imports, item: Import(path: s.text, alias: alias, names: names, pos: t.pos))
       end if
     elif is_tok(p: p, text: "fn") then
       set items = push(list: items, item: Item.FnItem(decl: parse_fn(inout p)))
@@ -179,15 +209,21 @@ fn parse_file(p: inout Parser) -> Parsed do
       let ty = parse_type(inout p)
       set items = push(list: items, item: Item.AliasItem(decl: AliasDecl(name: name.text, ty: ty, pos: t.pos)))
     else
-      let msg = "expected a declaration (fn, struct, enum, type, import), found " ++ describe(t)
+      let msg = "expected a declaration (fn, struct, enum, type, import, private), found " ++ describe(t)
       fail(p: inout p, d: diag(pos: t.pos, msg: msg))
     end if
   end while
-  return Parsed(items: items, imports: imports)
+  return Parsed(items: items, imports: imports, privates: privates)
 end fn parse_file
 
 fn parse_type(p: inout Parser) -> TypeExpr do
   let name = ident(p: inout p, ctx: "for a type")
+  // A type from a module imported with `as`: m.Name.
+  var full = name.text
+  if is_tok(p: p, text: ".") and (peek_at(p: p, k: 1).kind == "ident") then
+    let _ = advance(inout p)
+    set full = full ++ "." ++ ident(p: inout p, ctx: "after '.'").text
+  end if
   var args: List<TypeExpr> = []
   if accept(p: inout p, text: "<") then
     var more = true
@@ -201,7 +237,7 @@ fn parse_type(p: inout Parser) -> TypeExpr do
   if accept(p: inout p, text: "where") then
     set refine = Option.Some(value: parse_expr(inout p))
   end if
-  return TypeExpr(name: name.text, args: args, refine: refine, pos: name.pos)
+  return TypeExpr(name: full, args: args, refine: refine, pos: name.pos)
 end fn parse_type
 
 fn parse_type_noref(p: inout Parser) -> TypeExpr do

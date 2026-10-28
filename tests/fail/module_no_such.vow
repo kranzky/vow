@@ -1,0 +1,10 @@
+// error: modules/geo.vow has no public declaration 'Circle'
+// language: 0.9
+import "../modules/geo.vow" as geo
+
+fn r(c: geo.Circle) -> Int do
+  return 0
+end fn r
+
+fn main() do
+end fn main

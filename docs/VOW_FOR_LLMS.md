@@ -73,8 +73,14 @@ Check your code against this list before running the compiler.
 10. **`match` must be exhaustive.** On an enum, cover every variant *or* add `else`,
     but not both. On `Int` or `String`, `else` is required. An empty arm is fine:
     `case None then` followed by the next `case`.
-11. **One global namespace.** `import "file.vow"` merges files. Function and type names
-    must be unique across all imported files.
+11. **Imports.** `import "geo.vow" as geo` gives qualified access to geo's public
+    declarations: `geo.dist(a: p, b: q)`, `geo.Point(x: 1, y: 2)`,
+    `geo.Shape.Box(...)`, and types written `geo.Point`; patterns stay bare
+    (`case Box(...)`). `import "std/text.vow" (split, trim)` brings in just those names.
+    A plain `import "file.vow"` merges the whole file (and whatever it merges) into one
+    namespace, where names must be unique. `private fn` (or `private struct`, `enum`,
+    `type`) keeps a declaration visible only in its own file. A module's name cannot
+    also name a variable or parameter.
 12. **Generic type arguments are inferred, never written at calls.** Declare
     `fn last<T>(xs: List<T>) -> T` and call `last(xs)`; write types in full
     (`Pair<Int, String>`). Inside a generic function, a `T` can be stored, passed,
@@ -98,7 +104,9 @@ Check your code against this list before running the compiler.
 ## 3. Syntax at a glance
 
 ```
-import "util.vow"
+import "util.vow"                      // merge every name
+import "geo.vow" as geo                // geo.name
+import "std/text.vow" (split, trim)    // just these names
 
 type Nat = Int where it >= 0
 
@@ -167,16 +175,19 @@ your own string helpers:
 | `replace(s: s, old: o, new: n)`, `repeat(s: s, n: k)` | proved to terminate |
 | `to_lower(s)`, `to_upper(s)` | same length; no upper (lower) case letters |
 
-`import "std/json.vow"` parses and prints JSON. A value is a `Json`: `JNull`,
-`JBool(value)`, `JNum(value)` (an Int), `JFloat(value)` (any other number), `JStr(value)`,
-`JArr(items)` or `JObj(keys, values)`. `json_parse(s) -> Result<Json, String>` (the
-error gives the byte offset), `json_text(j)` prints compact JSON, `json_quote(s)` makes a
-JSON string literal, and `json_get(j, key)`, `json_get_string`, `json_get_int`,
-`json_string(j)`, `json_int(j)` and `json_float(j)` read values (`None` when absent or of another type).
 | `compare(a: x, b: y) -> Int` | byte-wise order: -1, 0 or 1 (strings have no `<`) |
 
-Library names share the global namespace, so don't define your own `trim` in a file
-that imports it.
+Import what you use, as in `import "std/text.vow" (split, trim)`, or the whole module
+with `import "std/text.vow" as text` (then `text.split(...)`). A plain
+`import "std/text.vow"` merges every name, so then don't define your own `trim`.
+
+`import "std/json.vow" as json` parses and prints JSON. A value is a `json.Json`: `JNull`,
+`JBool(value)`, `JNum(value)` (an Int), `JFloat(value)` (any other number), `JStr(value)`,
+`JArr(items)` or `JObj(keys, values)`. `json.json_parse(s) -> Result<json.Json, String>`
+(the error gives the byte offset), `json.json_text(j)` prints compact JSON,
+`json.json_quote(s)` makes a JSON string literal, and `json_get(j, key)`,
+`json_get_string`, `json_get_int`, `json_string(j)`, `json_int(j)` and `json_float(j)`
+read values (`None` when absent or of another type).
 
 ## 4. Making proofs go through
 

@@ -1,0 +1,6 @@
+// language: 0.9
+// Merged into geo.vow; not visible to files that import geo.vow as a module.
+
+fn show(n: Int) -> String do
+  return int_to_str(n)
+end fn show

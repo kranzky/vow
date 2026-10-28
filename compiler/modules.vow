@@ -1,0 +1,841 @@
+// Modules: resolving names across files.
+//
+// `import "m.vow"` merges m into the importing file's namespace, as it always has. The
+// main file and every file reached from it by such imports form the root group, which
+// shares one global namespace. `import "m.vow" as m` gives qualified access (m.name)
+// to m's public declarations, and `import "m.vow" (a, b)` brings just those names in.
+// A `private` declaration is visible only in its own file.
+//
+// Every declaration gets a canonical name, by which the checker, verifier and code
+// generator know it: its own name for a public declaration in the root group (so a
+// program without modules is unchanged), and "tag.name" for a declaration in any
+// other file, where tag comes from the file's name. A private declaration in the root
+// group keeps its own name unless another root declaration has the same one. This pass
+// rewrites every reference to a declaration into its canonical name.
+
+import "parser.vow"
+
+struct ModImport
+  // The imported file's index, or -1 if it could not be loaded.
+  target: Int,
+  alias: String,
+  names: List<String>,
+  pos: Pos,
+end struct ModImport
+
+struct ModFile
+  path: String,
+  items: List<Item>,
+  imports: List<ModImport>,
+  privates: List<String>,
+end struct ModFile
+
+struct Scope
+  fns: Map<String, String>,
+  types: Map<String, String>,
+  // Names that two merged files declare differently.
+  ambiguous: List<String>,
+  // Each module alias, with the index of its file.
+  aliases: Map<String, Int>,
+end struct Scope
+
+struct Resolver
+  files: List<ModFile>,
+  // For each file, its public functions and types, by name, with their canonical names.
+  efns: List<Map<String, String>>,
+  etypes: List<Map<String, String>>,
+  // For each declared name, the file that first declares it, for the error when a
+  // file uses it without access.
+  known: Map<String, Int>,
+  scope: Scope,
+  file: Int,
+  // Every name bound in the current declaration: parameters, fields, variables and
+  // binders. A local name is never a module or a type.
+  locals: List<String>,
+  tparams: List<String>,
+  errs: List<Diag>,
+end struct Resolver
+
+struct Resolved
+  items: List<Item>,
+  errs: List<Diag>,
+end struct Resolved
+
+fn is_fn_item(item: Item) -> Bool do
+  match item
+  case FnItem(decl: d) then
+    return true
+  else
+    return false
+  end match
+end fn is_fn_item
+
+fn file_imports(files: List<ModFile>, f: Int) -> List<ModImport> do
+  if (f >= 0) and (f < len(files)) then
+    return files[f].imports
+  end if
+  return []
+end fn file_imports
+
+// A file's path as an import names it: std/json.vow for a standard module.
+fn file_path(files: List<ModFile>, f: Int) -> String do
+  if (f >= 0) and (f < len(files)) then
+    let path = files[f].path
+    if starts_with(s: path, p: "<std>/") then
+      return "std/" ++ slice(of: path, from: 6, to: len(path))
+    end if
+    return path
+  end if
+  return "?"
+end fn file_path
+
+fn is_merge(imp: ModImport) -> Bool do
+  return (len(imp.alias) == 0) and (len(imp.names) == 0)
+end fn is_merge
+
+// The files reached from start by merging imports, start included.
+fn merge_closure(files: List<ModFile>, start: Int) -> List<Int> do
+  var seen: List<Int> = [start]
+  var work: List<Int> = [start]
+  while len(work) > 0 do
+    let f = work[len(work) - 1]
+    set work = slice(of: work, from: 0, to: len(work) - 1)
+    for imp in file_imports(files: files, f: f) do
+      if is_merge(imp) and (imp.target >= 0) and not int_list_contains(xs: seen, x: imp.target) then
+        set seen = push(list: seen, item: imp.target)
+        set work = push(list: work, item: imp.target)
+      end if
+    end for
+  end while
+  return seen
+end fn merge_closure
+
+// A short identifier for each file, from its name: "json" for "<std>/json.vow". Two
+// files with the same name get "util" and "util_2".
+fn module_tags(files: List<ModFile>) -> List<String> do
+  var tags: List<String> = []
+  for mf in files do
+    var base = mf.path
+    let slash = find_last_byte(s: base, c: '/')
+    if slash >= 0 then
+      set base = slice(of: base, from: slash + 1, to: len(base))
+    end if
+    if ends_with(s: base, p: ".vow") then
+      set base = slice(of: base, from: 0, to: len(base) - 4)
+    end if
+    var parts: List<String> = []
+    for i in 0..len(base) do
+      let ch = base[i]
+      if is_alnum(ch) or (ch == '_') then
+        set parts = push(list: parts, item: char(ch))
+      else
+        set parts = push(list: parts, item: "_")
+      end if
+    end for
+    var tag = join(parts: parts, sep: "")
+    if len(tag) == 0 then
+      set tag = "m"
+    end if
+    var unique = tag
+    var n = 2
+    while contains_str(xs: tags, x: unique) do
+      set unique = tag ++ "_" ++ int_to_str(n)
+      set n = n + 1
+    end while
+    set tags = push(list: tags, item: unique)
+  end for
+  return tags
+end fn module_tags
+
+fn no_strings() -> Map<String, String> do
+  return {}
+end fn no_strings
+
+fn empty_scope() -> Scope do
+  return Scope(fns: no_strings(), types: {}, ambiguous: [], aliases: {})
+end fn empty_scope
+
+// Adds name -> canon to a scope map, noting the name as ambiguous if the map already
+// gives it another canonical name.
+fn scope_add(m: inout Map<String, String>, amb: inout List<String>, name: String, canon: String) do
+  match lookup(map: m, key: name)
+  case Some(value: c) then
+    if (c != canon) and not contains_str(xs: amb, x: name) then
+      set amb = push(list: amb, item: name)
+    end if
+  case None then
+    set m = insert(map: m, key: name, value: canon)
+  end match
+end fn scope_add
+
+fn without_str(xs: List<String>, x: String) -> List<String> do
+  var out: List<String> = []
+  for y in xs do
+    if y != x then
+      set out = push(list: out, item: y)
+    end if
+  end for
+  return out
+end fn without_str
+
+fn canon_list(cs: List<List<String>>, f: Int) -> List<String> do
+  if (f >= 0) and (f < len(cs)) then
+    return cs[f]
+  end if
+  return []
+end fn canon_list
+
+fn string_at(xs: List<String>, i: Int) -> String do
+  if (i >= 0) and (i < len(xs)) then
+    return xs[i]
+  end if
+  return "?"
+end fn string_at
+
+// Resolves the names in a loaded program. files[0] is the main file; the files listed
+// in shared (the prelude) are merged into every file.
+fn resolve_modules(files: List<ModFile>, shared: List<Int>) -> Resolved do
+  let tags = module_tags(files)
+  let root = merge_closure(files: files, start: 0) ++ shared
+  // How many root declarations have each name: a private one keeps its own name only
+  // if it is the only one.
+  var counts: Map<String, Int> = {}
+  for f in root do
+    if (f >= 0) and (f < len(files)) then
+      for item in files[f].items do
+        let n = item_name(item)
+        set counts = insert(map: counts, key: n, value: value_or(opt: lookup(map: counts, key: n), default: 0) + 1)
+      end for
+    end if
+  end for
+  // Canonical names, per file and item.
+  var canons: List<List<String>> = []
+  var efns: List<Map<String, String>> = []
+  var etypes: List<Map<String, String>> = []
+  var known: Map<String, Int> = {}
+  for f in 0..len(files) do
+    let mf = files[f]
+    let in_root = int_list_contains(xs: root, x: f)
+    var cs: List<String> = []
+    var fns: Map<String, String> = {}
+    var tys: Map<String, String> = {}
+    for item in mf.items do
+      let n = item_name(item)
+      let private = contains_str(xs: mf.privates, x: n)
+      var canon = string_at(xs: tags, i: f) ++ "." ++ n
+      if in_root and ((not private) or (value_or(opt: lookup(map: counts, key: n), default: 0) == 1)) then
+        set canon = n
+      end if
+      set cs = push(list: cs, item: canon)
+      if not private then
+        if is_fn_item(item) then
+          set fns = insert(map: fns, key: n, value: canon)
+        else
+          set tys = insert(map: tys, key: n, value: canon)
+        end if
+      end if
+      if not has(map: known, key: n) then
+        set known = insert(map: known, key: n, value: f)
+      end if
+    end for
+    set canons = push(list: canons, item: cs)
+    set efns = push(list: efns, item: fns)
+    set etypes = push(list: etypes, item: tys)
+  end for
+  var r = Resolver(files: files, efns: efns, etypes: etypes, known: known, scope: empty_scope(), file: 0, locals: [], tparams: [], errs: [])
+  var out: List<Item> = []
+  for f in 0..len(files) do
+    let sc = file_scope(r: inout r, f: f, root: root, shared: shared, canons: canons)
+    set r = r with (scope: sc, file: f)
+    let mf = files[f]
+    let cs = canon_list(cs: canons, f: f)
+    for k in 0..len(mf.items) do
+      set out = push(list: out, item: resolve_item(r: inout r, item: mf.items[k], canon: string_at(xs: cs, i: k)))
+    end for
+  end for
+  return Resolved(items: out, errs: r.errs)
+end fn resolve_modules
+
+fn res_err(r: inout Resolver, pos: Pos, msg: String) do
+  set r = r with (errs: push(list: r.errs, item: diag(pos: pos, msg: msg)))
+end fn res_err
+
+// The names file f can use without qualification, and its module aliases.
+fn file_scope(r: inout Resolver, f: Int, root: List<Int>, shared: List<Int>, canons: List<List<String>>) -> Scope do
+  var base = merge_closure(files: r.files, start: f) ++ shared
+  if int_list_contains(xs: root, x: f) then
+    set base = root
+  end if
+  var fns: Map<String, String> = {}
+  var types: Map<String, String> = {}
+  var amb: List<String> = []
+  for b in base do
+    if b != f then
+      if (b >= 0) and (b < len(r.efns)) then
+        let m = r.efns[b]
+        for k in keys(m) do
+          scope_add(m: inout fns, amb: inout amb, name: k, canon: value_or(opt: lookup(map: m, key: k), default: k))
+        end for
+      end if
+      if (b >= 0) and (b < len(r.etypes)) then
+        let m = r.etypes[b]
+        for k in keys(m) do
+          scope_add(m: inout types, amb: inout amb, name: k, canon: value_or(opt: lookup(map: m, key: k), default: k))
+        end for
+      end if
+    end if
+  end for
+  // The file's own declarations, private ones included, take precedence.
+  if (f >= 0) and (f < len(r.files)) then
+    let mf = r.files[f]
+    let cs = canon_list(cs: canons, f: f)
+    for k in 0..len(mf.items) do
+      let item = mf.items[k]
+      let n = item_name(item)
+      if is_fn_item(item) then
+        set fns = insert(map: fns, key: n, value: string_at(xs: cs, i: k))
+      else
+        set types = insert(map: types, key: n, value: string_at(xs: cs, i: k))
+      end if
+      set amb = without_str(xs: amb, x: n)
+    end for
+  end if
+  var aliases: Map<String, Int> = {}
+  for imp in file_imports(files: r.files, f: f) do
+    if imp.target < 0 then
+      continue
+    end if
+    let path = file_path(files: r.files, f: imp.target)
+    if len(imp.alias) > 0 then
+      if has(map: aliases, key: imp.alias) then
+        res_err(r: inout r, pos: imp.pos, msg: "the module name '" ++ imp.alias ++ "' is already used by another import")
+      end if
+      set aliases = insert(map: aliases, key: imp.alias, value: imp.target)
+    end if
+    for n in imp.names do
+      var canon = ""
+      var is_fn = true
+      if (imp.target < len(r.efns)) and has(map: r.efns[imp.target], key: n) then
+        set canon = value_or(opt: lookup(map: r.efns[imp.target], key: n), default: "")
+      elif (imp.target < len(r.etypes)) and has(map: r.etypes[imp.target], key: n) then
+        set canon = value_or(opt: lookup(map: r.etypes[imp.target], key: n), default: "")
+        set is_fn = false
+      end if
+      if len(canon) == 0 then
+        res_err(r: inout r, pos: imp.pos, msg: not_public(r: r, f: imp.target, name: n))
+        continue
+      end if
+      var m = types
+      if is_fn then
+        set m = fns
+      end if
+      match lookup(map: m, key: n)
+      case Some(value: c) then
+        if c != canon then
+          res_err(r: inout r, pos: imp.pos, msg: "'" ++ n ++ "' is imported from " ++ path ++ " but this file already has a declaration of that name")
+        end if
+      case None then
+      end match
+      if is_fn then
+        set fns = insert(map: fns, key: n, value: canon)
+      else
+        set types = insert(map: types, key: n, value: canon)
+      end if
+      set amb = without_str(xs: amb, x: n)
+    end for
+  end for
+  return Scope(fns: fns, types: types, ambiguous: amb, aliases: aliases)
+end fn file_scope
+
+// Why name is not one of the public declarations of file f.
+fn not_public(r: Resolver, f: Int, name: String) -> String do
+  let path = file_path(files: r.files, f: f)
+  if (f >= 0) and (f < len(r.files)) then
+    let mf = r.files[f]
+    if contains_str(xs: mf.privates, x: name) then
+      return "'" ++ name ++ "' is private to " ++ path
+    end if
+  end if
+  return path ++ " has no public declaration '" ++ name ++ "'"
+end fn not_public
+
+// The canonical name of name as a function (or a struct, called to construct one).
+fn res_fn(r: inout Resolver, name: String, pos: Pos) -> String do
+  if contains_str(xs: r.scope.ambiguous, x: name) then
+    res_err(r: inout r, pos: pos, msg: "'" ++ name ++ "' is declared in more than one imported file")
+    return name
+  end if
+  match lookup(map: r.scope.fns, key: name)
+  case Some(value: c) then
+    return c
+  case None then
+  end match
+  match lookup(map: r.scope.types, key: name)
+  case Some(value: c) then
+    return c
+  case None then
+  end match
+  return res_miss(r: inout r, name: name, pos: pos)
+end fn res_fn
+
+// A name this file cannot see: an error if some other file declares it.
+fn res_miss(r: inout Resolver, name: String, pos: Pos) -> String do
+  match lookup(map: r.known, key: name)
+  case Some(value: f) then
+    let path = file_path(files: r.files, f: f)
+    if (f >= 0) and (f < len(r.files)) and contains_str(xs: r.files[f].privates, x: name) then
+      res_err(r: inout r, pos: pos, msg: "'" ++ name ++ "' is private to " ++ path)
+      return name
+    end if
+    for a in keys(r.scope.aliases) do
+      if value_or(opt: lookup(map: r.scope.aliases, key: a), default: -1) == f then
+        res_err(r: inout r, pos: pos, msg: "'" ++ name ++ "' is in the module '" ++ a ++ "': write " ++ a ++ "." ++ name)
+        return name
+      end if
+    end for
+    let d = diag(pos: pos, msg: "'" ++ name ++ "' is declared in " ++ path ++ ", which this file does not import")
+    let rel = relative_import(from: file_path(files: r.files, f: r.file), to: path)
+    let note = "import it with `import \"" ++ rel ++ "\" (" ++ name ++ ")`, or with `import \"" ++ rel ++ "\" as m` and write m." ++ name
+    set r = r with (errs: push(list: r.errs, item: with_note(d: d, note: note)))
+  case None then
+  end match
+  return name
+end fn res_miss
+
+// The path an import in file from would use for file to (both as file_path gives
+// them).
+fn relative_import(from: String, to: String) -> String do
+  if starts_with(s: to, p: "std/") or (starts_with(s: from, p: "/") != starts_with(s: to, p: "/")) then
+    return to
+  end if
+  let a = split(s: dirname(from), sep: '/')
+  let b = split(s: to, sep: '/')
+  var common = 0
+  while (common < len(a)) and (common < len(b)) and (a[common] == b[common]) invariant (0 <= common) and (common <= len(a)) and (common <= len(b)) do
+    set common = common + 1
+  end while
+  var parts: List<String> = []
+  for i in common..len(a) do
+    if (a[i] == "..") or (a[i] == ".") or (len(a[i]) == 0) then
+      // A directory above the working directory: fall back to the full path.
+      if a[i] == ".." then
+        return to
+      end if
+    else
+      set parts = push(list: parts, item: "..")
+    end if
+  end for
+  for i in common..len(b) do
+    set parts = push(list: parts, item: b[i])
+  end for
+  return join(parts: parts, sep: "/")
+end fn relative_import
+
+fn res_type_name(r: inout Resolver, name: String, pos: Pos) -> String do
+  let dot = find_byte(s: name, c: '.', from: 0)
+  if dot >= 0 then
+    let alias = slice(of: name, from: 0, to: dot)
+    let n = slice(of: name, from: dot + 1, to: len(name))
+    match lookup(map: r.scope.aliases, key: alias)
+    case Some(value: t) then
+      if (t >= 0) and (t < len(r.etypes)) then
+        match lookup(map: r.etypes[t], key: n)
+        case Some(value: c) then
+          return c
+        case None then
+        end match
+      end if
+      res_err(r: inout r, pos: pos, msg: not_public(r: r, f: t, name: n))
+    case None then
+      res_err(r: inout r, pos: pos, msg: "'" ++ alias ++ "' is not an imported module")
+    end match
+    return name
+  end if
+  if contains_str(xs: r.tparams, x: name) then
+    return name
+  end if
+  if contains_str(xs: r.scope.ambiguous, x: name) then
+    res_err(r: inout r, pos: pos, msg: "'" ++ name ++ "' is declared in more than one imported file")
+    return name
+  end if
+  match lookup(map: r.scope.types, key: name)
+  case Some(value: c) then
+    return c
+  case None then
+  end match
+  return res_miss(r: inout r, name: name, pos: pos)
+end fn res_type_name
+
+fn res_type(r: inout Resolver, t: TypeExpr) -> TypeExpr do
+  var args: List<TypeExpr> = []
+  for a in t.args do
+    set args = push(list: args, item: res_type(r: inout r, t: a))
+  end for
+  let name = res_type_name(r: inout r, name: t.name, pos: t.pos)
+  return t with (name: name, args: args, refine: res_opt_expr(r: inout r, e: t.refine))
+end fn res_type
+
+fn res_opt_type(r: inout Resolver, t: Option<TypeExpr>) -> Option<TypeExpr> do
+  match t
+  case Some(value: x) then
+    return Option.Some(value: res_type(r: inout r, t: x))
+  case None then
+    return Option.None
+  end match
+end fn res_opt_type
+
+fn res_params(r: inout Resolver, ps: List<Param>) -> List<Param> do
+  var out: List<Param> = []
+  for p in ps do
+    set out = push(list: out, item: p with (ty: res_type(r: inout r, t: p.ty)))
+  end for
+  return out
+end fn res_params
+
+fn res_expr(r: inout Resolver, e: Expr) -> Expr do
+  match e.kind
+  case Var(name: n) then
+    if has(map: r.scope.aliases, key: n) and not contains_str(xs: r.locals, x: n) then
+      res_err(r: inout r, pos: e.pos, msg: "'" ++ n ++ "' is a module; name one of its declarations, as in " ++ n ++ ".name")
+    end if
+    return e
+  case Call(callee: c, args: args) then
+    var c2 = c
+    match c.kind
+    case Var(name: n) then
+      set c2 = c with (kind: EK.Var(name: res_fn(r: inout r, name: n, pos: c.pos)))
+    else
+      set c2 = res_expr(r: inout r, e: c)
+    end match
+    return e with (kind: EK.Call(callee: c2, args: res_args(r: inout r, args: args)))
+  case Field(obj: o, name: m) then
+    match o.kind
+    case Var(name: n) then
+      if contains_str(xs: r.locals, x: n) then
+        return e
+      end if
+      match lookup(map: r.scope.aliases, key: n)
+      case Some(value: t) then
+        // m.name: a function, or a type (then followed by .Variant or a call).
+        var canon = ""
+        if (t >= 0) and (t < len(r.efns)) then
+          set canon = value_or(opt: lookup(map: r.efns[t], key: m), default: "")
+        end if
+        if (len(canon) == 0) and (t >= 0) and (t < len(r.etypes)) then
+          set canon = value_or(opt: lookup(map: r.etypes[t], key: m), default: "")
+        end if
+        if len(canon) == 0 then
+          res_err(r: inout r, pos: e.pos, msg: not_public(r: r, f: t, name: m))
+          return e
+        end if
+        return e with (kind: EK.Var(name: canon))
+      case None then
+      end match
+      if has(map: r.scope.types, key: n) or (has(map: r.known, key: n) and not has(map: r.scope.fns, key: n)) then
+        let canon = res_type_name(r: inout r, name: n, pos: o.pos)
+        return e with (kind: EK.Field(obj: o with (kind: EK.Var(name: canon)), name: m))
+      end if
+      return e
+    else
+      return e with (kind: EK.Field(obj: res_expr(r: inout r, e: o), name: m))
+    end match
+  case ListLit(items: items) then
+    var out: List<Expr> = []
+    for x in items do
+      set out = push(list: out, item: res_expr(r: inout r, e: x))
+    end for
+    return e with (kind: EK.ListLit(items: out))
+  case Index(obj: o, idx: i) then
+    let o2 = res_expr(r: inout r, e: o)
+    return e with (kind: EK.Index(obj: o2, idx: res_expr(r: inout r, e: i)))
+  case With(obj: o, args: args) then
+    let o2 = res_expr(r: inout r, e: o)
+    return e with (kind: EK.With(obj: o2, args: res_args(r: inout r, args: args)))
+  case Unary(op: op, x: x) then
+    return e with (kind: EK.Unary(op: op, x: res_expr(r: inout r, e: x)))
+  case Binary(op: op, l: l, r: rr) then
+    let l2 = res_expr(r: inout r, e: l)
+    return e with (kind: EK.Binary(op: op, l: l2, r: res_expr(r: inout r, e: rr)))
+  case Quant(q: q, name: n, lo: lo, hi: hi, body: b) then
+    let lo2 = res_expr(r: inout r, e: lo)
+    let hi2 = res_expr(r: inout r, e: hi)
+    return e with (kind: EK.Quant(q: q, name: n, lo: lo2, hi: hi2, body: res_expr(r: inout r, e: b)))
+  else
+    return e
+  end match
+end fn res_expr
+
+fn res_args(r: inout Resolver, args: List<Arg>) -> List<Arg> do
+  var out: List<Arg> = []
+  for a in args do
+    set out = push(list: out, item: a with (value: res_expr(r: inout r, e: a.value)))
+  end for
+  return out
+end fn res_args
+
+fn res_exprs(r: inout Resolver, es: List<Expr>) -> List<Expr> do
+  var out: List<Expr> = []
+  for e in es do
+    set out = push(list: out, item: res_expr(r: inout r, e: e))
+  end for
+  return out
+end fn res_exprs
+
+fn res_opt_expr(r: inout Resolver, e: Option<Expr>) -> Option<Expr> do
+  match e
+  case Some(value: x) then
+    return Option.Some(value: res_expr(r: inout r, e: x))
+  case None then
+    return Option.None
+  end match
+end fn res_opt_expr
+
+fn res_block(r: inout Resolver, stmts: List<Stmt>) -> List<Stmt> do
+  var out: List<Stmt> = []
+  for s in stmts do
+    set out = push(list: out, item: s with (kind: res_sk(r: inout r, k: s.kind)))
+  end for
+  return out
+end fn res_block
+
+fn res_opt_block(r: inout Resolver, b: Option<List<Stmt>>) -> Option<List<Stmt>> do
+  match b
+  case Some(value: s) then
+    return Option.Some(value: res_block(r: inout r, stmts: s))
+  case None then
+    return Option.None
+  end match
+end fn res_opt_block
+
+fn res_sk(r: inout Resolver, k: SK) -> SK do
+  match k
+  case Let(name: n, ty: ty, value: v, mutable: m) then
+    let t2 = res_opt_type(r: inout r, t: ty)
+    return SK.Let(name: n, ty: t2, value: res_expr(r: inout r, e: v), mutable: m)
+  case Set(name: n, value: v) then
+    return SK.Set(name: n, value: res_expr(r: inout r, e: v))
+  case Return(value: v) then
+    return SK.Return(value: res_opt_expr(r: inout r, e: v))
+  case If(arms: arms, els: els) then
+    var out: List<Arm> = []
+    for a in arms do
+      let c = res_expr(r: inout r, e: a.cond)
+      set out = push(list: out, item: Arm(cond: c, body: res_block(r: inout r, stmts: a.body)))
+    end for
+    return SK.If(arms: out, els: res_opt_block(r: inout r, b: els))
+  case While(cond: c, invs: invs, dec: d, body: b) then
+    let c2 = res_expr(r: inout r, e: c)
+    let i2 = res_exprs(r: inout r, es: invs)
+    let d2 = res_opt_expr(r: inout r, e: d)
+    return SK.While(cond: c2, invs: i2, dec: d2, body: res_block(r: inout r, stmts: b))
+  case ForRange(name: n, lo: lo, hi: hi, invs: invs, body: b) then
+    let lo2 = res_expr(r: inout r, e: lo)
+    let hi2 = res_expr(r: inout r, e: hi)
+    let i2 = res_exprs(r: inout r, es: invs)
+    return SK.ForRange(name: n, lo: lo2, hi: hi2, invs: i2, body: res_block(r: inout r, stmts: b))
+  case ForEach(name: n, list: l, invs: invs, body: b) then
+    let l2 = res_expr(r: inout r, e: l)
+    let i2 = res_exprs(r: inout r, es: invs)
+    return SK.ForEach(name: n, list: l2, invs: i2, body: res_block(r: inout r, stmts: b))
+  case Match(scrut: s, cases: cases, els: els) then
+    let s2 = res_expr(r: inout r, e: s)
+    var out: List<Case> = []
+    for c in cases do
+      set out = push(list: out, item: c with (body: res_block(r: inout r, stmts: c.body)))
+    end for
+    return SK.Match(scrut: s2, cases: out, els: res_opt_block(r: inout r, b: els))
+  case Assert(e: e) then
+    return SK.Assert(e: res_expr(r: inout r, e: e))
+  case Check(e: e) then
+    return SK.Check(e: res_expr(r: inout r, e: e))
+  case ExprStmt(e: e) then
+    return SK.ExprStmt(e: res_expr(r: inout r, e: e))
+  else
+    return k
+  end match
+end fn res_sk
+
+// ---- local names ----
+
+fn expr_binders(e: Expr, out: inout List<String>) do
+  match e.kind
+  case Call(callee: c, args: args) then
+    expr_binders(e: c, out: inout out)
+    for a in args do
+      expr_binders(e: a.value, out: inout out)
+    end for
+  case ListLit(items: items) then
+    for x in items do
+      expr_binders(e: x, out: inout out)
+    end for
+  case Index(obj: o, idx: i) then
+    expr_binders(e: o, out: inout out)
+    expr_binders(e: i, out: inout out)
+  case Field(obj: o, name: m) then
+    expr_binders(e: o, out: inout out)
+  case With(obj: o, args: args) then
+    expr_binders(e: o, out: inout out)
+    for a in args do
+      expr_binders(e: a.value, out: inout out)
+    end for
+  case Unary(op: op, x: x) then
+    expr_binders(e: x, out: inout out)
+  case Binary(op: op, l: l, r: rr) then
+    expr_binders(e: l, out: inout out)
+    expr_binders(e: rr, out: inout out)
+  case Quant(q: q, name: n, lo: lo, hi: hi, body: b) then
+    set out = push(list: out, item: n)
+    expr_binders(e: lo, out: inout out)
+    expr_binders(e: hi, out: inout out)
+    expr_binders(e: b, out: inout out)
+  else
+  end match
+end fn expr_binders
+
+fn exprs_binders(es: List<Expr>, out: inout List<String>) do
+  for e in es do
+    expr_binders(e: e, out: inout out)
+  end for
+end fn exprs_binders
+
+fn opt_binders(e: Option<Expr>, out: inout List<String>) do
+  match e
+  case Some(value: x) then
+    expr_binders(e: x, out: inout out)
+  case None then
+  end match
+end fn opt_binders
+
+fn type_binders(t: TypeExpr, out: inout List<String>) do
+  for a in t.args do
+    type_binders(t: a, out: inout out)
+  end for
+  opt_binders(e: t.refine, out: inout out)
+end fn type_binders
+
+fn params_binders(ps: List<Param>, out: inout List<String>) do
+  for p in ps do
+    set out = push(list: out, item: p.name)
+    type_binders(t: p.ty, out: inout out)
+  end for
+end fn params_binders
+
+fn block_binders(stmts: List<Stmt>, out: inout List<String>) do
+  for s in stmts do
+    match s.kind
+    case Let(name: n, ty: ty, value: v, mutable: m) then
+      set out = push(list: out, item: n)
+      match ty
+      case Some(value: t) then
+        type_binders(t: t, out: inout out)
+      case None then
+      end match
+      expr_binders(e: v, out: inout out)
+    case Set(name: n, value: v) then
+      expr_binders(e: v, out: inout out)
+    case Return(value: v) then
+      opt_binders(e: v, out: inout out)
+    case If(arms: arms, els: els) then
+      for a in arms do
+        expr_binders(e: a.cond, out: inout out)
+        block_binders(stmts: a.body, out: inout out)
+      end for
+      match els
+      case Some(value: b) then
+        block_binders(stmts: b, out: inout out)
+      case None then
+      end match
+    case While(cond: c, invs: invs, dec: d, body: b) then
+      expr_binders(e: c, out: inout out)
+      exprs_binders(es: invs, out: inout out)
+      opt_binders(e: d, out: inout out)
+      block_binders(stmts: b, out: inout out)
+    case ForRange(name: n, lo: lo, hi: hi, invs: invs, body: b) then
+      set out = push(list: out, item: n)
+      expr_binders(e: lo, out: inout out)
+      expr_binders(e: hi, out: inout out)
+      exprs_binders(es: invs, out: inout out)
+      block_binders(stmts: b, out: inout out)
+    case ForEach(name: n, list: l, invs: invs, body: b) then
+      set out = push(list: out, item: n)
+      expr_binders(e: l, out: inout out)
+      exprs_binders(es: invs, out: inout out)
+      block_binders(stmts: b, out: inout out)
+    case Match(scrut: sc, cases: cases, els: els) then
+      expr_binders(e: sc, out: inout out)
+      for c in cases do
+        match c.pat
+        case PVariant(name: vn, binds: binds) then
+          for b in binds do
+            set out = push(list: out, item: b.binder)
+          end for
+        else
+        end match
+        block_binders(stmts: c.body, out: inout out)
+      end for
+      match els
+      case Some(value: b) then
+        block_binders(stmts: b, out: inout out)
+      case None then
+      end match
+    case Assert(e: e) then
+      expr_binders(e: e, out: inout out)
+    case Check(e: e) then
+      expr_binders(e: e, out: inout out)
+    case ExprStmt(e: e) then
+      expr_binders(e: e, out: inout out)
+    else
+    end match
+  end for
+end fn block_binders
+
+// The local names of a declaration; a local may not take a module's name.
+fn enter_decl(r: inout Resolver, locals: List<String>, tparams: List<String>, pos: Pos) do
+  for n in locals do
+    if has(map: r.scope.aliases, key: n) then
+      res_err(r: inout r, pos: pos, msg: "'" ++ n ++ "' names an imported module, so it cannot also name a variable, parameter or field")
+    end if
+  end for
+  set r = r with (locals: locals, tparams: tparams)
+end fn enter_decl
+
+fn resolve_item(r: inout Resolver, item: Item, canon: String) -> Item do
+  match item
+  case FnItem(decl: d) then
+    var locals: List<String> = []
+    params_binders(ps: d.params, out: inout locals)
+    exprs_binders(es: d.pre, out: inout locals)
+    exprs_binders(es: d.post, out: inout locals)
+    opt_binders(e: d.dec, out: inout locals)
+    block_binders(stmts: d.body, out: inout locals)
+    enter_decl(r: inout r, locals: locals, tparams: d.tparams, pos: d.pos)
+    let params = res_params(r: inout r, ps: d.params)
+    let ret = res_opt_type(r: inout r, t: d.ret)
+    let pre = res_exprs(r: inout r, es: d.pre)
+    let post = res_exprs(r: inout r, es: d.post)
+    let dec = res_opt_expr(r: inout r, e: d.dec)
+    let body = res_block(r: inout r, stmts: d.body)
+    return Item.FnItem(decl: d with (name: canon, params: params, ret: ret, pre: pre, post: post, dec: dec, body: body))
+  case StructItem(decl: d) then
+    var locals: List<String> = []
+    params_binders(ps: d.fields, out: inout locals)
+    enter_decl(r: inout r, locals: locals, tparams: d.tparams, pos: d.pos)
+    return Item.StructItem(decl: d with (name: canon, fields: res_params(r: inout r, ps: d.fields)))
+  case EnumItem(decl: d) then
+    var locals: List<String> = []
+    for v in d.variants do
+      params_binders(ps: v.fields, out: inout locals)
+    end for
+    enter_decl(r: inout r, locals: locals, tparams: d.tparams, pos: d.pos)
+    var vs: List<VariantDecl> = []
+    for v in d.variants do
+      set vs = push(list: vs, item: v with (fields: res_params(r: inout r, ps: v.fields)))
+    end for
+    return Item.EnumItem(decl: d with (name: canon, variants: vs))
+  case AliasItem(decl: d) then
+    var locals: List<String> = []
+    type_binders(t: d.ty, out: inout locals)
+    enter_decl(r: inout r, locals: locals, tparams: [], pos: d.pos)
+    return Item.AliasItem(decl: d with (name: canon, ty: res_type(r: inout r, t: d.ty)))
+  end match
+end fn resolve_item

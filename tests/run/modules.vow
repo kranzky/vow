@@ -1,0 +1,55 @@
+// language: 0.9
+// Modules: qualified access, selected names, and private declarations.
+
+import "../modules/geo.vow" as geo
+import "std/json.vow" as json
+import "std/text.vow" (split, trim)
+
+// geo has a private sq; this one is unrelated.
+fn sq(n: Int) -> String do
+  return "sq " ++ int_to_str(n * n)
+end fn sq
+
+fn far(p: geo.Point) -> Int
+  ensures result >= 0
+do
+  return geo.dist2(a: geo.origin(), b: p)
+end fn far
+
+fn corner(s: geo.Shape) -> Option<geo.Point> do
+  match s
+  case Box(lo: a, hi: b) then
+    return Option.Some(value: b)
+  case Dot(at: p) then
+    return Option.None
+  end match
+end fn corner
+
+fn main() uses console do
+  let p = geo.Point(x: 3, y: 4)
+  print(int_to_str(far(p)) ++ "\n")
+  let s = geo.Shape.Box(lo: geo.origin(), hi: p)
+  print(int_to_str(geo.area(s)) ++ " " ++ int_to_str(geo.area(geo.Shape.Dot(at: p))) ++ "\n")
+  match corner(s)
+  case Some(value: c) then
+    print(geo.label(c) ++ "\n")
+  case None then
+  end match
+  let q = geo.swap(geo.Pair(a: 1, b: 2))
+  print(int_to_str(q.a) ++ int_to_str(q.b) ++ "\n")
+  if p == geo.Point(x: 3, y: 4) then
+    print("equal\n")
+  end if
+  print(sq(5) ++ "\n")
+  for w in split(s: " a , b ", sep: ',') do
+    print("[" ++ trim(w) ++ "]")
+  end for
+  print("\n")
+  match json.json_parse("[1, {\"k\": null}]")
+  case Ok(value: j) then
+    print(json.json_text(j) ++ "\n")
+  case Err(error: e) then
+    print(e ++ "\n")
+  end match
+  print(json.json_text(json.Json.JArr(items: [json.Json.JNull, json.Json.JBool(value: true)])) ++ "\n")
+end fn main

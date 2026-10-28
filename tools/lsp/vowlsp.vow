@@ -379,6 +379,22 @@ fn markdown(code: String) -> Json do
   return obj(keys: ["contents"], values: [obj(keys: ["kind", "value"], values: [jstr("markdown"), jstr(value)])])
 end fn markdown
 
+// The declaration a name refers to: one with exactly that name (in the open file's
+// namespace), or else one in a module (json.parse is found from parse).
+fn find_item(items: List<Item>, name: String) -> Option<Item> do
+  for item in items do
+    if item_name(item) == name then
+      return Option.Some(value: item)
+    end if
+  end for
+  for item in items do
+    if local_name(item_name(item)) == name then
+      return Option.Some(value: item)
+    end if
+  end for
+  return Option.None
+end fn find_item
+
 fn hover(s: Server, path: String, line: Int, col: Int) -> Json uses fs do
   let w = word_at(text: doc_text(s: s, path: path), line: line, col: col)
   if len(w.text) == 0 then
@@ -388,16 +404,16 @@ fn hover(s: Server, path: String, line: Int, col: Int) -> Json uses fs do
   let ck = check_source(src: src, test_mode: true)
   let info = ck.c.info
   // A declaration with this name.
-  for item in src.items do
-    if item_name(item) == w.text then
-      match item
-      case FnItem(decl: f) then
-        return markdown(fn_contract(f))
-      else
-        return markdown(pretty_item(item))
-      end match
-    end if
-  end for
+  match find_item(items: src.items, name: w.text)
+  case Some(value: item) then
+    match item
+    case FnItem(decl: f) then
+      return markdown(fn_contract(f))
+    else
+      return markdown(pretty_item(item))
+    end match
+  case None then
+  end match
   // A variant: its enum.
   for item in src.items do
     match item
@@ -489,10 +505,12 @@ fn definition(s: Server, path: String, line: Int, col: Int) -> Json uses fs do
     return Json.JNull
   end if
   let src = load_with(root: path, overrides: s.docs)
+  match find_item(items: src.items, name: w.text)
+  case Some(value: item) then
+    return location(files: src.files, pos: item_pos(item), name: w.text)
+  case None then
+  end match
   for item in src.items do
-    if item_name(item) == w.text then
-      return location(files: src.files, pos: item_pos(item), name: w.text)
-    end if
     match item
     case EnumItem(decl: e) then
       for vd in e.variants do

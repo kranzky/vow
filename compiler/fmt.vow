@@ -156,6 +156,9 @@ fn layout_line(toks: List<RawTok>, ind: Int) -> String do
       set space = false
     elif (t.text == "..") or (prev.text == "..") then
       set space = false
+    elif (t.text == "(") and (toks[0].text == "import") then
+      // import "m.vow" (a, b)
+      set space = true
     elif ((t.text == "(") or (t.text == "[")) and (ends_operand(prev) or prev_close) then
       set space = false
     end if
@@ -272,8 +275,13 @@ fn format_source(src: String) -> String do
       set pending = push(list: pending, item: toks[0].text)
       continue
     end if
-    let first = toks[0].text
-    let head = structural(toks: toks, i: 0)
+    // A private declaration is laid out as the declaration it marks.
+    var lead = 0
+    if (toks[0].text == "private") and (len(toks) > 1) then
+      set lead = 1
+    end if
+    let first = toks[lead].text
+    let head = structural(toks: toks, i: lead)
     var ind = lvl
     if (depth > 0) or trailing_op then
       set ind = cont
@@ -321,7 +329,7 @@ fn format_source(src: String) -> String do
           set lvl = lvl + 1
         elif t == "end" then
           set lvl = lvl - 1
-        elif (i == 0) and contains_str(xs: ["match", "struct", "enum"], x: t) then
+        elif (i == lead) and contains_str(xs: ["match", "struct", "enum"], x: t) then
           set lvl = lvl + 1
         end if
       end if

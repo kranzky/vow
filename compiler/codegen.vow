@@ -233,11 +233,14 @@ fn panic_at(g: Gen, pos: Pos, msg: String) -> String do
   return "vow_panic_at(" ++ c_string(f) ++ ", " ++ int_to_str(pos.line) ++ ", " ++ msg ++ ");"
 end fn panic_at
 
-// The C name of a function: f_name, or i_ and the mangled name for an instance of a
-// generic function.
+// The C name of a function: f_name, i_ and the mangled name for an instance of a
+// generic function, or m_ and the mangled name for a function in a module.
 fn c_fn(name: String) -> String do
   if is_instance_name(name) then
     return "i_" ++ mangle(name)
+  end if
+  if find_byte(s: name, c: '.', from: 0) >= 0 then
+    return "m_" ++ mangle(name)
   end if
   return "f_" ++ name
 end fn c_fn

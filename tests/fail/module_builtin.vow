@@ -1,0 +1,8 @@
+// error: 'len' is a built-in function
+// language: 0.9
+private fn len(n: Int) -> Int do
+  return n
+end fn len
+
+fn main() do
+end fn main

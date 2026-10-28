@@ -22,6 +22,10 @@ fn order_preamble(pre: Map<String, Bool>) -> List<String> do
   return sorts ++ decls ++ rest
 end fn order_preamble
 
+fn pos_key(p: Pos) -> String do
+  return int_to_str(p.file) ++ ":" ++ int_to_str(p.line) ++ ":" ++ int_to_str(p.col)
+end fn pos_key
+
 struct Checked
   c: Checker,
   rec: Recursion,
@@ -34,7 +38,16 @@ end struct Checked
 fn check_source(src: Source, test_mode: Bool) -> Checked do
   var c = check_program(items: src.items, files: src.files, next_id: src.next_id)
   var errs = src.errs
+  var at: List<String> = []
+  for d in src.errs do
+    set at = push(list: at, item: pos_key(d.pos))
+  end for
   for d in c.errs do
+    // A name the loader already reported (as private, say) is also unknown to the
+    // checker; one error is enough.
+    if contains_str(xs: at, x: pos_key(d.pos)) then
+      continue
+    end if
     if (not test_mode) or (d.msg != "the program has no 'fn main()'") then
       set errs = push(list: errs, item: d)
     end if

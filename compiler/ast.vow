@@ -161,6 +161,16 @@ fn item_name(item: Item) -> String do
   end match
 end fn item_name
 
+// A declaration's name without its module: "parse" for "json.parse". A declaration in
+// a module imported with `as` is known by its module-qualified name.
+fn local_name(name: String) -> String do
+  let i = find_last_byte(s: name, c: '.')
+  if i < 0 then
+    return name
+  end if
+  return slice(of: name, from: i + 1, to: len(name))
+end fn local_name
+
 fn item_pos(item: Item) -> Pos do
   match item
   case FnItem(decl: d) then

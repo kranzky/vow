@@ -1,0 +1,7 @@
+// error: 'g' is not an imported module
+// language: 0.9
+fn f(p: g.Point) do
+end fn f
+
+fn main() do
+end fn main

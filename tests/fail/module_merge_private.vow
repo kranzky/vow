@@ -1,0 +1,8 @@
+// error: 'sq' is private to modules/geo.vow
+// language: 0.9
+// A private declaration stays private when its file is merged.
+import "../modules/geo.vow"
+
+fn main() do
+  let n = sq(3)
+end fn main
