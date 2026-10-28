@@ -45,11 +45,11 @@ fn main() uses console do
     print("[" ++ trim(w) ++ "]")
   end for
   print("\n")
-  match json.json_parse("[1, {\"k\": null}]")
+  match json.parse("[1, {\"k\": null}]")
   case Ok(value: j) then
-    print(json.json_text(j) ++ "\n")
+    print(json.text(j) ++ "\n")
   case Err(error: e) then
     print(e ++ "\n")
   end match
-  print(json.json_text(json.Json.JArr(items: [json.Json.JNull, json.Json.JBool(value: true)])) ++ "\n")
+  print(json.text(json.Json.JArr(items: [json.Json.JNull, json.Json.JBool(value: true)])) ++ "\n")
 end fn main

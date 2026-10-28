@@ -11,7 +11,7 @@
 // - Go to definition: functions, types, variants, and local bindings and parameters.
 
 import "../../compiler/pipeline.vow"
-import "std/json.vow"
+import "std/json.vow" as json
 
 struct Server
   // The text of each open document, by path.
@@ -29,7 +29,7 @@ fn main() uses console, fs, proc do
     case None then
       set going = false
     case Some(value: body) then
-      match json_parse(body)
+      match json.parse(body)
       case Ok(value: msg) then
         handle(s: inout s, msg: msg)
       case Err(error: e) then
@@ -64,35 +64,35 @@ fn read_message() -> Option<String> uses console do
   end while
 end fn read_message
 
-fn send(j: Json) uses console do
-  let t = json_text(j)
+fn send(j: json.Json) uses console do
+  let t = json.text(j)
   print("Content-Length: " ++ int_to_str(len(t)) ++ "\r\n\r\n" ++ t)
 end fn send
 
-fn obj(keys: List<String>, values: List<Json>) -> Json do
-  return Json.JObj(keys: keys, values: values)
+fn obj(keys: List<String>, values: List<json.Json>) -> json.Json do
+  return json.Json.JObj(keys: keys, values: values)
 end fn obj
 
-fn jstr(s: String) -> Json do
-  return Json.JStr(value: s)
+fn jstr(s: String) -> json.Json do
+  return json.Json.JStr(value: s)
 end fn jstr
 
-fn jint(n: Int) -> Json do
-  return Json.JNum(value: n)
+fn jint(n: Int) -> json.Json do
+  return json.Json.JNum(value: n)
 end fn jint
 
-fn respond(id: Json, value: Json) uses console do
+fn respond(id: json.Json, value: json.Json) uses console do
   send(obj(keys: ["jsonrpc", "id", "result"], values: [jstr("2.0"), id, value]))
 end fn respond
 
-fn notify(method: String, params: Json) uses console do
+fn notify(method: String, params: json.Json) uses console do
   send(obj(keys: ["jsonrpc", "method", "params"], values: [jstr("2.0"), jstr(method), params]))
 end fn notify
 
-fn get(j: Json, path: List<String>) -> Option<Json> do
+fn get(j: json.Json, path: List<String>) -> Option<json.Json> do
   var cur = j
   for k in path do
-    match json_get(j: cur, key: k)
+    match json.get(j: cur, key: k)
     case Some(value: x) then
       set cur = x
     case None then
@@ -102,38 +102,38 @@ fn get(j: Json, path: List<String>) -> Option<Json> do
   return Option.Some(value: cur)
 end fn get
 
-fn get_string(j: Json, path: List<String>) -> String do
+fn get_string(j: json.Json, path: List<String>) -> String do
   match get(j: j, path: path)
   case Some(value: x) then
-    return value_or(opt: json_string(x), default: "")
+    return value_or(opt: json.string(x), default: "")
   case None then
     return ""
   end match
 end fn get_string
 
-fn get_int(j: Json, path: List<String>) -> Int do
+fn get_int(j: json.Json, path: List<String>) -> Int do
   match get(j: j, path: path)
   case Some(value: x) then
-    return value_or(opt: json_int(x), default: -1)
+    return value_or(opt: json.int(x), default: -1)
   case None then
     return -1
   end match
 end fn get_int
 
-fn handle(s: inout Server, msg: Json) uses console, fs, proc do
+fn handle(s: inout Server, msg: json.Json) uses console, fs, proc do
   let method = get_string(j: msg, path: ["method"])
-  let id = json_get(j: msg, key: "id")
+  let id = json.get(j: msg, key: "id")
   let uri = get_string(j: msg, path: ["params", "textDocument", "uri"])
   let path = uri_path(uri)
   if method == "initialize" then
-    let sync = obj(keys: ["openClose", "change", "save"], values: [Json.JBool(value: true), jint(1), Json.JBool(value: true)])
+    let sync = obj(keys: ["openClose", "change", "save"], values: [json.Json.JBool(value: true), jint(1), json.Json.JBool(value: true)])
     let caps = obj(keys: ["textDocumentSync", "hoverProvider", "definitionProvider"],
-      values: [sync, Json.JBool(value: true), Json.JBool(value: true)])
+      values: [sync, json.Json.JBool(value: true), json.Json.JBool(value: true)])
     let info = obj(keys: ["name"], values: [jstr("vow-lsp")])
     reply(id: id, value: obj(keys: ["capabilities", "serverInfo"], values: [caps, info]))
   elif method == "shutdown" then
     set s = s with (shutdown: true)
-    reply(id: id, value: Json.JNull)
+    reply(id: id, value: json.Json.JNull)
   elif method == "exit" then
     if s.shutdown then
       exit(0)
@@ -185,7 +185,7 @@ fn handle(s: inout Server, msg: Json) uses console, fs, proc do
   end if
 end fn handle
 
-fn reply(id: Option<Json>, value: Json) uses console do
+fn reply(id: Option<json.Json>, value: json.Json) uses console do
   match id
   case Some(value: x) then
     respond(id: x, value: value)
@@ -237,7 +237,7 @@ fn path_uri(path: String) -> String do
     if is_alnum(c) or contains_str(xs: ["/", "-", ".", "_", "~"], x: char(c)) then
       set parts = push(list: parts, item: char(c))
     else
-      set parts = push(list: parts, item: "%" ++ to_upper(json_hex_digit(c / 16) ++ json_hex_digit(c % 16)))
+      set parts = push(list: parts, item: "%" ++ to_upper(json.hex_digit(c / 16) ++ json.hex_digit(c % 16)))
     end if
   end for
   return join(parts: parts, sep: "")
@@ -274,7 +274,7 @@ fn diagnose(s: inout Server, path: String, prove: Bool) uses console, fs, proc d
   end for
   var published: List<String> = []
   for f in files do
-    var items: List<Json> = []
+    var items: List<json.Json> = []
     for d in diags do
       if (d.pos.file >= 0) and (d.pos.file < len(src.files)) and (src.files[d.pos.file] == f) then
         set items = push(list: items, item: lsp_diag(d: d, text: doc_text(s: s, path: f)))
@@ -283,7 +283,7 @@ fn diagnose(s: inout Server, path: String, prove: Bool) uses console, fs, proc d
     if len(items) > 0 then
       set published = push(list: published, item: f)
     end if
-    let params = obj(keys: ["uri", "diagnostics"], values: [jstr(path_uri(f)), Json.JArr(items: items)])
+    let params = obj(keys: ["uri", "diagnostics"], values: [jstr(path_uri(f)), json.Json.JArr(items: items)])
     notify(method: "textDocument/publishDiagnostics", params: params)
   end for
   set s = s with (published: published)
@@ -298,7 +298,7 @@ fn doc_text(s: Server, path: String) -> String uses fs do
   end match
 end fn doc_text
 
-fn lsp_diag(d: Diag, text: String) -> Json do
+fn lsp_diag(d: Diag, text: String) -> json.Json do
   var msg = d.msg
   for n in d.notes do
     set msg = msg ++ "\n" ++ n
@@ -314,7 +314,7 @@ fn lsp_diag(d: Diag, text: String) -> Json do
   return obj(keys: ["range", "severity", "source", "message"], values: [range, jint(severity), jstr("vow"), jstr(msg)])
 end fn lsp_diag
 
-fn position(line: Int, col: Int) -> Json do
+fn position(line: Int, col: Int) -> json.Json do
   return obj(keys: ["line", "character"], values: [jint(line), jint(col)])
 end fn position
 
@@ -374,7 +374,7 @@ end fn word_at
 
 // ---- hover and definition ----
 
-fn markdown(code: String) -> Json do
+fn markdown(code: String) -> json.Json do
   let value = "```vow\n" ++ code ++ "\n```"
   return obj(keys: ["contents"], values: [obj(keys: ["kind", "value"], values: [jstr("markdown"), jstr(value)])])
 end fn markdown
@@ -395,10 +395,10 @@ fn find_item(items: List<Item>, name: String) -> Option<Item> do
   return Option.None
 end fn find_item
 
-fn hover(s: Server, path: String, line: Int, col: Int) -> Json uses fs do
+fn hover(s: Server, path: String, line: Int, col: Int) -> json.Json uses fs do
   let w = word_at(text: doc_text(s: s, path: path), line: line, col: col)
   if len(w.text) == 0 then
-    return Json.JNull
+    return json.Json.JNull
   end if
   let src = load_with(root: path, overrides: s.docs)
   let ck = check_source(src: src, test_mode: true)
@@ -454,7 +454,7 @@ fn hover(s: Server, path: String, line: Int, col: Int) -> Json uses fs do
     end if
   end for
   if len(ty) == 0 then
-    return Json.JNull
+    return json.Json.JNull
   end if
   var text = w.text ++ ": " ++ ty
   let facts = facts_about(src: src, ck: ck, line: line, name: w.text)
@@ -499,10 +499,10 @@ fn facts_about(src: Source, ck: Checked, line: Int, name: String) -> List<String
   end match
 end fn facts_about
 
-fn definition(s: Server, path: String, line: Int, col: Int) -> Json uses fs do
+fn definition(s: Server, path: String, line: Int, col: Int) -> json.Json uses fs do
   let w = word_at(text: doc_text(s: s, path: path), line: line, col: col)
   if len(w.text) == 0 then
-    return Json.JNull
+    return json.Json.JNull
   end if
   let src = load_with(root: path, overrides: s.docs)
   match find_item(items: src.items, name: w.text)
@@ -544,7 +544,7 @@ fn definition(s: Server, path: String, line: Int, col: Int) -> Json uses fs do
     end if
     return location(files: src.files, pos: best, name: w.text)
   end if
-  return Json.JNull
+  return json.Json.JNull
 end fn definition
 
 // pos.line if pos is a parameter's position, else -1.
@@ -563,9 +563,9 @@ fn w_line_of_param(src: Source, name: String, pos: Pos) -> Int do
   return -1
 end fn w_line_of_param
 
-fn location(files: List<String>, pos: Pos, name: String) -> Json do
+fn location(files: List<String>, pos: Pos, name: String) -> json.Json do
   if (pos.file < 0) or (pos.file >= len(files)) or starts_with(s: files[pos.file], p: "<std>/") then
-    return Json.JNull
+    return json.Json.JNull
   end if
   let start = position(line: pos.line - 1, col: pos.col - 1)
   let range = obj(keys: ["start", "end"], values: [start, position(line: pos.line - 1, col: (pos.col - 1) + len(name))])

@@ -181,13 +181,14 @@ Import what you use, as in `import "std/text.vow" (split, trim)`, or the whole m
 with `import "std/text.vow" as text` (then `text.split(...)`). A plain
 `import "std/text.vow"` merges every name, so then don't define your own `trim`.
 
-`import "std/json.vow" as json` parses and prints JSON. A value is a `json.Json`: `JNull`,
-`JBool(value)`, `JNum(value)` (an Int), `JFloat(value)` (any other number), `JStr(value)`,
-`JArr(items)` or `JObj(keys, values)`. `json.json_parse(s) -> Result<json.Json, String>`
-(the error gives the byte offset), `json.json_text(j)` prints compact JSON,
-`json.json_quote(s)` makes a JSON string literal, and `json_get(j, key)`,
-`json_get_string`, `json_get_int`, `json_string(j)`, `json_int(j)` and `json_float(j)`
-read values (`None` when absent or of another type).
+`import "std/json.vow" as json` parses and prints JSON (import it as a module: its
+names, such as `parse` and `get`, are too general to merge). A value is a `json.Json`:
+`JNull`, `JBool(value)`, `JNum(value)` (an Int), `JFloat(value)` (any other number),
+`JStr(value)`, `JArr(items)` or `JObj(keys, values)`.
+`json.parse(s) -> Result<json.Json, String>` (the error gives the byte offset),
+`json.text(j)` prints compact JSON, `json.quote(s)` makes a JSON string literal, and
+`json.get(j: j, key: k)`, `json.get_string`, `json.get_int`, `json.string(j)`,
+`json.int(j)` and `json.float(j)` read values (`None` when absent or of another type).
 
 ## 4. Making proofs go through
 

@@ -9,8 +9,12 @@ Modules.
   comes along. `import "std/text.vow" (split, trim)` brings in just those names.
   A plain `import "file.vow"` still merges the file, as before.
 - `private fn` (and `private struct`, `enum`, `type`) keeps a declaration visible only
-  in its own file, however the file is imported. The JSON reader's internals in
-  `std/json.vow` are now private.
+  in its own file, however the file is imported.
+- `std/json.vow` is meant to be imported as a module, and its functions lose their
+  prefix: `json.parse`, `json.text`, `json.quote`, `json.get`, `json.get_string`,
+  `json.get_int`, `json.string`, `json.int`, `json.float` and `json.hex_digit` (they
+  were `json_parse` and so on). Its reader internals are private, and it imports only
+  the three text functions it uses.
 - Using a name the file cannot see says why: it is private, it is in a module (write
   `geo.origin`), or it is declared in a file that is not imported (with the import
   line that would fix it).

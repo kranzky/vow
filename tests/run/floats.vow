@@ -1,7 +1,7 @@
 // language: 0.8
 // Float: arithmetic, comparisons, NaN, conversions, printing and JSON numbers.
 
-import "std/json.vow"
+import "std/json.vow" as json
 
 struct Reading
   label: String,
@@ -55,11 +55,11 @@ fn main() uses console do
   assert int_to_float(3) == 3.0
   let a = abs_float(-4.0)
   assert a >= 0.0
-  match json_parse("[1, 2.5, -3e2, 12345678901234567890]")
+  match json.parse("[1, 2.5, -3e2, 12345678901234567890]")
   case Ok(value: j) then
-    print(json_text(j) ++ "\n")
+    print(json.text(j) ++ "\n")
   case Err(error: e) then
     print(e ++ "\n")
   end match
-  print(json_text(Json.JArr(items: [Json.JFloat(value: nan), Json.JFloat(value: 0.5)])) ++ "\n")
+  print(json.text(json.Json.JArr(items: [json.Json.JFloat(value: nan), json.Json.JFloat(value: 0.5)])) ++ "\n")
 end fn main

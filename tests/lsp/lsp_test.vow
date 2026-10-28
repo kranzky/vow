@@ -3,14 +3,14 @@
 // repository root, after build/vow-lsp is built).
 
 import "std/text.vow"
-import "std/json.vow"
+import "std/json.vow" as json
 
 fn frame(msg: String) -> String do
   return "Content-Length: " ++ int_to_str(len(msg)) ++ "\r\n\r\n" ++ msg
 end fn frame
 
 fn session(uri: String, text: String) -> String uses proc do
-  let open = "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didOpen\",\"params\":{\"textDocument\":{\"uri\":\"" ++ uri ++ "\",\"languageId\":\"vow\",\"version\":1,\"text\":" ++ json_quote(text) ++ "}}}"
+  let open = "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didOpen\",\"params\":{\"textDocument\":{\"uri\":\"" ++ uri ++ "\",\"languageId\":\"vow\",\"version\":1,\"text\":" ++ json.quote(text) ++ "}}}"
   let doc = "{\"textDocument\":{\"uri\":\"" ++ uri ++ "\"}"
   let hover_fn = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"textDocument/hover\",\"params\":" ++ doc ++ ",\"position\":{\"line\":5,\"character\":11}}}"
   let hover_var = "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"textDocument/hover\",\"params\":" ++ doc ++ ",\"position\":{\"line\":5,\"character\":6}}}"
@@ -54,7 +54,7 @@ fn test_known_facts() uses proc do
   // Line 7 (from 0) is inside the if: hovering x there shows what is known about it.
   let text = "fn twice(n: Int) -> Int ensures result == (n + n) do\n  return n + n\nend fn twice\n\nfn main() uses console do\n  let x = twice(2)\n  if x > 3 then\n    print(int_to_str(x))\n  end if\nend fn main\n"
   let doc = "{\"textDocument\":{\"uri\":\"" ++ uri ++ "\"}"
-  let open = "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didOpen\",\"params\":{\"textDocument\":{\"uri\":\"" ++ uri ++ "\",\"languageId\":\"vow\",\"version\":1,\"text\":" ++ json_quote(text) ++ "}}}"
+  let open = "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didOpen\",\"params\":{\"textDocument\":{\"uri\":\"" ++ uri ++ "\",\"languageId\":\"vow\",\"version\":1,\"text\":" ++ json.quote(text) ++ "}}}"
   let hover = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"textDocument/hover\",\"params\":" ++ doc ++ ",\"position\":{\"line\":7,\"character\":21}}}"
   var input = frame("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}") ++ frame(open) ++ frame(hover)
   set input = input ++ frame("{\"jsonrpc\":\"2.0\",\"id\":5,\"method\":\"shutdown\"}") ++ frame("{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}")
@@ -69,7 +69,7 @@ fn test_modules() uses proc do
   // Line 3 (from 0), character 15 is on dist2 in geo.dist2.
   let text = "import \"../modules/geo.vow\" as geo\n\nfn main() uses console do\n  let d = geo.dist2(a: geo.origin(), b: geo.origin())\n  print(int_to_str(d))\nend fn main\n"
   let doc = "{\"textDocument\":{\"uri\":\"" ++ uri ++ "\"}"
-  let open = "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didOpen\",\"params\":{\"textDocument\":{\"uri\":\"" ++ uri ++ "\",\"languageId\":\"vow\",\"version\":1,\"text\":" ++ json_quote(text) ++ "}}}"
+  let open = "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didOpen\",\"params\":{\"textDocument\":{\"uri\":\"" ++ uri ++ "\",\"languageId\":\"vow\",\"version\":1,\"text\":" ++ json.quote(text) ++ "}}}"
   let hover = "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"textDocument/hover\",\"params\":" ++ doc ++ ",\"position\":{\"line\":3,\"character\":15}}}"
   let def = "{\"jsonrpc\":\"2.0\",\"id\":3,\"method\":\"textDocument/definition\",\"params\":" ++ doc ++ ",\"position\":{\"line\":3,\"character\":15}}}"
   var input = frame("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}") ++ frame(open) ++ frame(hover) ++ frame(def)
