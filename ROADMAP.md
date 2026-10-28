@@ -58,8 +58,14 @@ Must-have, language and proofs:
 - [x] Field refinements assumed inside specifications: a goal assumes the field
       refinements of the struct values it names
 - [ ] Generic functions usable in specifications
-- [ ] Contracts that can describe what is inside a `Result` or an `Option` (today the
-      workaround is a wrapper struct with a refined field)
+- [ ] Refined type arguments (`List<Cents>`, `Option<Int where it >= 0>`), so contracts
+      can describe what is inside a `List`, `Option` or `Result`: a value is checked
+      against the refinement where it goes in (a literal, `push`, `Some(...)`, any
+      argument of type `T` to a generic function) and the refinement is assumed where
+      it comes out (an index, a loop variable, a `case` binding, a result of type `T`).
+      Generic functions are verified for every `T`, so they cannot break it. Only
+      refinements that mention no variables, to start with. Today the workaround is a
+      struct with a refined field (`examples/money/money.vow`)
 - [ ] Lexicographic measures (`decreases (a, b)`), for recursion that one Int or
       structural measure cannot order: a rose tree walked through a helper over its
       children, or mutual recursion mixing a list index and a tree
