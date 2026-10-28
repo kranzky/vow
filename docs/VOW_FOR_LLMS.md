@@ -457,6 +457,12 @@ in '*'` (exit status 101). In a verified program the only runtime failures are i
 overflow, `panic(msg)` and a failed `check`; bounds and division are proved. `vowc check
 file.vow --totality` lists the functions not proved to terminate, with the reason.
 
+**Checking contracts while the program runs.** `vowc run file.vow --no-verify
+--check-contracts` runs code whose proofs do not go through yet, checking every
+contract, refinement, invariant and loop measure as it executes: the first one that a
+real input breaks panics with its line (`postcondition failed: result > n`). Use it to
+find out whether a failed proof is a wrong contract or a missing fact.
+
 ## 6. Idioms
 
 **Mutable state through `inout`** (from `compiler/codegen.vow`):

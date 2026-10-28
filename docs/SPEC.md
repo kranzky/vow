@@ -591,3 +591,16 @@ to `.vow` lines (`--no-line-directives` leaves them out). A runtime failure prin
 overflow, `panic(msg)`, a failed `check`, and, in programs built with `--no-verify`,
 out-of-bounds indexes, slices and `set_at`, division by zero and `char` codes out of
 range (verified programs cannot fail these, so the checks are compiled out).
+
+`--check-contracts` (with `build`, `run` or `test`) also checks at runtime what the
+verifier proves: preconditions and parameter refinements on entry; postconditions,
+using `old(x)`, and the result's refinement at every return; the refinements of `let`s
+and `var`s whenever they are assigned, including by an inout call; field refinements
+wherever a struct or variant value is built, `with` included; loop invariants at the
+top of every iteration, when the loop ends and at every `break`; an `Int` loop measure's
+being non-negative and smaller at the end of every iteration and at every `continue`;
+`assert`; and the bounds and division checks above. A failure panics with the contract
+that failed (`vow: panic at f.vow:3: postcondition failed: result > n`). On a verified
+program no such check can fail, so one that does is a bug in the verifier; on a program
+built with `--no-verify` they find the contract that does not hold. Measures of
+recursive calls are not checked.

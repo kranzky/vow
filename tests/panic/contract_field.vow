@@ -1,0 +1,13 @@
+// language: 0.9
+// Checked builds check field refinements wherever a value is built, with 'with' too.
+// vowflags: --no-verify --check-contracts
+
+struct R
+  lo: Int,
+  hi: Int where it >= lo,
+end struct R
+
+fn main() do
+  let r = R(lo: 1, hi: 2)
+  let s = r with (lo: 5)
+end fn main

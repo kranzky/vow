@@ -1,0 +1,10 @@
+// language: 0.9
+// Checked builds check a range loop's invariants for its last value too.
+// vowflags: --no-verify --check-contracts
+
+fn main() do
+  for i in 0..3
+    invariant i < 3
+  do
+  end for
+end fn main

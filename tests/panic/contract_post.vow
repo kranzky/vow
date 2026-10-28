@@ -1,0 +1,14 @@
+// language: 0.9
+// Built unverified with --check-contracts: a false postcondition, using old(), panics.
+// vowflags: --no-verify --check-contracts
+
+fn f(xs: inout List<Int>)
+  ensures len(xs) == (len(old(xs)) + 1)
+do
+  set xs = push(list: push(list: xs, item: 1), item: 2)
+end fn f
+
+fn main() do
+  var xs = [0]
+  f(xs: inout xs)
+end fn main

@@ -1,0 +1,1 @@
+vow: panic at panic/contract_field.vow:7: refinement of field 'hi' of R failed: it >= lo

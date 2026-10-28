@@ -1,0 +1,15 @@
+// language: 0.9
+// Checked builds check that a loop measure decreases, at every continue too.
+// vowflags: --no-verify --check-contracts
+
+fn main() do
+  var i = 0
+  while i < 5
+    decreases 5 - i
+  do
+    if i == 2 then
+      continue
+    end if
+    set i = i + 1
+  end while
+end fn main

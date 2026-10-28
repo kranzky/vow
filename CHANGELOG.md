@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- `--check-contracts` (with `build`, `run` and `test`) checks at runtime everything the
+  verifier proves: preconditions, postconditions (with `old`), refinements of
+  parameters, results, variables and fields, loop invariants, `Int` loop measures,
+  `assert`, and bounds and division. On a verified program a failed check is a bug in
+  the verifier; with `--no-verify` it finds the contract that does not hold. The test
+  suite runs every test program, example, benchmark and the compiler itself this way,
+  under the debug runtime.
+
 ## v0.9.1
 
 Soundness fixes.

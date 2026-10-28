@@ -1,0 +1,1 @@
+vow: panic at panic/contract_post.vow:6: postcondition failed: len(xs) == (len(old(xs)) + 1)

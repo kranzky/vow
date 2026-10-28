@@ -80,6 +80,8 @@ clean:
 test-rc: build/vowc
 	@echo "== reference counting (debug runtime)"
 	@VOWC=$(CURDIR)/build/vowc tests/rc.sh
+	@echo "== the same with --check-contracts: every contract also checked at runtime"
+	@RC_FLAGS=--check-contracts VOWC=$(CURDIR)/build/vowc tests/rc.sh
 
 # The language server (tools/lsp), and its session test.
 lsp: build/vow-lsp

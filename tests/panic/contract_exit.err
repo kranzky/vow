@@ -1,0 +1,1 @@
+vow: panic at panic/contract_exit.vow:7: loop invariant failed: i < 3

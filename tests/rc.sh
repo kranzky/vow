@@ -2,7 +2,9 @@
 # Reference-counting safety: builds every test program, example and benchmark with the
 # debug runtime (freed memory is poisoned and never reused; any use after free panics)
 # and requires the expected output and zero objects live at exit. Finally the compiler
-# compiles itself in the same mode.
+# compiles itself in the same mode. RC_FLAGS adds options to every build: with
+# --check-contracts, every verified contract is also checked as the programs run, so a
+# failure there is a soundness bug.
 cd "$(dirname "$0")/.." || exit 1
 VOWC=${VOWC:-"$(pwd)/build/vowc"}
 tmp=$(mktemp -d)
@@ -20,7 +22,7 @@ check() { # name, binary, expected-output-file-or-empty, args...
   fi
   pass=$((pass + 1))
 }
-build() { VOW_CFLAGS=-DVOW_RC_DEBUG "$VOWC" build "$1" -o "$2" >/dev/null 2>"$tmp/build.err" || { echo "FAIL build $1"; cat "$tmp/build.err"; return 1; }; }
+build() { VOW_CFLAGS=-DVOW_RC_DEBUG "$VOWC" build "$1" -o "$2" $RC_FLAGS >/dev/null 2>"$tmp/build.err" || { echo "FAIL build $1"; cat "$tmp/build.err"; return 1; }; }
 for f in tests/run/*.vow; do
   build "$f" "$tmp/prog" && check "$f" "$tmp/prog" "${f%.vow}.out"
 done
