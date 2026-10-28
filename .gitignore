@@ -2,3 +2,5 @@ target/
 *.vowcache
 /build/
 /public/
+/fuzz-findings/
+__pycache__/

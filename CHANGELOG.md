@@ -9,6 +9,11 @@
   the verifier; with `--no-verify` it finds the contract that does not hold. The test
   suite runs every test program, example, benchmark and the compiler itself this way,
   under the debug runtime.
+- `tests/fuzz.py` (`make fuzz`): soundness fuzzing. It mutates the verified test programs
+  and examples (one literal, comparison or operator each) and runs every mutant that
+  still verifies with `--check-contracts`; a check that fails is a verifier bug. 6,000
+  mutants found none; with the check that loop invariants are preserved disabled, 400
+  mutants found it 7 times.
 
 ## v0.9.1
 

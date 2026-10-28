@@ -35,8 +35,10 @@
 ## V1 scope (after the milestones above)
 
 Must-have, language and proofs:
-- [ ] Soundness hardening: written soundness argument, large must-fail suite, differential
-      fuzzing of the two verifiers
+- [ ] Soundness hardening: written soundness argument, large must-fail suite, mutation
+      fuzzing with runtime-checked contracts as the oracle (`--check-contracts` and
+      `tests/fuzz.py` exist; a mutant that verifies and then fails a check is a verifier
+      bug), and differential fuzzing of the two verifiers
 - [x] Quantified specs (`forall`/`exists` over ranges) and expression functions in specs
 - [x] `old(x)` for inout postconditions and loop invariants
 - [x] Specification functions with `let`/`if`/`match` bodies, recursive ones with
