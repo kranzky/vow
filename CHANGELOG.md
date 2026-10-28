@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## v0.9.2
+
+Soundness: two more verifier bugs fixed, runtime-checked contracts, fuzzing, and a
+written soundness argument.
 
 - `docs/SOUNDNESS.md`: the argument that the verifier is sound, rule by rule, with what
   it trusts, how it is tested and the soundness bugs found so far.
@@ -29,7 +32,9 @@
   and examples (one literal, comparison or operator each) and runs every mutant that
   still verifies with `--check-contracts`; a check that fails is a verifier bug. 6,000
   mutants found none; with the check that loop invariants are preserved disabled, 400
-  mutants found it 7 times.
+  mutants found it 7 times. `--target compiler` (`make fuzz-compiler`) mutates the compiler's
+  own source and has each mutant that verifies, built with checks, verify and compile
+  test programs; 400 mutants found nothing.
 
 ## v0.9.1
 
