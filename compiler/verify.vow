@@ -2198,6 +2198,20 @@ fn vexpr(v: inout Verifier, e: Expr, st: inout St) -> String do
           add_fact(st: inout st, f: "(=> " ++ guard ++ " " ++ and_all(fresh_facts) ++ ")")
         end if
       end if
+      // A variable the right operand changes (by passing it inout) has its new value
+      // only if the right operand was evaluated.
+      for n in keys(st.env) do
+        let before = env_term(st: st, n: n)
+        let after = env_term(st: sub, n: n)
+        if after != before then
+          match lookup(map: st.env, key: n)
+          case Some(value: x) then
+            let d = define(v: inout v, sort: sort_of(x.ty), term: "(ite " ++ guard ++ " " ++ after ++ " " ++ before ++ ")")
+            set st = st with (env: insert(map: st.env, key: n, value: x with (term: d)))
+          case None then
+          end match
+        end if
+      end for
       return define(v: inout v, sort: "Bool", term: binop_term(op: op, a: a, b: b))
     end if
     let a = vexpr(v: inout v, e: l, st: inout st)

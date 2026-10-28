@@ -1,0 +1,20 @@
+// error: cannot prove postcondition of 'f': result == 0
+// language: 0.9
+// Unsound before: the verifier dropped the change to y made on the right of 'and', so
+// f was proved to return 0 and returned 100.
+fn bump(y: inout Int) -> Bool do
+  set y = y + 100
+  return true
+end fn bump
+
+fn f(x: Int) -> Int
+  ensures result == 0
+do
+  var y = 0
+  let ok = (x > 0) and bump(y: inout y)
+  return y
+end fn f
+
+fn main() do
+  let r = f(5)
+end fn main

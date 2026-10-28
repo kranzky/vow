@@ -1,0 +1,18 @@
+// error: an inout argument cannot be inside 'forall', which evaluates its body any number of times
+// language: 0.9
+fn bump(y: inout Int) -> Bool do
+  set y = y + 100
+  return true
+end fn bump
+
+fn f() -> Int
+  ensures result == 0
+do
+  var y = 0
+  let ok = forall i in 0..3: bump(y: inout y)
+  return y
+end fn f
+
+fn main() do
+  let r = f()
+end fn main

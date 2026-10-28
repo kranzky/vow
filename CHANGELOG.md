@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Fixed (unsound): a variable passed inout on the right of `and`, `or` or `implies`, as
+  in `ok = (x > 0) and bump(y: inout y)`, kept its old value as far as the verifier knew,
+  so a function could be proved to return 0 and return 100. The verifier now knows the
+  variable changes exactly when that side is evaluated. An inout argument inside a
+  `forall` or `exists`, whose body runs any number of times, is now an error. The
+  verifier version is now 7, so results cached by earlier versions are proved again.
 - Fixed: a program could not declare a type named `T` or `E` ("type parameter 'E' has
   the same name as a type", reported in `<std>/prelude.vow`). The prelude now names
   `Result`'s type parameters so that they avoid the program's own type names.

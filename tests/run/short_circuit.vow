@@ -1,0 +1,43 @@
+// language: 0.9
+// A variable passed inout on the right of 'and', 'or' or 'implies' changes only when
+// that side is evaluated, and the verifier knows which.
+
+fn bump(y: inout Int) -> Bool
+  ensures y == (old(y) + 100)
+do
+  set y = y + 100
+  return true
+end fn bump
+
+fn with_and(x: Int) -> Int
+  ensures (x > 0) implies (result == 100)
+  ensures (x <= 0) implies (result == 0)
+do
+  var y = 0
+  let ok = (x > 0) and bump(y: inout y)
+  return y
+end fn with_and
+
+fn with_or(x: Int) -> Int
+  ensures (x > 0) implies (result == 0)
+  ensures (x <= 0) implies (result == 100)
+do
+  var y = 0
+  let ok = (x > 0) or bump(y: inout y)
+  return y
+end fn with_or
+
+fn with_implies(x: Int) -> Int
+  ensures (x > 0) implies (result == 100)
+  ensures (x <= 0) implies (result == 0)
+do
+  var y = 0
+  let ok = (x > 0) implies bump(y: inout y)
+  return y
+end fn with_implies
+
+fn main() uses console do
+  for x in [-1, 1] do
+    print(int_to_str(with_and(x)) ++ " " ++ int_to_str(with_or(x)) ++ " " ++ int_to_str(with_implies(x)) ++ "\n")
+  end for
+end fn main

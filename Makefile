@@ -59,7 +59,8 @@ bootstrap: build/vowc compiler/runtime_h.vow compiler/std_text.vow compiler/std_
 	build/stage2 emit-c compiler/vowc.vow --no-line-directives > build/stage3.c
 	cmp build/stage2.c build/stage3.c
 	cp build/stage3.c seed/vowc.c
-	cp build/stage2 build/vowc
+	# A fresh file: overwriting a binary in place can get it killed by macOS code signing.
+	rm -f build/vowc && cp build/stage2 build/vowc
 	@echo "fixpoint reached; seed/vowc.c updated"
 
 compiler/runtime_h.vow: runtime/vow_rt.h tools/embed.vow
@@ -105,9 +106,13 @@ differential: build/vowc $(RUST_VOWC)
 	@echo "== differential: both verifiers"
 	@RUST_VOWC=$(RUST_VOWC) VOWC=build/vowc tests/differential.sh
 
-.PHONY: all test bootstrap clean site test-site test-rc differential test-fingerprint fingerprint lsp test-lsp fuzz
+.PHONY: all test bootstrap clean site test-site test-rc differential test-fingerprint fingerprint lsp test-lsp fuzz fuzz-compiler
 
 # Soundness fuzzing: mutants of the verified test programs that still verify must pass
 # every runtime contract check (tests/fuzz.py). Not part of `make test`: it takes a while.
 fuzz: build/vowc
 	python3 tests/fuzz.py --count $(or $(COUNT),500) --seed $(or $(SEED),1)
+
+# The same, mutating the compiler's own source (slower: each mutant is a compiler build).
+fuzz-compiler: build/vowc
+	python3 tests/fuzz.py --target compiler --count $(or $(COUNT),100) --seed $(or $(SEED),1)
