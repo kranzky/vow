@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Fixed: a program could not declare a type named `T` or `E` ("type parameter 'E' has
+  the same name as a type", reported in `<std>/prelude.vow`). The prelude now names
+  `Result`'s type parameters so that they avoid the program's own type names.
 - `--check-contracts` (with `build`, `run` and `test`) checks at runtime everything the
   verifier proves: preconditions, postconditions (with `old`), refinements of
   parameters, results, variables and fields, loop invariants, `Int` loop measures,

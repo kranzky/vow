@@ -73,10 +73,24 @@ struct Source
   next_id: Int,
 end struct Source
 
-// Declarations every program gets, unless it declares a type of the same name.
-fn prelude_source() -> String do
-  return "enum Result<T, E>\n  Ok(value: T),\n  Err(error: E),\nend enum Result\n"
+// Declarations every program gets, unless it declares a type of the same name. Type
+// parameters may not have the name of any type in the program, so Result's are named T
+// and E only when the program has no types of those names (see tparam_name).
+fn prelude_source(t: String, e: String) -> String do
+  return "enum Result<" ++ t ++ ", " ++ e ++ ">\n  Ok(value: " ++ t ++ "),\n  Err(error: " ++ e ++ "),\nend enum Result\n"
 end fn prelude_source
+
+// base, or base followed by a number, whichever is first not in taken.
+fn tparam_name(base: String, taken: List<String>) -> String do
+  if not contains_str(xs: taken, x: base) then
+    return base
+  end if
+  var k = 1
+  while contains_str(xs: taken, x: base ++ int_to_str(k)) invariant k >= 1 do
+    set k = k + 1
+  end while
+  return base ++ int_to_str(k)
+end fn tparam_name
 
 struct Pending
   path: String,
@@ -193,7 +207,15 @@ fn load_with(root: String, overrides: Map<String, String>) -> Source uses fs do
   end for
   var shared: List<Int> = []
   if (len(errs) == 0) and not declared then
-    let lx = lex(src: prelude_source(), file: len(files))
+    var types: List<String> = []
+    for mf in linked do
+      for item in mf.items do
+        if not is_fn_item(item) then
+          set types = push(list: types, item: item_name(item))
+        end if
+      end for
+    end for
+    let lx = lex(src: prelude_source(t: tparam_name(base: "T", taken: types), e: tparam_name(base: "E", taken: types)), file: len(files))
     if len(lx.toks) > 0 then
       var p = new_parser(toks: lx.toks, first_id: next_id)
       let parsed = parse_file(inout p)

@@ -1,0 +1,44 @@
+// language: 0.9
+// Types may be named T and E, the names of Result's type parameters in the prelude.
+
+enum E
+  Missing,
+  Bad(at: Int),
+end enum E
+
+struct T
+  n: Int,
+end struct T
+
+fn parse(s: String) -> Result<T, E> do
+  if len(s) == 0 then
+    return Result.Err(error: E.Missing)
+  end if
+  if s[0] != '7' then
+    return Result.Err(error: E.Bad(at: 0))
+  end if
+  return Result.Ok(value: T(n: 7))
+end fn parse
+
+fn twice(s: String) -> Result<Int, E> do
+  let t = try parse(s)
+  return Result.Ok(value: t.n * 2)
+end fn twice
+
+fn show(r: Result<Int, E>) -> String do
+  match r
+  case Ok(value: n) then
+    return int_to_str(n)
+  case Err(error: e) then
+    match e
+    case Missing then
+      return "missing"
+    case Bad(at: i) then
+      return "bad at " ++ int_to_str(i)
+    end match
+  end match
+end fn show
+
+fn main() uses console do
+  print(show(twice("7")) ++ ", " ++ show(twice("")) ++ ", " ++ show(twice("x")) ++ "\n")
+end fn main
