@@ -96,9 +96,13 @@ Must-have, tooling:
 
 Release criteria:
 - [ ] Agent benchmark for 1.0: Astra (OpenAI's most capable coding model) builds the
-      same project in Python, Rust and Vow, each judged by one shared test suite and
-      profiled the same way; compare correctness (tests passed, defects found later), effort (turns, tokens, wall
-      time, failed compiles and proofs) and performance (time and memory)
+      same project in Vow, Python, Ruby, JavaScript, TypeScript, Go, Rust, C and Dafny,
+      several runs each, every one judged by one shared test suite (the project is a
+      command-line program, so the tests do not depend on the language) and profiled
+      the same way; compare correctness (tests passed, defects found later), effort
+      (turns, tokens, wall time, failed compiles and proofs) and performance (time and
+      memory). Dafny is the other verified language, so it tests Vow's main claim;
+      TypeScript against JavaScript shows what static types alone are worth
 
 - [ ] Stability promise: the spec frozen for 1.x, a versioning and compatibility
       policy, and a decision on whether the frozen Rust bootstrap stays in the test
