@@ -17,5 +17,6 @@ Read the guide for LLMs before writing Vow. Every pattern in it comes from verif
 
 - [How Vow compares](https://vow.kranzky.com/md/COMPARISON.md): other languages, and where Vow's ideas come from
 - [Vow for humans](https://vow.kranzky.com/md/VOW_FOR_HUMANS.md): what people gain when models write Vow
+- [Packages](https://vow.kranzky.com/md/PACKAGES.md): published Vow packages, and how to use and publish one
 - [Roadmap](https://vow.kranzky.com/md/ROADMAP.md)
 - [Examples](https://github.com/kranzky/vow/tree/main/examples)
