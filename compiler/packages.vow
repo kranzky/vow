@@ -1,0 +1,381 @@
+// Packages: other people's Vow code, pinned to a git commit.
+//
+// A project lists its packages in a file named vow.pkg, one per line:
+//
+//   # name  git URL                                commit (all 40 hex digits)
+//   shapes  https://github.com/someone/vow-shapes  0123456789abcdef0123456789abcdef01234567
+//
+// and imports their files as "@name/path.vow" (usually `import "@shapes/shapes.vow" as
+// shapes`). The vow.pkg that applies to a file is the nearest one in its directory or
+// above. `vowc fetch` clones each package, and the packages those list in their own
+// vow.pkg, into the project's store: .vow/pkg/<url key>/<commit>/ beside the project's
+// vow.pkg. A file inside the store resolves "@name" through its own package's vow.pkg,
+// against the same store. Package code is checked and verified with the program like
+// any other file; fetching runs nothing but git.
+
+import "util.vow"
+
+struct PkgDep
+  name: String,
+  url: String,
+  commit: String,
+end struct PkgDep
+
+struct Manifest
+  deps: List<PkgDep>,
+  // "line N: problem" for each malformed line.
+  errs: List<String>,
+end struct Manifest
+
+fn is_commit(s: String) -> Bool do
+  if len(s) != 40 then
+    return false
+  end if
+  for i in 0..len(s) do
+    let c = s[i]
+    if not (is_digit(c) or ((c >= 'a') and (c <= 'f'))) then
+      return false
+    end if
+  end for
+  return true
+end fn is_commit
+
+fn is_pkg_name(s: String) -> Bool do
+  if len(s) == 0 then
+    return false
+  end if
+  for i in 0..len(s) do
+    let c = s[i]
+    if not (is_alnum(c) or (c == '_') or (c == '-')) then
+      return false
+    end if
+  end for
+  return true
+end fn is_pkg_name
+
+// The whitespace-separated fields of a line.
+fn fields(line: String) -> List<String> do
+  var out: List<String> = []
+  for f in split(s: replace(s: line, old: "\t", new: " "), sep: ' ') do
+    if len(f) > 0 then
+      set out = push(list: out, item: f)
+    end if
+  end for
+  return out
+end fn fields
+
+fn parse_manifest(text: String) -> Manifest do
+  var deps: List<PkgDep> = []
+  var errs: List<String> = []
+  var names: List<String> = []
+  var n = 0
+  for raw in lines(text) do
+    set n = n + 1
+    let line = trim(raw)
+    if (len(line) == 0) or starts_with(s: line, p: "#") then
+      continue
+    end if
+    let cols = fields(line)
+    let at = "line " ++ int_to_str(n) ++ ": "
+    if len(cols) != 3 then
+      set errs = push(list: errs, item: at ++ "expected a name, a git URL and a commit")
+    elif not is_pkg_name(cols[0]) then
+      set errs = push(list: errs, item: at ++ "'" ++ cols[0] ++ "' is not a package name (letters, digits, '_' and '-')")
+    elif not is_commit(cols[2]) then
+      set errs = push(list: errs, item: at ++ "'" ++ cols[2] ++ "' is not a commit: give all 40 hex digits")
+    elif contains_str(xs: names, x: cols[0]) then
+      set errs = push(list: errs, item: at ++ "the package '" ++ cols[0] ++ "' is listed twice")
+    else
+      set names = push(list: names, item: cols[0])
+      set deps = push(list: deps, item: PkgDep(name: cols[0], url: cols[1], commit: cols[2]))
+    end if
+  end for
+  return Manifest(deps: deps, errs: errs)
+end fn parse_manifest
+
+fn read_manifest(path: String) -> Manifest uses fs do
+  match read_file(path)
+  case Some(value: text) then
+    return parse_manifest(text)
+  case None then
+    return Manifest(deps: [], errs: [])
+  end match
+end fn read_manifest
+
+fn in_dir(dir: String, name: String) -> String do
+  if len(dir) == 0 then
+    return normalize(name)
+  end if
+  return normalize(dir ++ "/" ++ name)
+end fn in_dir
+
+// The nearest vow.pkg in dir or a directory above it, or "".
+fn find_manifest(dir: String) -> String uses fs do
+  var d = dir
+  if len(d) == 0 then
+    set d = "."
+  end if
+  for k in 0..32 do
+    let m = in_dir(dir: d, name: "vow.pkg")
+    if is_some(read_file(m)) then
+      return m
+    end if
+    let up = in_dir(dir: d, name: "..")
+    if up == d then
+      return ""
+    end if
+    set d = up
+  end for
+  return ""
+end fn find_manifest
+
+// A directory name for a git URL: its host and path, with other characters as '_'.
+fn url_key(url: String) -> String do
+  var u = url
+  for scheme in ["https://", "http://", "ssh://", "git://", "file://", "git@"] do
+    if starts_with(s: u, p: scheme) then
+      set u = slice(of: u, from: len(scheme), to: len(u))
+    end if
+  end for
+  if ends_with(s: u, p: ".git") then
+    set u = slice(of: u, from: 0, to: len(u) - 4)
+  end if
+  var parts: List<String> = []
+  for i in 0..len(u) do
+    let c = u[i]
+    if is_alnum(c) or (c == '.') or (c == '-') then
+      set parts = push(list: parts, item: char(c))
+    else
+      set parts = push(list: parts, item: "_")
+    end if
+  end for
+  return join(parts: parts, sep: "")
+end fn url_key
+
+// Where a file's "@name" imports resolve: the vow.pkg that lists its packages, and the
+// store they are fetched into.
+struct PkgContext
+  manifest: String,
+  store: String,
+end struct PkgContext
+
+fn pkg_context(file: String) -> PkgContext uses fs do
+  var at = -1
+  if starts_with(s: file, p: ".vow/pkg/") then
+    set at = 0
+  else
+    let i = find(s: file, p: "/.vow/pkg/", from: 0)
+    if i >= 0 then
+      set at = i + 1
+    end if
+  end if
+  if (at >= 0) and ((at + 9) <= len(file)) then
+    // A file in a package: the package's own vow.pkg, and the same store.
+    let store = slice(of: file, from: 0, to: at + 8)
+    let rest = split(s: slice(of: file, from: at + 9, to: len(file)), sep: '/')
+    if len(rest) >= 2 then
+      let root = store ++ "/" ++ rest[0] ++ "/" ++ rest[1]
+      return PkgContext(manifest: root ++ "/vow.pkg", store: store)
+    end if
+  end if
+  let m = find_manifest(dirname(file))
+  if len(m) == 0 then
+    return PkgContext(manifest: "", store: "")
+  end if
+  return PkgContext(manifest: m, store: in_dir(dir: dirname(m), name: ".vow/pkg"))
+end fn pkg_context
+
+// A commit's first seven hex digits, as git abbreviates it.
+fn short(commit: String) -> String do
+  if len(commit) < 7 then
+    return commit
+  end if
+  return slice(of: commit, from: 0, to: 7)
+end fn short
+
+fn pkg_root(store: String, dep: PkgDep) -> String do
+  return store ++ "/" ++ url_key(dep.url) ++ "/" ++ dep.commit
+end fn pkg_root
+
+// The file an import "@name/path.vow" in file names, or the reason it cannot be found.
+struct PkgPath
+  path: String,
+  err: Option<Diag>,
+end struct PkgPath
+
+fn pkg_fail(pos: Pos, msg: String, note: String) -> PkgPath do
+  var d = diag(pos: pos, msg: msg)
+  if len(note) > 0 then
+    set d = with_note(d: d, note: note)
+  end if
+  return PkgPath(path: "", err: Option.Some(value: d))
+end fn pkg_fail
+
+fn resolve_package(file: String, rel: String where len(it) >= 1, pos: Pos) -> PkgPath uses fs do
+  let rest = slice(of: rel, from: 1, to: len(rel))
+  let slash = find_byte(s: rest, c: '/', from: 0)
+  if slash <= 0 then
+    return pkg_fail(pos: pos, msg: "a package import names a file in the package, as in \"@name/file.vow\"", note: "")
+  end if
+  let name = slice(of: rest, from: 0, to: slash)
+  let sub = slice(of: rest, from: slash + 1, to: len(rest))
+  let add = "add it with: vowc add " ++ name ++ " <git URL>"
+  let ctx = pkg_context(file)
+  if len(ctx.manifest) == 0 then
+    return pkg_fail(pos: pos, msg: "there is no vow.pkg listing the package '" ++ name ++ "'", note: add)
+  end if
+  let m = read_manifest(ctx.manifest)
+  if len(m.errs) > 0 then
+    return pkg_fail(pos: pos, msg: ctx.manifest ++ ", " ++ m.errs[0], note: "")
+  end if
+  for dep in m.deps do
+    if dep.name == name then
+      let root = pkg_root(store: ctx.store, dep: dep)
+      if is_none(list_dir(root)) then
+        return pkg_fail(pos: pos, msg: "the package '" ++ name ++ "' has not been fetched", note: "run: vowc fetch")
+      end if
+      let path = in_dir(dir: root, name: sub)
+      if is_none(read_file(path)) then
+        let at = short(dep.commit)
+        return pkg_fail(pos: pos, msg: "the package '" ++ name ++ "' (at " ++ at ++ ") has no file '" ++ sub ++ "'", note: "")
+      end if
+      return PkgPath(path: path, err: Option.None)
+    end if
+  end for
+  return pkg_fail(pos: pos, msg: "the package '" ++ name ++ "' is not listed in " ++ ctx.manifest, note: add)
+end fn resolve_package
+
+// ---- vowc fetch and vowc add ----
+
+fn git(argv: List<String>) -> Output uses proc do
+  return run(argv: ["git"] ++ argv, input: "")
+end fn git
+
+// Clones one package into the store. The clone is made beside its final place and
+// moved there only once it holds the right commit, so a package directory in the store
+// is always complete.
+fn fetch_one(dep: PkgDep, store: String) -> Bool uses console, fs, proc do
+  let root = pkg_root(store: store, dep: dep)
+  let tmp = root ++ ".partial"
+  let _ = make_dir(store ++ "/" ++ url_key(dep.url))
+  let _ = run(argv: ["rm", "-rf", tmp], input: "")
+  var problem = ""
+  if git(["clone", "--quiet", dep.url, tmp]).code != 0 then
+    set problem = "cannot clone " ++ dep.url
+  elif git(["-C", tmp, "checkout", "--quiet", dep.commit]).code != 0 then
+    set problem = dep.url ++ " has no commit " ++ dep.commit
+  elif trim(git(["-C", tmp, "rev-parse", "HEAD"]).out) != dep.commit then
+    set problem = dep.url ++ " did not check out commit " ++ dep.commit
+  elif run(argv: ["mv", tmp, root], input: "").code != 0 then
+    set problem = "cannot move it into " ++ root
+  end if
+  if len(problem) > 0 then
+    let _ = run(argv: ["rm", "-rf", tmp], input: "")
+    eprint("vowc: the package '" ++ dep.name ++ "': " ++ problem ++ "\n")
+    return false
+  end if
+  print("fetched " ++ dep.name ++ " " ++ short(dep.commit) ++ " from " ++ dep.url ++ "\n")
+  return true
+end fn fetch_one
+
+// Fetches every package the manifest lists, and theirs, into the project's store.
+fn fetch_packages(manifest: String) -> Bool uses console, fs, proc do
+  let store = in_dir(dir: dirname(manifest), name: ".vow/pkg")
+  var ok = true
+  var sources = [manifest]
+  var done: List<String> = []
+  while len(sources) > 0 do
+    let src = sources[len(sources) - 1]
+    set sources = slice(of: sources, from: 0, to: len(sources) - 1)
+    let m = read_manifest(src)
+    for e in m.errs do
+      eprint(src ++ ", " ++ e ++ "\n")
+      set ok = false
+    end for
+    for dep in m.deps do
+      let root = pkg_root(store: store, dep: dep)
+      if contains_str(xs: done, x: root) then
+        continue
+      end if
+      set done = push(list: done, item: root)
+      if is_none(list_dir(root)) then
+        if not fetch_one(dep: dep, store: store) then
+          set ok = false
+          continue
+        end if
+      end if
+      if is_some(read_file(root ++ "/vow.pkg")) then
+        set sources = push(list: sources, item: root ++ "/vow.pkg")
+      end if
+    end for
+  end while
+  return ok
+end fn fetch_packages
+
+// The commit a ref (a branch, tag or HEAD) names in the repository at url, or "".
+fn resolve_ref(url: String, ref: String) -> String uses proc do
+  if is_commit(ref) then
+    return ref
+  end if
+  let o = git(["ls-remote", url, ref])
+  if o.code != 0 then
+    return ""
+  end if
+  var found = ""
+  for line in lines(o.out) do
+    let cols = fields(line)
+    if len(cols) == 2 then
+      // An annotated tag is listed twice; the line ending in ^{} names its commit.
+      if ends_with(s: cols[1], p: "^{}") or (len(found) == 0) then
+        set found = cols[0]
+      end if
+    end if
+  end for
+  if not is_commit(found) then
+    return ""
+  end if
+  return found
+end fn resolve_ref
+
+// Pins the package name to the commit ref names at url in the nearest vow.pkg
+// (creating ./vow.pkg if there is none), then fetches.
+fn add_package(name: String, url: String, ref: String) -> Bool uses console, fs, proc do
+  if not is_pkg_name(name) then
+    eprint("vowc: '" ++ name ++ "' is not a package name (letters, digits, '_' and '-')\n")
+    return false
+  end if
+  let commit = resolve_ref(url: url, ref: ref)
+  if len(commit) == 0 then
+    eprint("vowc: cannot find '" ++ ref ++ "' in " ++ url ++ "\n")
+    return false
+  end if
+  var manifest = find_manifest(".")
+  var text = "# Packages, imported as \"@name/file.vow\". `vowc fetch` fetches them into .vow/pkg/.\n"
+  if len(manifest) == 0 then
+    set manifest = "vow.pkg"
+    print("created vow.pkg (commit it; the fetched packages in .vow/ need not be)\n")
+  else
+    set text = value_or(opt: read_file(manifest), default: "")
+  end if
+  let entry = name ++ " " ++ url ++ " " ++ commit
+  var out: List<String> = []
+  var replaced = false
+  for line in lines(text) do
+    let cols = fields(line)
+    if (len(cols) > 0) and (cols[0] == name) and not starts_with(s: trim(line), p: "#") then
+      set out = push(list: out, item: entry)
+      set replaced = true
+    else
+      set out = push(list: out, item: line)
+    end if
+  end for
+  if not replaced then
+    set out = push(list: out, item: entry)
+  end if
+  if not write_file(path: manifest, contents: join(parts: out, sep: "\n") ++ "\n") then
+    eprint("vowc: cannot write " ++ manifest ++ "\n")
+    return false
+  end if
+  print("pinned " ++ name ++ " to " ++ short(commit) ++ " in " ++ manifest ++ "\n")
+  return fetch_packages(manifest)
+end fn add_package

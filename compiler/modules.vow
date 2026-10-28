@@ -28,6 +28,8 @@ struct ModFile
   items: List<Item>,
   imports: List<ModImport>,
   privates: List<String>,
+  // False if the file could not be read or parsed (its error is already reported).
+  loaded: Bool,
 end struct ModFile
 
 struct Scope
@@ -256,6 +258,14 @@ fn resolve_modules(files: List<ModFile>, shared: List<Int>) -> Resolved do
   return Resolved(items: out, errs: r.errs)
 end fn resolve_modules
 
+// Whether file f was loaded; names missing from a file that was not are not reported.
+fn was_loaded(r: Resolver, f: Int) -> Bool do
+  if (f >= 0) and (f < len(r.files)) then
+    return r.files[f].loaded
+  end if
+  return false
+end fn was_loaded
+
 fn res_err(r: inout Resolver, pos: Pos, msg: String) do
   set r = r with (errs: push(list: r.errs, item: diag(pos: pos, msg: msg)))
 end fn res_err
@@ -322,7 +332,9 @@ fn file_scope(r: inout Resolver, f: Int, root: List<Int>, shared: List<Int>, can
         set is_fn = false
       end if
       if len(canon) == 0 then
-        res_err(r: inout r, pos: imp.pos, msg: not_public(r: r, f: imp.target, name: n))
+        if was_loaded(r: r, f: imp.target) then
+          res_err(r: inout r, pos: imp.pos, msg: not_public(r: r, f: imp.target, name: n))
+        end if
         continue
       end if
       var m = types
@@ -445,7 +457,9 @@ fn res_type_name(r: inout Resolver, name: String, pos: Pos) -> String do
         case None then
         end match
       end if
-      res_err(r: inout r, pos: pos, msg: not_public(r: r, f: t, name: n))
+      if was_loaded(r: r, f: t) then
+        res_err(r: inout r, pos: pos, msg: not_public(r: r, f: t, name: n))
+      end if
     case None then
       res_err(r: inout r, pos: pos, msg: "'" ++ alias ++ "' is not an imported module")
     end match
@@ -525,7 +539,9 @@ fn res_expr(r: inout Resolver, e: Expr) -> Expr do
           set canon = value_or(opt: lookup(map: r.etypes[t], key: m), default: "")
         end if
         if len(canon) == 0 then
-          res_err(r: inout r, pos: e.pos, msg: not_public(r: r, f: t, name: m))
+          if was_loaded(r: r, f: t) then
+            res_err(r: inout r, pos: e.pos, msg: not_public(r: r, f: t, name: m))
+          end if
           return e
         end if
         return e with (kind: EK.Var(name: canon))

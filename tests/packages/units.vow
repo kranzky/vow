@@ -1,0 +1,8 @@
+// language: 0.9
+// The package "units" (tests/run.sh makes it a git repository).
+
+fn cm(m: Int) -> Int
+  ensures result == (m * 100)
+do
+  return m * 100
+end fn cm

@@ -1,0 +1,11 @@
+// language: 0.9
+// A program using the package "shapes" (and through it "units").
+
+import "@shapes/shapes.vow" as shapes
+
+fn main() uses console do
+  let r = shapes.Rect(w: 3, h: 4)
+  let w = shapes.width_cm(r)
+  assert w == 300
+  print(int_to_str(shapes.area(r)) ++ " " ++ int_to_str(w) ++ "\n")
+end fn main

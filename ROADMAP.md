@@ -54,7 +54,7 @@ Must-have, language and proofs:
 - [x] Structural `==` for structs, enums, lists and options, and on type parameters
 - [x] Modules: `import "m.vow" as m` (qualified names), `import "m.vow" (a, b)`, and
       `private` declarations
-- [ ] Packages: dependencies pinned to git commits, fetched by `vowc fetch`
+- [x] Packages: dependencies pinned to git commits in `vow.pkg`, fetched by `vowc fetch`
 - [x] Field refinements assumed inside specifications: a goal assumes the field
       refinements of the struct values it names
 - [ ] Generic functions usable in specifications

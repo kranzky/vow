@@ -72,6 +72,9 @@ holds the target, `-1` means the target is absent, and the loop terminates.
 `import "std/json.vow" as json` reads and writes JSON. Any file can be imported as a
 module (`import "geo.vow" as geo`, then `geo.dist(...)`) or by name
 (`import "std/text.vow" (split, trim)`), and `private` declarations stay in their file.
+Packages are git repositories pinned to a commit in `vow.pkg` (`vowc add shapes
+<git URL>`), imported as `import "@shapes/shapes.vow" as shapes`, and verified with
+the program that uses them.
 
 ## Self-hosting
 

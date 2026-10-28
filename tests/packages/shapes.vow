@@ -1,0 +1,21 @@
+// language: 0.9
+// The package "shapes", which depends on "units" (tests/run.sh writes its vow.pkg).
+
+import "@units/units.vow" as units
+
+struct Rect
+  w: Int where it >= 0,
+  h: Int where it >= 0,
+end struct Rect
+
+fn area(r: Rect) -> Int
+  ensures result >= 0
+do
+  return r.w * r.h
+end fn area
+
+fn width_cm(r: Rect) -> Int
+  ensures result == (r.w * 100)
+do
+  return units.cm(r.w)
+end fn width_cm

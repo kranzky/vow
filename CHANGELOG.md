@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-Modules.
+Modules and packages.
 
 - `import "geo.vow" as geo` imports a file as a module: its public declarations are
   named `geo.dist(...)`, `geo.Point`, `geo.Shape.Box(...)`, and nothing else it imports
@@ -18,6 +18,10 @@ Modules.
 - Using a name the file cannot see says why: it is private, it is in a module (write
   `geo.origin`), or it is declared in a file that is not imported (with the import
   line that would fix it).
+- Packages: a project's `vow.pkg` pins each package to a git commit, and files import
+  them as `"@name/file.vow"`. `vowc add <name> <git URL> [ref]` pins one and fetches
+  it; `vowc fetch` fetches everything listed, and the packages' own packages, into
+  `.vow/pkg/`. Package code is verified with the program that uses it.
 - The language server's hover and go-to-definition follow qualified names into
   modules; `vowc fmt` lays out the new forms.
 - Programs without modules are unchanged: their declarations keep their names, and

@@ -80,7 +80,9 @@ Check your code against this list before running the compiler.
     A plain `import "file.vow"` merges the whole file (and whatever it merges) into one
     namespace, where names must be unique. `private fn` (or `private struct`, `enum`,
     `type`) keeps a declaration visible only in its own file. A module's name cannot
-    also name a variable or parameter.
+    also name a variable or parameter. Packages (git repositories of Vow code) are
+    imported as `import "@shapes/shapes.vow" as shapes`: `vowc add shapes <git URL>`
+    pins one in `vow.pkg`, and `vowc fetch` fetches what `vow.pkg` lists.
 12. **Generic type arguments are inferred, never written at calls.** Declare
     `fn last<T>(xs: List<T>) -> T` and call `last(xs)`; write types in full
     (`Pair<Int, String>`). Inside a generic function, a `T` can be stored, passed,

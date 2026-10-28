@@ -1,6 +1,7 @@
 // Loading source files and their imports.
 
 import "modules.vow"
+import "packages.vow"
 import "std_text.vow"
 import "std_json.vow"
 
@@ -109,7 +110,7 @@ fn load_with(root: String, overrides: Map<String, String>) -> Source uses fs do
     end if
     let file_id = len(files)
     set files = push(list: files, item: top.path)
-    var mf = ModFile(path: top.path, items: [], imports: [], privates: [])
+    var mf = ModFile(path: top.path, items: [], imports: [], privates: [], loaded: false)
     var raw: List<RawImport> = []
     var source: Option<String> = Option.None
     var missing = "cannot open '" ++ top.path ++ "'"
@@ -140,17 +141,26 @@ fn load_with(root: String, overrides: Map<String, String>) -> Source uses fs do
           case None then
             set next_id = p.next_id
             let dir = dirname(top.path)
+            for imp in parsed.imports do
+              if starts_with(s: imp.path, p: "@") then
+                let pp = resolve_package(file: top.path, rel: imp.path, pos: imp.pos)
+                match pp.err
+                case Some(value: d) then
+                  set errs = push(list: errs, item: d)
+                case None then
+                  set raw = push(list: raw, item: RawImport(path: pp.path, imp: imp))
+                end match
+              else
+                set raw = push(list: raw, item: RawImport(path: join_path(dir: dir, rel: imp.path), imp: imp))
+              end if
+            end for
             // Push in reverse so imports are processed in source order.
-            var k = len(parsed.imports) - 1
-            while k >= 0 invariant k < len(parsed.imports) do
-              let imp = parsed.imports[k]
-              set queue = push(list: queue, item: Pending(path: join_path(dir: dir, rel: imp.path), from: imp.pos))
+            var k = len(raw) - 1
+            while k >= 0 invariant k < len(raw) do
+              set queue = push(list: queue, item: Pending(path: raw[k].path, from: raw[k].imp.pos))
               set k = k - 1
             end while
-            for imp in parsed.imports do
-              set raw = push(list: raw, item: RawImport(path: join_path(dir: dir, rel: imp.path), imp: imp))
-            end for
-            set mf = mf with (items: parsed.items, privates: parsed.privates)
+            set mf = mf with (items: parsed.items, privates: parsed.privates, loaded: true)
           end match
         end if
       end match
@@ -189,7 +199,7 @@ fn load_with(root: String, overrides: Map<String, String>) -> Source uses fs do
       let parsed = parse_file(inout p)
       set shared = [len(files)]
       set files = push(list: files, item: "<std>/prelude.vow")
-      set linked = push(list: linked, item: ModFile(path: "<std>/prelude.vow", items: parsed.items, imports: [], privates: []))
+      set linked = push(list: linked, item: ModFile(path: "<std>/prelude.vow", items: parsed.items, imports: [], privates: [], loaded: true))
       set next_id = p.next_id
     end if
   end if

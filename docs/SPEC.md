@@ -105,6 +105,33 @@ end fn area
 
 Every program has `fn main()` that takes no parameters and returns `Unit`.
 
+### Packages
+
+A package is a git repository of Vow files. A project lists the packages it uses in a
+file named `vow.pkg`, one per line: a name, a git URL, and the commit to use, in full
+(40 hex digits). Blank lines and lines starting with `#` are ignored.
+
+```
+# name  git URL                               commit
+shapes  https://github.com/someone/vow-shapes  0123456789abcdef0123456789abcdef01234567
+```
+
+A file imports a package's files as `"@name/path.vow"`, usually as a module:
+`import "@shapes/shapes.vow" as shapes`. The `vow.pkg` that applies to a file is the
+nearest one in the file's directory or a directory above it.
+
+- `vowc add <name> <git URL> [ref]` pins the package to the commit that `ref` (a
+  branch, a tag, or `HEAD` when omitted) names now, in the nearest `vow.pkg` (creating
+  `./vow.pkg` if there is none), and fetches it.
+- `vowc fetch` fetches every package listed in the nearest `vow.pkg`, and the packages
+  those list in their own `vow.pkg`, into `.vow/pkg/` beside it. Each package is
+  stored by URL and commit, so two versions of a package can be used side by side.
+  A file in a package resolves `"@name"` through its package's own `vow.pkg`.
+
+Fetching runs nothing but `git`. A package's code is checked and verified with the
+program that uses it, like any other file: nothing is trusted because it was
+published. Commit `vow.pkg`; `.vow/` can be fetched again.
+
 ## Types
 
 | Type | Meaning |

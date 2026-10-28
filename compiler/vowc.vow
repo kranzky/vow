@@ -22,6 +22,9 @@ fn usage() -> String do
     "  test    check, verify, then run each test_... function in the file, each in its\n" ++
     "          own process (a failed check or panic fails only that test)\n" ++
     "  fmt     rewrite the file in the canonical layout (--check: only report)\n" ++
+    "  add     vowc add <name> <git URL> [branch, tag or commit]: pin a package in\n" ++
+    "          vow.pkg and fetch it; import its files as \"@name/file.vow\"\n" ++
+    "  fetch   fetch the packages vow.pkg lists, and theirs, into .vow/pkg/\n" ++
     "  version print the compiler version (no file needed)\n" ++
     "  help    print this message\n\n" ++
     "options:\n" ++
@@ -285,6 +288,31 @@ fn main() uses console, fs, proc do
   end if
   if (len(argv) >= 1) and contains_str(xs: ["help", "--help", "-h"], x: argv[0]) then
     print(usage())
+    return
+  end if
+  if (len(argv) >= 1) and (argv[0] == "fetch") then
+    let m = find_manifest(".")
+    if len(m) == 0 then
+      eprint("vowc: there is no vow.pkg here or in a directory above (vowc add creates one)\n")
+      exit(1)
+    end if
+    if not fetch_packages(m) then
+      exit(1)
+    end if
+    return
+  end if
+  if (len(argv) >= 1) and (argv[0] == "add") then
+    if (len(argv) < 3) or (len(argv) > 4) then
+      eprint("usage: vowc add <name> <git URL> [branch, tag or commit]\n")
+      exit(2)
+    end if
+    var ref = "HEAD"
+    if len(argv) == 4 then
+      set ref = argv[3]
+    end if
+    if not add_package(name: argv[1], url: argv[2], ref: ref) then
+      exit(1)
+    end if
     return
   end if
   if len(argv) < 2 then

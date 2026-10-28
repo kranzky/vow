@@ -111,6 +111,36 @@ if [ -z "$VOW_FROZEN" ]; then
     fail=$((fail + 1)); echo "FAIL some files are not formatted:"; echo "$unformatted"
   fi
 fi
+# Packages (not in the frozen bootstrap compiler; needs git): two local repositories,
+# shapes depending on units, a project that adds shapes (and so fetches units too),
+# and the errors for a package that is not listed or not fetched.
+if [ -z "$VOW_FROZEN" ] && command -v git >/dev/null 2>&1; then
+  pdir=$(mktemp -d)
+  pkg_ok=true
+  mkdir -p "$pdir/units" "$pdir/shapes" "$pdir/proj/src"
+  cp packages/units.vow "$pdir/units/" && git init -q "$pdir/units" && git -C "$pdir/units" add -A &&
+    git -C "$pdir/units" -c user.email=t@example.com -c user.name=t commit -qm units || pkg_ok=false
+  cp packages/shapes.vow "$pdir/shapes/"
+  (cd "$pdir/shapes" && "$VOWC" add units "$pdir/units" >/dev/null && rm -rf .vow) || pkg_ok=false
+  git init -q "$pdir/shapes" && git -C "$pdir/shapes" add -A &&
+    git -C "$pdir/shapes" -c user.email=t@example.com -c user.name=t commit -qm shapes || pkg_ok=false
+  cp packages/main.vow "$pdir/proj/src/"
+  got=$(cd "$pdir/proj" && "$VOWC" add shapes "$pdir/shapes" | sed 's/ [0-9a-f]\{7\} / C /; s| from .*||; s| to .* in | in |'
+    "$VOWC" run src/main.vow --no-cache 2>&1 && cd src && "$VOWC" run main.vow 2>&1)
+  want=$(printf 'created vow.pkg (commit it; the fetched packages in .vow/ need not be)\npinned shapes in vow.pkg\nfetched shapes C\nfetched units C\n12 300\n12 300')
+  [ "$got" = "$want" ] || { pkg_ok=false; echo "packages: got"; echo "$got" | head -10; }
+  printf 'import "@nope/x.vow" as x\nfn main() do\nend fn main\n' > "$pdir/proj/e.vow"
+  (cd "$pdir/proj" && "$VOWC" check e.vow 2>&1 | grep -qF "the package 'nope' is not listed in vow.pkg") || pkg_ok=false
+  rm -rf "$pdir/proj/.vow"
+  (cd "$pdir/proj" && "$VOWC" check src/main.vow 2>&1 | grep -qF "the package 'shapes' has not been fetched") || pkg_ok=false
+  (cd "$pdir/proj" && "$VOWC" fetch >/dev/null && "$VOWC" check src/main.vow >/dev/null) || pkg_ok=false
+  rm -rf "$pdir"
+  if $pkg_ok; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1)); echo "FAIL packages"
+  fi
+fi
 # The pinned Z3 version must be the same in the compiler and the installer.
 pinned=$(sed -n 's/^VERSION=//p' ../tools/install-z3.sh)
 if grep -A1 'fn tested_z3_version' ../compiler/verify.vow | grep -q "\"$pinned\""; then
