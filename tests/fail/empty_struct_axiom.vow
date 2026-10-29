@@ -1,0 +1,31 @@
+// error: cannot prove assertion: 1 == 2
+// language: 0.9
+// Unsound before: g's body was proved assuming s holds a real S, and no S can exist,
+// so g(s) > 0 was proved although g returns -1. The axioms for g held of every value,
+// not only of real S values, so they were false, and once the loop measure named g they
+// proved anything in h. Found by tests/genfuzz.py.
+struct S
+  f: Int where ((it >= 4) and (it <= 5)) and ((it % 3) == 0),
+end struct S
+
+// Recursive only so that it is axiomatised; the recursive branch never runs.
+fn g(s: S) -> Int ensures result > 0 decreases 0 do
+  if s.f != s.f then
+    return g(s: s)
+  end if
+  return 0 - 1
+end fn g
+
+fn h() -> Int do
+  assert 1 == 2
+  let s = S(f: 2)
+  var w = 0
+  while w < 1 decreases g(s: s) - w do
+    set w = 1
+  end while
+  return w
+end fn h
+
+fn main() do
+  let _ = h()
+end fn main

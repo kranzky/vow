@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Fixed (unsound): the axioms of a recursive specification function with a struct
+  parameter held of every value, though its body was proved only for values satisfying
+  the struct's field refinements. For a struct that no value can satisfy, the
+  postconditions were proved vacuously and the axioms were contradictory, so a
+  specification naming the function proved anything. The axioms now hold only of real
+  arguments. The verifier version is now 9.
+- `tests/genfuzz.py` (`make fuzz-gen`): soundness fuzzing with randomly generated
+  programs. It found the bug above, and finds four of the six bug classes of v0.9.2.
+
 ## v0.9.3
 
 Soundness: an independent review of the verifier against `docs/SOUNDNESS.md` found six

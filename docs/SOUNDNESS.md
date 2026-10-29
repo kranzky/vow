@@ -85,9 +85,12 @@ refinements of the struct values it names (`struct_hyps`), as hypotheses of the 
 rather than facts, because a term on a path that cannot run need not denote a real
 value. `with` also assumes the field refinements of the value it copies, which is real.
 And the axioms of a recursive specification function, which state its definition and
-postconditions for every argument satisfying its preconditions, were proved only for
-real arguments; they are consistent because nothing describes an unreal value globally
-(see "Definitions are consistent").
+postconditions, were proved only for real arguments, so they state them only for
+arguments that satisfy its preconditions and whose structs satisfy their field
+refinements (and the postconditions only where the result's do too). Unguarded, they
+would be false of an unreal argument: for a struct that no value can satisfy, a body
+that returns -1 proves `ensures result > 0`, and an axiom saying both of every value is
+a contradiction.
 
 **Refinements stay true.** A refinement is checked when a value is stored in a refined
 position and assumed when it is read back, and in two places without a fresh check:
@@ -165,7 +168,7 @@ own function).
 `match` and `return` is inlined where a specification calls it. A recursive one is an
 uninterpreted function defined by its body, as axioms in three layers so that each use
 unfolds it at most twice, and each layer is also given the postconditions; all hold only
-where the preconditions do. These axioms are consistent if the function terminates on
+where the preconditions do and the arguments are real (see "Values are real"). These axioms are consistent if the function terminates on
 every input satisfying its preconditions: then its body defines a unique function, which
 satisfies its proved postconditions. So a recursive function may be used in a
 specification only with a `decreases` measure *(checker)*, which its own verification
@@ -245,6 +248,14 @@ two checks with the cache on.
   mutant that verifies and then fails a runtime check is a soundness bug. With the check
   that loop invariants are preserved deliberately removed, it finds the hole within a
   few hundred mutants.
+- **Generated programs** (`tests/genfuzz.py`, `make fuzz-gen`): random well-typed
+  programs full of contracts (refined aliases, structs and enums, recursive and mutually
+  recursive specification functions, inout parameters with `old`, loops with invariants
+  and measures, quantifiers, floats). Each contract the verifier rejects is removed until
+  the program verifies; then `main` calls every function over a grid of inputs with
+  contract checks on, and a failed check, or a checked build that hangs or crashes where
+  the plain build runs, is a soundness bug (`tests/reduce.py` shrinks one to a small
+  program). Run against v0.9.2, it finds four of the six bug classes the review found.
 - **Differential testing**: the frozen Rust bootstrap verifier and the self-hosted one
   must emit identical SMT for every program in the v0.3 language.
 
@@ -283,3 +294,11 @@ The independent review after v0.9.2 found six more:
   (`spec_index.vow`, `spec_div.vow`, `spec_pre.vow`).
 - In a checked build, a postcondition that called its own function recursed forever
   (`tests/run/contract_self.vow`).
+
+The program generator found one more after v0.9.3:
+
+- The axioms of a specification function over a struct were not limited to real
+  arguments. When no value could satisfy the struct's field refinements, its
+  postconditions were proved vacuously, the axioms contradicted each other, and any
+  specification naming the function (a loop measure) proved anything
+  (`empty_struct_axiom.vow`).

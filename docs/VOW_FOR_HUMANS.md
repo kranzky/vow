@@ -161,9 +161,10 @@ Being clear about the limits matters more than the guarantees.
   to state.
 - **Effects are coarse.** `uses fs` means any file, not a particular directory.
 - **There is a trusted base:** the Vow verifier, the Z3 solver, the C compiler and
-  the runtime. The verifier is new. Two soundness bugs (cases where something was
-  assumed instead of proved) were found and fixed while it was being built, and there
-  may be others. V1 calls for a written soundness argument and differential fuzzing.
+  the runtime. The verifier is new. Soundness bugs (cases where something was assumed
+  instead of proved) have been found and fixed, by review and by fuzzing, and there may
+  be others. `docs/SOUNDNESS.md` gives the argument for soundness, how it is tested, and
+  every bug found so far.
 - **There are escape hatches.** `check` turns an unproved claim into a runtime test,
   and `--no-verify` skips proofs entirely. Both are visible: `check` in the source,
   `--no-verify` in your build configuration.

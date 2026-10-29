@@ -106,7 +106,7 @@ differential: build/vowc $(RUST_VOWC)
 	@echo "== differential: both verifiers"
 	@RUST_VOWC=$(RUST_VOWC) VOWC=build/vowc tests/differential.sh
 
-.PHONY: all test bootstrap clean site test-site test-rc differential test-fingerprint fingerprint lsp test-lsp fuzz fuzz-compiler
+.PHONY: all test bootstrap clean site test-site test-rc differential test-fingerprint fingerprint lsp test-lsp fuzz fuzz-compiler fuzz-gen
 
 # Soundness fuzzing: mutants of the verified test programs that still verify must pass
 # every runtime contract check (tests/fuzz.py). Not part of `make test`: it takes a while.
@@ -116,3 +116,8 @@ fuzz: build/vowc
 # The same, mutating the compiler's own source (slower: each mutant is a compiler build).
 fuzz-compiler: build/vowc
 	python3 tests/fuzz.py --target compiler --count $(or $(COUNT),100) --seed $(or $(SEED),1)
+
+# Randomly generated programs, with every contract the verifier proves checked at runtime
+# (tests/genfuzz.py).
+fuzz-gen: build/vowc
+	python3 tests/genfuzz.py --count $(or $(COUNT),1000) --seed $(or $(SEED),1)

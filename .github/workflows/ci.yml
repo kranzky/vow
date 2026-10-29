@@ -23,3 +23,5 @@ jobs:
         run: make test
       - name: Self-hosting fixpoint
         run: make bootstrap && git diff --exit-code seed/vowc.c
+      - name: Soundness fuzzing with generated programs (a short run)
+        run: make fuzz-gen COUNT=100

@@ -40,9 +40,9 @@ Must-have, language and proofs:
       fuzzing with runtime-checked contracts as the oracle (`--check-contracts` and
       `tests/fuzz.py` exist; a mutant that verifies and then fails a check is a verifier
       bug), an independent review of the verifier against `SOUNDNESS.md` (done once,
-      after v0.9.2: six bugs found and fixed), a random program generator for the
-      fuzzer, `SOUNDNESS.md` extended to the type checker, and runtime checks of
-      recursive calls' measures
+      after v0.9.2: six bugs found and fixed), a random program generator
+      (`tests/genfuzz.py`: one more bug found and fixed), `SOUNDNESS.md` extended to the
+      type checker, and runtime checks of recursive calls' measures
 - [x] Quantified specs (`forall`/`exists` over ranges) and expression functions in specs
 - [x] `old(x)` for inout postconditions and loop invariants
 - [x] Specification functions with `let`/`if`/`match` bodies, recursive ones with

@@ -1177,6 +1177,14 @@ fn spec_fn_axioms(v: inout Verifier, fi: FnInfo, body: List<Stmt>) do
   for r in fi.pre do
     set pre = push(list: pre, item: sexpr(v: inout v, e: r, sp: top))
   end for
+  // f's body was proved assuming that its struct parameters hold real values (their
+  // field refinements, see struct_hyps), so the axioms hold only of such values. A
+  // struct no value can satisfy would otherwise make them false of every argument.
+  if v.hyps then
+    for i in 0..len(fi.params) do
+      struct_facts(v: inout v, t: fi.params[i].rty.ty, term: "sa" ++ int_to_str(i), depth: 3, out: inout pre)
+    end for
+  end if
   let guard = and_all(pre)
   let args = join(parts: vars, sep: " ")
   let q = "(forall (" ++ join(parts: decl, sep: " ") ++ ") (! "
@@ -1197,7 +1205,12 @@ fn spec_fn_axioms(v: inout Verifier, fi: FnInfo, body: List<Stmt>) do
       set post = push(list: post, item: sexpr(v: inout v, e: en, sp: top with (res: app)))
     end for
     if len(post) > 0 then
-      add_qdef(v: inout v, d: "(assert " ++ q ++ "(=> " ++ guard ++ " " ++ and_all(post) ++ ") :pattern (" ++ app ++ "))))")
+      // The postconditions were proved assuming the result is real too.
+      var rpre = pre
+      if v.hyps then
+        struct_facts(v: inout v, t: fi.ret.ty, term: app, depth: 3, out: inout rpre)
+      end if
+      add_qdef(v: inout v, d: "(assert " ++ q ++ "(=> " ++ and_all(rpre) ++ " " ++ and_all(post) ++ ") :pattern (" ++ app ++ "))))")
     end if
   end for
 end fn spec_fn_axioms
