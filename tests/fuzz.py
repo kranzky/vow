@@ -31,6 +31,7 @@ import os
 import random
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -102,11 +103,19 @@ def sites(src):
 
 
 def run(cmd, cwd, timeout):
+    # In its own process group, so that a timeout also kills the program `vowc run`
+    # started: killing only vowc would leave a looping mutant running.
+    p = subprocess.Popen(cmd, cwd=cwd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+                         errors="replace", stdin=subprocess.DEVNULL, start_new_session=True)
     try:
-        p = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, errors="replace", timeout=timeout,
-                           stdin=subprocess.DEVNULL)
-        return p.returncode, p.stdout, p.stderr
+        out, err = p.communicate(timeout=timeout)
+        return p.returncode, out, err
     except subprocess.TimeoutExpired:
+        try:
+            os.killpg(p.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        p.communicate()
         return None, "", ""
 
 
