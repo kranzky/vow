@@ -1,0 +1,15 @@
+// error: 'x' is already defined in this scope (Vow has no shadowing)
+// language: 0.9
+// The checker's guarantees (docs/SOUNDNESS.md): no name is declared twice in a scope,
+// so the verifier's state maps each name to one term.
+enum T
+  N(a: Int, b: Int),
+end enum T
+
+fn main() do
+  let t = T.N(a: 1, b: 2)
+  match t
+  case N(a: x, b: x) then
+    assert x == 1
+  end match
+end fn main

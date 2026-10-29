@@ -35,14 +35,12 @@
 ## V1 scope (after the milestones above)
 
 Must-have, language and proofs:
-- [ ] Soundness hardening: written soundness argument (a first version is
-      `docs/SOUNDNESS.md`), large must-fail suite, mutation
-      fuzzing with runtime-checked contracts as the oracle (`--check-contracts` and
-      `tests/fuzz.py` exist; a mutant that verifies and then fails a check is a verifier
-      bug), an independent review of the verifier against `SOUNDNESS.md` (done once,
-      after v0.9.2: six bugs found and fixed), a random program generator
-      (`tests/genfuzz.py`: one more bug found and fixed), runtime checks of recursive
-      calls' measures (done), and `SOUNDNESS.md` extended to the type checker
+- [x] Soundness hardening: a written soundness argument (`docs/SOUNDNESS.md`, covering
+      the verifier and what it relies on the type checker for), a must-fail suite,
+      runtime-checked contracts as the oracle (`--check-contracts`, recursive calls'
+      measures included), mutation fuzzing (`tests/fuzz.py`), an independent review of
+      the verifier against `SOUNDNESS.md` (after v0.9.2: six bugs found and fixed), and
+      a random program generator (`tests/genfuzz.py`: one more bug found and fixed)
 - [x] Quantified specs (`forall`/`exists` over ranges) and expression functions in specs
 - [x] `old(x)` for inout postconditions and loop invariants
 - [x] Specification functions with `let`/`if`/`match` bodies, recursive ones with

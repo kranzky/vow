@@ -1,0 +1,8 @@
+// error: integer literal does not fit in 64 bits
+// language: 0.9
+// The checker's guarantees (docs/SOUNDNESS.md): an integer literal fits in 64 bits, so
+// its runtime value is the number the verifier reasons with.
+fn main() do
+  let x = 99999999999999999999
+  assert x > 0
+end fn main

@@ -1,0 +1,12 @@
+// error: match is not exhaustive; missing None
+// language: 0.9
+// The checker's guarantees (docs/SOUNDNESS.md): a match is exhaustive, so after it the
+// verifier may assume that one of its arms ran.
+fn main() do
+  let o: Option<Int> = Option.None
+  match o
+  case Some(value: v) then
+    assert v > 0
+  end match
+  assert 1 == 2
+end fn main

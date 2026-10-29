@@ -40,10 +40,72 @@ as a panic naming it. That is how the claims are tested (see the last section).
   proves; all eight are (`tests/run/divmod.vow` pins the one place where C and SMT-LIB
   could differ, integer division, which both make Euclidean).
 - **The front end**: parsing, module resolution and type checking produce the program
-  the verifier sees. The verifier relies on the checker for the rules marked
-  *(checker)* below.
+  the verifier sees. What the verifier and the code generator rely on it for is set out
+  in "What the checker guarantees", and the rules they rely on are marked *(checker)*
+  where they are used.
 - **The cache**: a function whose verification key is cached is not verified again
   (see The cache).
+
+## What the checker guarantees
+
+The verifier and the code generator both work from the checked program, and both take
+its types and names at their word. Runtime values carry no type tags: the generated C
+reads each value as its static type says (an `Int` as a number, a struct as a block of
+fields, a variant by its tag), and the verifier gives each term the SMT sort its type
+says and models each operation on that sort. So the checker's guarantees are premises
+of every rule below. Each was probed with programs that break it (all rejected), and the
+ones the verifier depends on most also have must-fail tests.
+
+- **Every expression has one type, and every operation gets the types it is defined
+  on.** Arithmetic is on `Int` or on `Float`, never mixed and never converted
+  implicitly; order comparisons are on `Int` and `Float` only; `==` compares values of
+  one type, never maps; indexing is of a `List` or `String`; a field is read from a
+  struct that has it; a pattern matches the scrutinee's type; an argument has its
+  parameter's type, with each type parameter inferred to one type for the whole call;
+  `try` passes on an error of exactly the enclosing function's error type. A program
+  that declares its own `Result` (or any type) is checked against its own declaration,
+  `try` included.
+- **Refinements are only where they are checked.** A refinement can be written on a
+  `let` or `var`, a parameter, a result, a field or a type alias, never inside a type
+  argument (`List<Nat>`, `Option<Nat>` are errors), and inference never produces one
+  there: `[n]` with `n: Nat` is a `List<Int>`, and a generic function or struct
+  instantiated at `n` has `T = Int`. Nothing checks the elements of a list or the
+  value in an option, so nothing may assume a refinement of them.
+- **Every name means one thing.** No variable, parameter, loop variable, pattern binder
+  or quantifier variable is declared while another of that name is in scope (no
+  shadowing); a merged import may not declare a name twice; the built-in functions and
+  types (`len`, `panic`, `exit`, `Option`, ...) cannot be redeclared, so each call to
+  one is the operation the verifier models, and `panic` and `exit` are the only
+  functions that never return; a module's private declarations get names of their own.
+  The verifier's state maps each name to one term, and the verifier and the code
+  generator resolve every call to the same function.
+- **Only `var`s change.** `set` and inout arguments need a `var` (an inout parameter
+  is one): `let`s, parameters, loop variables and pattern binders never change. A `var`
+  is not passed inout twice in one call, nor changed by another argument of a call that
+  passes it inout, nor passed inout in a `while` condition, a quantifier, a `with` or a
+  specification (see "Every change to a variable is seen").
+- **Effects are declared, and specifications have none.** A function's `uses` covers
+  the effects of everything it calls. A specification may call only specification
+  functions: pure (no `uses`), with no inout parameters, not generic, with a body of
+  `let`, `if`, `match`, `assert` and `return` over specification expressions, and, if
+  recursive (directly or through others), with a `decreases` measure. So a
+  specification call is a function of its arguments alone, which is how the verifier
+  treats it, and evaluating one in a checked build changes nothing.
+- **Control flow is complete.** A `match` is exhaustive with pairwise distinct
+  patterns (an `else` on `Int` and `String`, and not when an enum's variants are all
+  covered); a function with a result cannot reach the end of its body (a loop ends the
+  body only if its condition can be false or it has a `break` of its own); nothing
+  follows a `return`, `break`, `continue`, `panic` or `exit` in its block; `break` and
+  `continue` are in a loop.
+- **Specification forms are where they mean something.** `result` is only in
+  `ensures`, `it` only in a refinement, `old(x)` only of an inout parameter (in
+  `ensures` and invariants), and a measure is an `Int` or a list, struct, enum or
+  option value (whose rank is defined).
+- **Literals mean what the verifier says.** An integer literal must fit in 64 bits, so
+  its runtime value is the number the verifier reasons with. String and character
+  literals have a fixed set of escapes, and the code generator writes every byte back
+  explicitly with the string's length, so a literal's bytes (a NUL among them) and
+  length are the same at runtime as in the verifier.
 
 ## The encoding
 
@@ -237,6 +299,8 @@ two checks with the cache on.
 - The argument above is informal. The rules it lists are the verifier's; a rule the
   verifier applies but that is missing here is a gap in this document, and should be
   treated as a possible soundness bug until it is argued.
+- The checker's guarantees are stated, and each was probed, but the type system has no
+  proof of type safety.
 
 ## How it is tested
 

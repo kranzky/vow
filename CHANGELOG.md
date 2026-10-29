@@ -11,6 +11,10 @@
   version is now 10.
 - `tests/genfuzz.py` writes recursive calls whose argument may not decrease the measure,
   and finds a verifier that skips the measure obligation within a few hundred programs.
+- `docs/SOUNDNESS.md` now sets out what the verifier and the code generator rely on the
+  type checker for (types, refinements only where checked, names, mutation, effects,
+  control flow, literals). Each guarantee was probed with programs that break it; the
+  new must-fail tests pin the ones the verifier depends on most.
 
 ## v0.9.4
 

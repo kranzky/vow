@@ -1,0 +1,11 @@
+// error: refined types are not allowed inside type arguments
+// language: 0.9
+// The checker's guarantees (docs/SOUNDNESS.md): no refinement inside a type argument,
+// since nothing checks the elements of a list.
+type Nat = Int where it >= 0
+
+fn main() do
+  var xs: List<Nat> = [1]
+  set xs = push(list: xs, item: 0 - 5)
+  assert xs[1] >= 0
+end fn main

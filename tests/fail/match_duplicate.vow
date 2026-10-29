@@ -1,0 +1,18 @@
+// error: duplicate case
+// language: 0.9
+// The checker's guarantees (docs/SOUNDNESS.md): a match's patterns are distinct, so
+// each arm may be verified from its own pattern alone.
+fn f(n: Int) -> Int ensures result == 1 do
+  match n
+  case 3 then
+    return 1
+  case 3 then
+    return 2
+  else
+    return 1
+  end match
+end fn f
+
+fn main() do
+  let _ = f(n: 3)
+end fn main

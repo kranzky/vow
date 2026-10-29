@@ -1,0 +1,14 @@
+// error: function 'f' can finish without returning a Int
+// language: 0.9
+// The checker's guarantees (docs/SOUNDNESS.md): a function with a result cannot reach
+// the end of its body, here by a loop whose condition can be false, so its
+// postconditions need checking only at its returns.
+fn f(n: Int) -> Int ensures result == 1 do
+  while n > 0 do
+    return 1
+  end while
+end fn f
+
+fn main() do
+  let _ = f(n: 0)
+end fn main
