@@ -1,5 +1,38 @@
 # Changelog
 
+## Unreleased
+
+Soundness: an independent review of the verifier against `docs/SOUNDNESS.md` found six
+bugs, all fixed. The verifier version is now 8, so results cached by earlier versions
+are proved again.
+
+- Fixed (unsound): a `Float` literal whose exponent has leading zeros was misread:
+  `1.0e-0000001` (0.1) was taken for 10^-1000000, which let false assertions, and an
+  out-of-bounds index, verify. The exponent's value is now used.
+- Fixed (unsound): a variable passed inout in a `while` condition was not seen to change
+  at the loop head, so assertions after the loop and termination proofs could be wrong.
+  An inout argument in a `while` condition is now an error, as in `forall`; the compiler
+  had one such loop, now rewritten.
+- Fixed (unsound): a struct or variant built on one path was described everywhere, so a
+  recursive specification function's axioms (true only of real values) could prove
+  anything about a value built in a branch that did not run. Constructions are now
+  facts of their path.
+- Fixed (unsound): a call in the refinement of a type alias, or in a field refinement of
+  a type a function handles, did not link the two functions in the call graph, so two
+  functions could prove their postconditions from each other's.
+- Fixed (checked builds): specifications are now proved defined (indexes in range,
+  `Int` divisors not zero, callees' preconditions met) wherever they are checked; before,
+  `assert xs[5] == xs[5]` verified and then failed under `--check-contracts`. The error
+  is "cannot prove '...' is defined".
+- Fixed (checked builds): a postcondition calling its own function recursed forever
+  under `--check-contracts`. Functions called while a specification is checked no longer
+  check their own contracts.
+- `docs/SOUNDNESS.md` now also covers what the review found undocumented: path facts for
+  constructions, the quantified facts and why they are consistent, distinct match
+  patterns, effect-free loop conditions and well-defined specifications.
+- `tests/fuzz.py` kills a mutant's whole process group on a timeout, so a looping mutant
+  run by `vowc run` no longer outlives it.
+
 ## v0.9.2
 
 Soundness: two more verifier bugs fixed, runtime-checked contracts, fuzzing, and a

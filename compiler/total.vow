@@ -5,12 +5,25 @@
 
 import "hash.vow"
 
-// The functions f's proof refers to: calls in its body and contracts.
+// The functions f's proof refers to: calls in its body and contracts, and in the
+// refinements of its parameters, result and annotated locals (written directly or
+// through a type alias); and, as "type T" nodes, the structs and enums whose field
+// refinements it may assume (the types of its expressions and parameters).
 fn proof_callees(f: FnDecl, info: Info) -> List<String> do
   var out: List<String> = []
   calls_in_block(stmts: f.body, info: info, out: inout out)
   calls_in_all(es: f.pre, info: info, out: inout out)
   calls_in_all(es: f.post, info: info, out: inout out)
+  match get_fn(info: info, name: f.name)
+  case Some(value: fi) then
+    for p in fi.params do
+      calls_in_all(es: p.rty.preds, info: info, out: inout out)
+      type_nodes(t: p.rty.ty, out: inout out)
+    end for
+    calls_in_all(es: fi.ret.preds, info: info, out: inout out)
+    type_nodes(t: fi.ret.ty, out: inout out)
+  case None then
+  end match
   for p in f.params do
     calls_in_opt_expr(e: p.ty.refine, info: info, out: inout out)
   end for
@@ -20,8 +33,149 @@ fn proof_callees(f: FnDecl, info: Info) -> List<String> do
   case None then
   end match
   calls_in_opt_expr(e: f.dec, info: info, out: inout out)
+  types_in_block(stmts: f.body, info: info, out: inout out)
+  types_in_all(es: f.pre, info: info, out: inout out)
+  types_in_all(es: f.post, info: info, out: inout out)
   return out
 end fn proof_callees
+
+// "type T" for each struct and enum T in t.
+fn type_nodes(t: Ty, out: inout List<String>) do
+  match t
+  case TStruct(name: n) then
+    add_name(out: inout out, n: "type " ++ n)
+  case TEnum(name: n) then
+    add_name(out: inout out, n: "type " ++ n)
+  case TList(elem: x) then
+    type_nodes(t: x, out: inout out)
+  case TOpt(inner: x) then
+    type_nodes(t: x, out: inout out)
+  case TMap(key: k, val: x) then
+    type_nodes(t: k, out: inout out)
+    type_nodes(t: x, out: inout out)
+  case THashMap(key: k, val: x) then
+    type_nodes(t: k, out: inout out)
+    type_nodes(t: x, out: inout out)
+  else
+  end match
+end fn type_nodes
+
+// The type nodes of every expression in e, and the calls in the refinement of a local's
+// annotation.
+fn types_in_expr(e: Expr, info: Info, out: inout List<String>) do
+  type_nodes(t: type_of(info: info, e: e), out: inout out)
+  match e.kind
+  case Call(callee: c, args: args) then
+    types_in_expr(e: c, info: info, out: inout out)
+    for a in args do
+      types_in_expr(e: a.value, info: info, out: inout out)
+    end for
+  case With(obj: c, args: args) then
+    types_in_expr(e: c, info: info, out: inout out)
+    for a in args do
+      types_in_expr(e: a.value, info: info, out: inout out)
+    end for
+  case ListLit(items: items) then
+    types_in_all(es: items, info: info, out: inout out)
+  case Index(obj: a, idx: b) then
+    types_in_expr(e: a, info: info, out: inout out)
+    types_in_expr(e: b, info: info, out: inout out)
+  case Binary(op: op, l: a, r: b) then
+    types_in_expr(e: a, info: info, out: inout out)
+    types_in_expr(e: b, info: info, out: inout out)
+  case Field(obj: a, name: n) then
+    types_in_expr(e: a, info: info, out: inout out)
+  case Unary(op: op, x: a) then
+    types_in_expr(e: a, info: info, out: inout out)
+  case Quant(q: q, name: n, lo: lo, hi: hi, body: b) then
+    types_in_expr(e: lo, info: info, out: inout out)
+    types_in_expr(e: hi, info: info, out: inout out)
+    types_in_expr(e: b, info: info, out: inout out)
+  else
+  end match
+end fn types_in_expr
+
+fn types_in_all(es: List<Expr>, info: Info, out: inout List<String>) do
+  for e in es do
+    types_in_expr(e: e, info: info, out: inout out)
+  end for
+end fn types_in_all
+
+fn types_in_opt(b: Option<List<Stmt>>, info: Info, out: inout List<String>) do
+  match b
+  case Some(value: s) then
+    types_in_block(stmts: s, info: info, out: inout out)
+  case None then
+  end match
+end fn types_in_opt
+
+fn types_in_block(stmts: List<Stmt>, info: Info, out: inout List<String>) do
+  for s in stmts do
+    match s.kind
+    case Let(name: n, ty: t, value: value, mutable: m) then
+      types_in_expr(e: value, info: info, out: inout out)
+      match t
+      case Some(value: te) then
+        calls_in_opt_expr(e: te.refine, info: info, out: inout out)
+        match lookup(map: info.aliases, key: te.name)
+        case Some(value: a) then
+          calls_in_all(es: a.preds, info: info, out: inout out)
+        case None then
+        end match
+      case None then
+      end match
+    case Set(name: n, value: value) then
+      types_in_expr(e: value, info: info, out: inout out)
+    case Return(value: v) then
+      match v
+      case Some(value: e) then
+        types_in_expr(e: e, info: info, out: inout out)
+      case None then
+      end match
+    case Assert(e: e) then
+      types_in_expr(e: e, info: info, out: inout out)
+    case Check(e: e) then
+      types_in_expr(e: e, info: info, out: inout out)
+    case ExprStmt(e: e) then
+      types_in_expr(e: e, info: info, out: inout out)
+    case If(arms: arms, els: els) then
+      for a in arms do
+        types_in_expr(e: a.cond, info: info, out: inout out)
+        types_in_block(stmts: a.body, info: info, out: inout out)
+      end for
+      types_in_opt(b: els, info: info, out: inout out)
+    case While(cond: c, invs: invs, dec: dec, body: body) then
+      types_in_expr(e: c, info: info, out: inout out)
+      types_in_all(es: invs, info: info, out: inout out)
+      types_in_block(stmts: body, info: info, out: inout out)
+    case ForRange(name: v, lo: lo, hi: hi, invs: invs, body: body) then
+      types_in_expr(e: lo, info: info, out: inout out)
+      types_in_expr(e: hi, info: info, out: inout out)
+      types_in_all(es: invs, info: info, out: inout out)
+      types_in_block(stmts: body, info: info, out: inout out)
+    case ForEach(name: v, list: l, invs: invs, body: body) then
+      types_in_expr(e: l, info: info, out: inout out)
+      types_in_all(es: invs, info: info, out: inout out)
+      types_in_block(stmts: body, info: info, out: inout out)
+    case Match(scrut: sc, cases: cases, els: els) then
+      types_in_expr(e: sc, info: info, out: inout out)
+      for cs in cases do
+        types_in_block(stmts: cs.body, info: info, out: inout out)
+      end for
+      types_in_opt(b: els, info: info, out: inout out)
+    else
+    end match
+  end for
+end fn types_in_block
+
+// The edges of a struct or enum's node: the calls in its field refinements and the
+// types of its fields.
+fn type_edges(fields: List<FieldInfo>, info: Info, out: inout List<String>) do
+  for fl in fields do
+    calls_in_all(es: fl.rty.preds, info: info, out: inout out)
+    type_nodes(t: fl.rty.ty, out: inout out)
+  end for
+end fn type_edges
 
 fn out_edges(edges: Map<String, List<String>>, n: String) -> List<String> do
   match lookup(map: edges, key: n)
@@ -114,29 +268,71 @@ fn recursion(items: List<Item>, info: Info) -> Recursion do
     else
     end match
   end for
+  // Struct and enum nodes: a proof that assumes a field refinement relies on the
+  // functions it calls, so they belong to the proof's group if they rely on it in turn.
+  var tedges: Map<String, List<String>> = {}
+  for sn in keys(info.structs) do
+    var es: List<String> = []
+    type_edges(fields: struct_fields(info: info, name: sn), info: info, out: inout es)
+    set tedges = insert(map: tedges, key: "type " ++ sn, value: es)
+  end for
+  for en in keys(info.enums) do
+    var es: List<String> = []
+    match lookup(map: info.enums, key: en)
+    case Some(value: vs) then
+      for vi in vs do
+        type_edges(fields: vi.fields, info: info, out: inout es)
+      end for
+    case None then
+    end match
+    set tedges = insert(map: tedges, key: "type " ++ en, value: es)
+  end for
+  let tnames = keys(tedges)
+  // Function-to-function edges decide which functions are recursive; the groups are
+  // the components of the whole graph.
   var edges: Map<String, List<String>> = {}
+  var all: Map<String, List<String>> = {}
   for item in items do
     match item
     case FnItem(decl: f) then
       var es: List<String> = []
+      var fs: List<String> = []
       for g in proof_callees(f: f, info: info) do
         if contains_str(xs: names, x: g) then
           set es = push(list: es, item: g)
+          set fs = push(list: fs, item: g)
+        elif contains_str(xs: tnames, x: g) then
+          set es = push(list: es, item: g)
         end if
       end for
-      set edges = insert(map: edges, key: f.name, value: es)
+      set edges = insert(map: edges, key: f.name, value: fs)
+      set all = insert(map: all, key: f.name, value: es)
     else
     end match
   end for
-  let scc = components(names: names, edges: edges)
+  for tn in tnames do
+    var es: List<String> = []
+    for g in out_edges(edges: tedges, n: tn) do
+      if contains_str(xs: names, x: g) or contains_str(xs: tnames, x: g) then
+        set es = push(list: es, item: g)
+      end if
+    end for
+    set all = insert(map: all, key: tn, value: es)
+  end for
+  let comp = components(names: names ++ tnames, edges: all)
+  var scc: Map<String, Int> = {}
+  for n in names do
+    set scc = insert(map: scc, key: n, value: scc_of(scc: comp, n: n))
+  end for
+  let fcomp = components(names: names, edges: edges)
   var size: Map<Int, Int> = {}
   for n in names do
-    let k = scc_of(scc: scc, n: n)
+    let k = scc_of(scc: fcomp, n: n)
     set size = insert(map: size, key: k, value: value_or(opt: lookup(map: size, key: k), default: 0) + 1)
   end for
   var recursive: Map<String, Bool> = {}
   for n in names do
-    let k = scc_of(scc: scc, n: n)
+    let k = scc_of(scc: fcomp, n: n)
     let es = out_edges(edges: edges, n: n)
     if (value_or(opt: lookup(map: size, key: k), default: 0) > 1) or contains_str(xs: es, x: n) then
       set recursive = insert(map: recursive, key: n, value: true)

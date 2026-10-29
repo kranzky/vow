@@ -346,7 +346,9 @@ f(...)                     // a call as a statement
 ```
 
 A name may not be re-declared while it is in scope (no shadowing). A function whose
-return type is not `Unit` must return on every path.
+return type is not `Unit` must return on every path. A `while` condition, which is
+evaluated before every iteration, and the body of a `forall` or `exists` may not pass a
+variable inout: call the function in a statement of its own and test its result.
 
 **`try`** propagates failure. It may only be used in a function that returns a
 `Result` or an `Option`, and only as the whole value of `let`, `var` or `set`, or as a
@@ -488,6 +490,13 @@ Specification expressions (`requires`, `ensures`, `where`, `invariant`, `decreas
 variables, `it`, `result`, arithmetic, comparisons, boolean operators, quantifiers,
 field access, indexing, the built-ins `len`, `value_or`, `is_some` and `is_none`,
 calls to specification functions, and (in `ensures` and loop invariants) `old(x)`.
+A specification must also be defined wherever it is checked: its indexes in range, its
+`Int` divisors not zero and the preconditions of the functions it calls met, counting
+only what runs (the right side of `and`, `or` and `implies` only where the left side
+lets it run). The verifier proves this alongside the specification itself
+("cannot prove 'xs[i] > 0' is defined"), because a build with `--check-contracts`
+evaluates it. A `requires` may rely on the ones before it: `requires len(xs) > 0`
+then `requires xs[0] > 0`.
 
 Generic functions are verified once for all type arguments (see Generics); calls to
 them are checked against their contracts with the type arguments of the call.
@@ -603,4 +612,6 @@ being non-negative and smaller at the end of every iteration and at every `conti
 that failed (`vow: panic at f.vow:3: postcondition failed: result > n`). On a verified
 program no such check can fail, so one that does is a bug in the verifier; on a program
 built with `--no-verify` they find the contract that does not hold. Measures of
-recursive calls are not checked.
+recursive calls are not checked, and a function called while a specification is being
+checked does not check its own contracts (they are proved, and a postcondition that
+calls its own function would otherwise recurse forever).

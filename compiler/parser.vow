@@ -469,8 +469,10 @@ end fn desugar_try
 
 fn parse_invariants(p: inout Parser) -> List<Expr> do
   var invs: List<Expr> = []
-  while accept(p: inout p, text: "invariant") do
+  var more = accept(p: inout p, text: "invariant")
+  while more do
     set invs = push(list: invs, item: parse_expr(inout p))
+    set more = accept(p: inout p, text: "invariant")
   end while
   return invs
 end fn parse_invariants

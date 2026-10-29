@@ -2140,6 +2140,8 @@ fn check_stmt(c: inout Checker, s: Stmt) do
   case While(cond: cond, invs: invs, dec: dec, body: body) then
     let t = check_expr(c: inout c, e: cond, expected: Option.Some(value: Ty.TBool))
     expect_ty(c: inout c, pos: cond.pos, got: t, want: Ty.TBool, what: "a while condition")
+    no_inout(c: inout c, e: cond, msg: "an inout argument cannot be in a 'while' condition, which is evaluated before every iteration",
+      note: "call it before the loop and again at the end of the body, keeping its result in a var that the condition reads")
     for i in invs do
       invariant_expr(c: inout c, e: i)
     end for
@@ -2539,12 +2541,12 @@ end fn check_inout
 
 // Reports msg if e passes a variable inout anywhere: e is evaluated repeatedly, which
 // the verifier does not model for changes to variables.
-fn no_inout(c: inout Checker, e: Expr, msg: String) do
+fn no_inout(c: inout Checker, e: Expr, msg: String, note: String) do
   var io: List<String> = []
   inout_vars(e: e, out: inout io)
   if len(io) > 0 then
     let d = diag(pos: e.pos, msg: msg)
-    set c = c with (errs: push(list: c.errs, item: with_note(d: d, note: "call it in a statement of its own first, and use its result here")))
+    set c = c with (errs: push(list: c.errs, item: with_note(d: d, note: note)))
   end if
 end fn no_inout
 
@@ -2854,7 +2856,8 @@ fn check_expr_inner(c: inout Checker, e: Expr, expected: Option<Ty>) -> Ty do
   case Binary(op: op, l: l, r: r) then
     return check_binary(c: inout c, e: e, op: op, l: l, r: r)
   case Quant(q: q, name: v, lo: lo, hi: hi, body: body) then
-    no_inout(c: inout c, e: body, msg: "an inout argument cannot be inside '" ++ q ++ "', which evaluates its body any number of times")
+    no_inout(c: inout c, e: body, msg: "an inout argument cannot be inside '" ++ q ++ "', which evaluates its body any number of times",
+      note: "call it in a statement of its own first, and use its result here")
     let a = check_expr(c: inout c, e: lo, expected: Option.Some(value: Ty.TInt))
     expect_ty(c: inout c, pos: lo.pos, got: a, want: Ty.TInt, what: "a quantifier bound")
     let b = check_expr(c: inout c, e: hi, expected: Option.Some(value: Ty.TInt))

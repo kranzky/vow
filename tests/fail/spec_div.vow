@@ -1,0 +1,13 @@
+// error: cannot prove '(result * 0) == ((10 / y) * 0)' is defined (indexes in range, divisors not zero, calls' preconditions met)
+// language: 0.9
+// Unsound before (for checked builds): a divisor in a postcondition was not proved
+// nonzero.
+fn f(y: Int) -> Int
+  ensures (result * 0) == ((10 / y) * 0)
+do
+  return 1
+end fn f
+
+fn main() uses console do
+  print(int_to_str(f(y: 0)) ++ "\n")
+end fn main

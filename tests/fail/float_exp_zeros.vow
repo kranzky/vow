@@ -1,0 +1,10 @@
+// error: cannot prove assertion: a <= b
+// language: 0.9
+// Unsound before: the verifier read the exponent of 1.0e-0000001 by its length, not its
+// value, and took the literal for 10^-1000000 rather than 0.1, so this verified.
+fn main() uses console do
+  let a = 1.0e-0000001
+  let b = 0.05
+  assert a <= b
+  print(float_to_str(a) ++ "\n")
+end fn main

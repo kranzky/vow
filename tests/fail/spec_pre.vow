@@ -1,0 +1,19 @@
+// error: cannot prove 'g(n: k) == g(n: k)' is defined (indexes in range, divisors not zero, calls' preconditions met)
+// language: 0.9
+// Unsound before (for checked builds): a call in a specification was not proved to meet
+// the callee's precondition.
+fn g(n: Int) -> Int
+  requires n >= 0
+  decreases n
+do
+  if n == 0 then
+    return 0
+  end if
+  return g(n: n - 1)
+end fn g
+
+fn main() uses console do
+  let k = 0 - 1
+  assert g(n: k) == g(n: k)
+  print("ok\n")
+end fn main

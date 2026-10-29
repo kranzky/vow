@@ -100,8 +100,10 @@ struct Verifier
   // in probe when its first statement is reached, or -1.
   probe_line: Int,
   probe: List<String>,
-  // Whether goals assume the field refinements of the struct values they name; off
-  // only to compare the SMT with the frozen bootstrap verifier (tests/differential.sh).
+  // Whether the encoding has what was added after v0.3: goals assuming the field
+  // refinements of the struct values they name, constructions stated as path facts, and
+  // proofs that specifications are well defined. Off only to compare the SMT with the
+  // frozen bootstrap verifier (tests/differential.sh).
   hyps: Bool,
 end struct Verifier
 
@@ -534,6 +536,7 @@ fn verify_fn(v: inout Verifier, f: FnDecl) -> FnVc do
     let t = fresh(v: inout v, sort: sort_of(p.rty.ty))
     set v = v with (params: insert(map: v.params, key: p.name, value: t))
     for pr in p.rty.preds do
+      check_wd(v: inout v, st: st, pos: pr.pos, e: pr, sp: state_spec(v: v, st: st, subj: t, res: ""))
       let fact = spec_term(v: inout v, e: pr, st: st, subj: t, res: "")
       add_fact(st: inout st, f: fact)
       add_src(st: inout st, f: p.name ++ " where " ++ pretty_expr(pr))
@@ -545,6 +548,7 @@ fn verify_fn(v: inout Verifier, f: FnDecl) -> FnVc do
     set st = st with (env: insert(map: st.env, key: p.name, value: VVar(term: t, ty: p.rty.ty, preds: preds)))
   end for
   for r in fi.pre do
+    check_wd(v: inout v, st: st, pos: r.pos, e: r, sp: state_spec(v: v, st: st, subj: "", res: ""))
     let fact = spec_term(v: inout v, e: r, st: st, subj: "", res: "")
     add_fact(st: inout st, f: fact)
     add_src(st: inout st, f: pretty_expr(r))
@@ -559,17 +563,24 @@ end fn verify_fn
 fn check_post(v: inout Verifier, st: St, pos: Pos, val: String) do
   let ret = v.ret
   for p in ret.preds do
+    check_wd(v: inout v, st: st, pos: pos, e: p, sp: state_spec(v: v, st: st, subj: val, res: ""))
     let g = spec_goal(v: inout v, e: p, st: st, subj: val, res: "")
     obligation(v: inout v, st: st, pos: pos, what: "return value of '" ++ v.fname ++ "' satisfies " ++ pretty_expr(p), goal: g)
   end for
   let ens = v.post
   for e in ens do
+    check_wd(v: inout v, st: st, pos: pos, e: e, sp: state_spec(v: v, st: st, subj: "", res: val))
     let g = spec_goal(v: inout v, e: e, st: st, subj: "", res: val)
     obligation(v: inout v, st: st, pos: pos, what: "postcondition of '" ++ v.fname ++ "': " ++ pretty_expr(e), goal: g)
   end for
 end fn check_post
 
 // ---- specification terms ----
+
+// A specification evaluated in state st.
+fn state_spec(v: Verifier, st: St, subj: String, res: String) -> Spec do
+  return Spec(binds: spec_binds(v: v, st: st), subj: subj, res: res, fuel: 2, scc: -1)
+end fn state_spec
 
 // Names resolve through the current environment; parameters keep their entry values.
 fn spec_term(v: inout Verifier, e: Expr, st: St, subj: String, res: String) -> String do
@@ -857,6 +868,122 @@ fn sexpr(v: inout Verifier, e: Expr, sp: Spec) -> String do
     return "false"
   end match
 end fn sexpr
+
+// When a specification can be evaluated: its indexes are in range, its Int divisors are
+// not zero and the preconditions of the functions it calls hold. sexpr treats these
+// operations as total, but a build with --check-contracts evaluates the specification,
+// and must not fail. Only the parts that run count: the right operand of 'and', 'or' and
+// 'implies' where the left one lets it run, and a quantifier's body for each value of
+// its variable in range.
+fn swd(v: inout Verifier, e: Expr, sp: Spec) -> String do
+  match e.kind
+  case Call(callee: c, args: args) then
+    var ci = CallInfo(kind: "", name: "", variant: 0, order: [])
+    match call_info(info: v.info, e: e)
+    case Some(value: x) then
+      set ci = x
+    case None then
+    end match
+    if ci.kind == "old" then
+      return "true"
+    end if
+    var conds: List<String> = []
+    var p: List<String> = []
+    for i in ci.order do
+      if (i >= 0) and (i < len(args)) then
+        set conds = push(list: conds, item: swd(v: inout v, e: args[i].value, sp: sp))
+        set p = push(list: p, item: sexpr(v: inout v, e: args[i].value, sp: sp))
+      end if
+    end for
+    if ci.kind == "user" then
+      match get_fn(info: v.info, name: ci.name)
+      case Some(value: fi) then
+        var binds: Map<String, String> = {}
+        for i in 0..len(fi.params) do
+          set binds = insert(map: binds, key: fi.params[i].name, value: arg_str(p: p, i: i))
+        end for
+        let callee = Spec(binds: binds, subj: "", res: "", fuel: 2, scc: -1)
+        for i in 0..len(fi.params) do
+          for pr in fi.params[i].rty.preds do
+            set conds = push(list: conds, item: sexpr(v: inout v, e: pr, sp: callee with (subj: arg_str(p: p, i: i))))
+          end for
+        end for
+        for r in fi.pre do
+          set conds = push(list: conds, item: sexpr(v: inout v, e: r, sp: callee))
+        end for
+      case None then
+      end match
+    end if
+    return wd_and(conds)
+  case Quant(q: q, name: qn, lo: lo, hi: hi, body: body) then
+    let a = sexpr(v: inout v, e: lo, sp: sp)
+    let b = sexpr(v: inout v, e: hi, sp: sp)
+    let qv = fresh_q(inout v)
+    let inner = sp with (binds: insert(map: sp.binds, key: qn, value: qv))
+    let w = swd(v: inout v, e: body, sp: inner)
+    var all = "true"
+    if w != "true" then
+      set all = "(forall ((" ++ qv ++ " Int)) (=> (and (<= " ++ a ++ " " ++ qv ++ ") (< " ++ qv ++ " " ++ b ++ ")) " ++ w ++ "))"
+    end if
+    return wd_and([swd(v: inout v, e: lo, sp: sp), swd(v: inout v, e: hi, sp: sp), all])
+  case Field(obj: o, name: f) then
+    return swd(v: inout v, e: o, sp: sp)
+  case Index(obj: o, idx: i) then
+    let w = wd_and([swd(v: inout v, e: o, sp: sp), swd(v: inout v, e: i, sp: sp)])
+    match type_of(info: v.info, e: o)
+    case TStr then
+    case TList(elem: t) then
+    else
+      return w
+    end match
+    let ov = sexpr(v: inout v, e: o, sp: sp)
+    let iv = sexpr(v: inout v, e: i, sp: sp)
+    return wd_and([w, "(<= 0 " ++ iv ++ ")", "(< " ++ iv ++ " (len " ++ ov ++ "))"])
+  case Unary(op: op, x: x) then
+    return swd(v: inout v, e: x, sp: sp)
+  case Binary(op: op, l: l, r: r) then
+    let wl = swd(v: inout v, e: l, sp: sp)
+    let wr = swd(v: inout v, e: r, sp: sp)
+    if ((op == "and") or (op == "implies")) and (wr != "true") then
+      return wd_and([wl, "(=> " ++ sexpr(v: inout v, e: l, sp: sp) ++ " " ++ wr ++ ")"])
+    end if
+    if (op == "or") and (wr != "true") then
+      return wd_and([wl, "(=> (not " ++ sexpr(v: inout v, e: l, sp: sp) ++ ") " ++ wr ++ ")"])
+    end if
+    if ((op == "/") or (op == "%")) and (ty_show(type_of(info: v.info, e: l)) == "Int") then
+      return wd_and([wl, wr, "(not (= " ++ sexpr(v: inout v, e: r, sp: sp) ++ " 0))"])
+    end if
+    return wd_and([wl, wr])
+  else
+    return "true"
+  end match
+end fn swd
+
+// The conjunction of conditions, leaving out the ones that are just "true", so that a
+// specification with nothing to prove gives "true" and no obligation.
+fn wd_and(conds: List<String>) -> String do
+  var keep: List<String> = []
+  for c in conds do
+    if c != "true" then
+      set keep = push(list: keep, item: c)
+    end if
+  end for
+  return and_all(keep)
+end fn wd_and
+
+// An obligation that e, a specification that a build with --check-contracts evaluates
+// at this point, is well defined (see swd).
+fn check_wd(v: inout Verifier, st: St, pos: Pos, e: Expr, sp: Spec) do
+  if not v.hyps then
+    return
+  end if
+  let w = swd(v: inout v, e: e, sp: sp)
+  if w == "true" then
+    return
+  end if
+  let g = with_hyps(hyps: struct_hyps(v: inout v, e: e, sp: sp), goal: w)
+  obligation(v: inout v, st: st, pos: pos, what: "'" ++ pretty_expr(e) ++ "' is defined (indexes in range, divisors not zero, calls' preconditions met)", goal: g)
+end fn check_wd
 
 // A call to a specification function in a specification (sp is the caller's). An
 // expression function's body is inlined, as is the body of any other non-recursive
@@ -1200,6 +1327,7 @@ end fn assume_preds
 
 fn check_preds(v: inout Verifier, st: St, pos: Pos, name: String, preds: List<Expr>, term: String) do
   for p in preds do
+    check_wd(v: inout v, st: st, pos: pos, e: p, sp: state_spec(v: v, st: st, subj: term, res: ""))
     let g = spec_term(v: inout v, e: p, st: st, subj: term, res: "")
     obligation(v: inout v, st: st, pos: pos, what: "'" ++ name ++ "' satisfies " ++ pretty_expr(p), goal: g)
   end for
@@ -1207,6 +1335,7 @@ end fn check_preds
 
 fn check_entry(v: inout Verifier, st: St, invs: List<Expr>) do
   for i in invs do
+    check_wd(v: inout v, st: st, pos: i.pos, e: i, sp: state_spec(v: v, st: st, subj: "", res: ""))
     let g = spec_goal(v: inout v, e: i, st: st, subj: "", res: "")
     obligation(v: inout v, st: st, pos: i.pos, what: "loop invariant holds on entry: " ++ pretty_expr(i), goal: g)
   end for
@@ -1214,6 +1343,7 @@ end fn check_entry
 
 fn check_invs(v: inout Verifier, st: St, invs: List<Expr>, what: String) do
   for i in invs do
+    check_wd(v: inout v, st: st, pos: i.pos, e: i, sp: state_spec(v: v, st: st, subj: "", res: ""))
     let g = spec_goal(v: inout v, e: i, st: st, subj: "", res: "")
     obligation(v: inout v, st: st, pos: i.pos, what: "loop invariant " ++ what ++ ": " ++ pretty_expr(i), goal: g)
   end for
@@ -1399,8 +1529,16 @@ fn decimal_of(text: String) -> Decimal do
       set neg = starts_with(s: digits, p: "-")
       set digits = slice(of: digits, from: 1, to: len(digits))
     end if
-    if len(digits) > 6 then
-      set e = 1000000
+    // The exponent's value, not its length: leading zeros don't count. One beyond 18
+    // digits is capped at 10^18, which keeps the value far outside the range of doubles
+    // (no source file has 10^17 mantissa digits), where it is only ordered non-strictly.
+    var z = 0
+    while (z < len(digits)) and (digits[z] == '0') invariant (0 <= z) and (z <= len(digits)) do
+      set z = z + 1
+    end while
+    set digits = slice(of: digits, from: z, to: len(digits))
+    if len(digits) > 18 then
+      set e = 1000000000000000000
     else
       set e = value_or(opt: str_to_int(digits), default: 0)
     end if
@@ -1546,6 +1684,7 @@ end fn scc_of_fn
 fn check_loop_measure(v: inout Verifier, st: St, l: LoopCtx) do
   match l.dec
   case Some(value: d) then
+    check_wd(v: inout v, st: st, pos: d.pos, e: d, sp: state_spec(v: v, st: st, subj: "", res: ""))
     let t = spec_term(v: inout v, e: d, st: st, subj: "", res: "")
     let now = as_measure(v: inout v, d: d, t: t)
     obligation(v: inout v, st: st, pos: d.pos, what: "loop measure decreases: " ++ pretty_expr(d), goal: "(< " ++ now ++ " " ++ l.d0 ++ ")")
@@ -1641,6 +1780,7 @@ fn vstmt(v: inout Verifier, s: Stmt, st: inout St) do
     var lc = plain_loop(invs)
     match dec
     case Some(value: d) then
+      check_wd(v: inout v, st: inner, pos: d.pos, e: d, sp: state_spec(v: v, st: inner, subj: "", res: ""))
       let t = spec_term(v: inout v, e: d, st: inner, subj: "", res: "")
       let mt = as_measure(v: inout v, d: d, t: t)
       let d0 = define(v: inout v, sort: "Int", term: mt)
@@ -1719,6 +1859,7 @@ fn vstmt(v: inout Verifier, s: Stmt, st: inout St) do
     set st = head
   case Assert(e: e) then
     let sp = Spec(binds: spec_binds(v: v, st: st), subj: "", res: "", fuel: 2, scc: -1)
+    check_wd(v: inout v, st: st, pos: s.pos, e: e, sp: sp)
     let g = sexpr(v: inout v, e: e, sp: sp)
     var goal = g
     if v.hyps then
@@ -2257,18 +2398,30 @@ fn construct_struct(v: inout Verifier, st: inout St, pos: Pos, sn: String, binds
   let fields = struct_fields(info: v.info, name: sn)
   for fl in fields do
     for p in fl.rty.preds do
+      check_wd(v: inout v, st: st, pos: pos, e: p, sp: Spec(binds: binds, subj: bind_of(binds: binds, n: fl.name), res: "", fuel: 2, scc: -1))
       let g = spec_with(v: inout v, e: p, binds: binds, subj: bind_of(binds: binds, n: fl.name))
       let what = "field '" ++ fl.name ++ "' of " ++ sn ++ " satisfies " ++ pretty_expr(p)
       obligation(v: inout v, st: st, pos: pos, what: what, goal: g)
     end for
   end for
+  // The fields are path facts, stated after the refinements are proved: as global
+  // facts they would describe a value that breaks them wherever the construction cannot
+  // run, and the axioms of specification functions hold only for real values.
   let r = fresh(v: inout v, sort: "Val")
   for fl in fields do
     let fnn = field_fn(v: inout v, sname: sn, field: fl.name, t: fl.rty.ty)
-    add_def(v: inout v, d: "(assert (= (" ++ fnn ++ " " ++ r ++ ") " ++ bind_of(binds: binds, n: fl.name) ++ "))")
+    construct_fact(v: inout v, st: inout st, f: "(= (" ++ fnn ++ " " ++ r ++ ") " ++ bind_of(binds: binds, n: fl.name) ++ ")")
   end for
   return r
 end fn construct_struct
+
+fn construct_fact(v: inout Verifier, st: inout St, f: String) do
+  if v.hyps then
+    add_fact(st: inout st, f: f)
+  else
+    add_def(v: inout v, d: "(assert " ++ f ++ ")")
+  end if
+end fn construct_fact
 
 fn vcall(v: inout Verifier, e: Expr, args: List<Arg>, st: inout St) -> String do
   var ci = CallInfo(kind: "", name: "", variant: 0, order: [])
@@ -2320,6 +2473,7 @@ fn vcall(v: inout Verifier, e: Expr, args: List<Arg>, st: inout St) -> String do
     end for
     for fl in vinfo.fields do
       for pr in fl.rty.preds do
+        check_wd(v: inout v, st: st, pos: e.pos, e: pr, sp: Spec(binds: binds, subj: bind_of(binds: binds, n: fl.name), res: "", fuel: 2, scc: -1))
         let g = spec_with(v: inout v, e: pr, binds: binds, subj: bind_of(binds: binds, n: fl.name))
         let what = "field '" ++ fl.name ++ "' of " ++ ci.name ++ "." ++ vinfo.name ++ " satisfies " ++ pretty_expr(pr)
         obligation(v: inout v, st: st, pos: e.pos, what: what, goal: g)
@@ -2327,9 +2481,10 @@ fn vcall(v: inout Verifier, e: Expr, args: List<Arg>, st: inout St) -> String do
     end for
     let r = fresh(v: inout v, sort: "Val")
     add_def(v: inout v, d: "(assert (= (tag " ++ r ++ ") " ++ int_to_str(ci.variant) ++ "))")
+    // Path facts, as in construct_struct.
     for fl in vinfo.fields do
       let fnn = vfield_fn(v: inout v, ename: ci.name, vname: vinfo.name, field: fl.name, t: fl.rty.ty)
-      add_def(v: inout v, d: "(assert (= (" ++ fnn ++ " " ++ r ++ ") " ++ bind_of(binds: binds, n: fl.name) ++ "))")
+      construct_fact(v: inout v, st: inout st, f: "(= (" ++ fnn ++ " " ++ r ++ ") " ++ bind_of(binds: binds, n: fl.name) ++ ")")
     end for
     return r
   end if

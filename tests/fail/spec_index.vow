@@ -1,0 +1,9 @@
+// error: cannot prove 'xs[5] == xs[5]' is defined (indexes in range, divisors not zero, calls' preconditions met)
+// language: 0.9
+// Unsound before (for checked builds): a specification's index was not proved in range,
+// so --check-contracts failed on it.
+fn main() uses console do
+  let xs = [1]
+  assert xs[5] == xs[5]
+  print("ok\n")
+end fn main

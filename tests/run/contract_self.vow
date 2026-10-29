@@ -1,0 +1,15 @@
+// language: 0.9
+// A postcondition that calls its own function. A build with --check-contracts evaluates
+// it at every return, and the call it makes must not check the postcondition again, or
+// the check would recurse forever.
+fn f(n: Int) -> Int
+  ensures result == f(n: n)
+  decreases 0
+do
+  return n
+end fn f
+
+fn main() uses console do
+  assert f(n: 3) == 3
+  print(int_to_str(f(n: 3)) ++ "\n")
+end fn main

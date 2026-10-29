@@ -102,7 +102,15 @@ Check your code against this list before running the compiler.
     `set x = 1`. A bare expression that is not a call is an error.
 15. **`exit` and `panic` end a path.** Code after them in the same block is an
     "unreachable statement" error.
-16. **Character literals are `Int`s.** `'a'`, `'\n'` and `'\''` are byte values, and
+16. **No inout in a `while` condition or a quantifier.** `while next(p: inout p) do`
+    is an error: call it before the loop and at the end of the body, keeping the
+    result in a `var` the condition tests. The same goes for `forall` and `exists`.
+17. **Specifications must be defined.** `assert xs[i] > 0` needs `i` in range there,
+    `ensures result == a / b` needs `b != 0` (say so in a `requires`), and a call in a
+    specification needs its callee's `requires`: the verifier proves these too, and
+    reports "cannot prove '...' is defined" when it can't. Guard with `and` or
+    `implies`: `(i < len(xs)) implies (xs[i] > 0)`.
+18. **Character literals are `Int`s.** `'a'`, `'\n'` and `'\''` are byte values, and
     `s[i]` on a `String` is the byte at `i`.
 
 ## 3. Syntax at a glance

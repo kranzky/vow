@@ -138,6 +138,12 @@ fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool, 
     set c = push(list: c, item: "#define VOW_VERIFIED 1")
   end if
   set c = push(list: c, item: "#include \"vow_rt.h\"")
+  if contracts then
+    // How many specifications are being evaluated. The functions they call do not check
+    // their own contracts: those are proved, and checking them could recurse forever
+    // (a postcondition that calls its own function).
+    set c = push(list: c, item: "static int vow_spec_depth = 0;")
+  end if
   set c = push(list: c, item: "")
   var n = len(g.strs)
   if n < 1 then
@@ -838,14 +844,23 @@ fn gen_stmt(g: inout Gen, s: Stmt) do
   case Match(scrut: scrut, cases: cases, els: els) then
     gen_match(g: inout g, scrut: scrut, cases: cases, els: els)
   case Assert(e: e) then
-    if not g.contracts then
-      line(g: inout g, s: "#ifndef VOW_VERIFIED")
-    end if
-    let c = gen_top(g: inout g, e: e)
-    flush(inout g)
     let msg = "assertion failed: " ++ pretty_expr(e)
-    line(g: inout g, s: "if (!" ++ c.c ++ ") " ++ panic_at(g: g, pos: s.pos, msg: c_string(msg)))
-    if not g.contracts then
+    if g.contracts then
+      // A specification, like a contract (see gen_check).
+      line(g: inout g, s: "if (vow_spec_depth == 0) {")
+      indent(inout g)
+      line(g: inout g, s: "vow_spec_depth++;")
+      let c = gen_top(g: inout g, e: e)
+      flush(inout g)
+      line(g: inout g, s: "vow_spec_depth--;")
+      line(g: inout g, s: "if (!" ++ c.c ++ ") " ++ panic_at(g: g, pos: s.pos, msg: c_string(msg)))
+      dedent(inout g)
+      line(g: inout g, s: "}")
+    else
+      line(g: inout g, s: "#ifndef VOW_VERIFIED")
+      let c = gen_top(g: inout g, e: e)
+      flush(inout g)
+      line(g: inout g, s: "if (!" ++ c.c ++ ") " ++ panic_at(g: g, pos: s.pos, msg: c_string(msg)))
       line(g: inout g, s: "#endif")
     end if
   case Check(e: e) then
@@ -882,10 +897,16 @@ fn gen_check(g: inout Gen, e: Expr, what: String) do
   let mid = g.move_id
   let steals = g.steal_ids
   set g = g with (inout_vars: [], move_id: -1, steal_ids: [])
+  line(g: inout g, s: "if (vow_spec_depth == 0) {")
+  indent(inout g)
+  line(g: inout g, s: "vow_spec_depth++;")
   push_frame(inout g)
   let v = gen_expr(g: inout g, e: e)
+  line(g: inout g, s: "vow_spec_depth--;")
   line(g: inout g, s: "if (!" ++ v.c ++ ") " ++ panic_at(g: g, pos: e.pos, msg: c_string(what ++ ": " ++ pretty_expr(e))))
   pop_frame(inout g)
+  dedent(inout g)
+  line(g: inout g, s: "}")
   set g = g with (inout_vars: io, move_id: mid, steal_ids: steals)
 end fn gen_check
 

@@ -1,0 +1,30 @@
+// error: cannot prove postcondition of 'f': n <= 1
+// language: 0.9
+// Unsound before: the call to g in the refinement of the alias Good was not an edge of
+// the call graph, so f and g were in different groups and proved their postconditions
+// from each other's.
+type Good = Int where g(n: it) == 1
+
+// Proved from g's postcondition, via the refinement of Good.
+fn f(n: Good) -> Int ensures n <= 1 decreases 0 do
+  if false then
+    return f(n: n)
+  end if
+  return 1
+end fn f
+
+// Proved from f's postcondition.
+fn g(n: Int) -> Int ensures (g(n: n) == 1) implies (n <= 1) decreases 0 do
+  assert (g(n: n) == 1) implies (f(n: n) == 1)
+  if false then
+    return g(n: n)
+  end if
+  return 1
+end fn g
+
+fn main() uses console do
+  let n = 5
+  let x = f(n: n)
+  assert n <= 1
+  print("n = " ++ int_to_str(n) ++ "\n")
+end fn main
