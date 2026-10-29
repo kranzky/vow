@@ -178,7 +178,7 @@ Emacs (Eglot):
 
 ## Status
 
-The current release is **v0.9.4**, with soundness fixes to v0.9.0, which added modules
+The current release is **v0.9.5**, with soundness fixes to v0.9.0, which added modules
 (`import "m.vow" as m`, `private`) and packages pinned to git commits
 ([listed here](https://vow.kranzky.com/packages.html); see the [changelog](CHANGELOG.md)). Vow is an experiment, not yet a V1. Notable gaps:
 termination is proved only where measures are given; Unix only.

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.9.5
 
 - `--check-contracts` checks the measures of recursive functions: at every call within a
   group of recursive functions, the caller's measure on entry is non-negative and the

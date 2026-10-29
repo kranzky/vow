@@ -6,7 +6,7 @@ import "fmt.vow"
 import "runtime_h.vow"
 
 fn vow_version() -> String do
-  return "0.9.4"
+  return "0.9.5"
 end fn vow_version
 
 fn usage() -> String do
