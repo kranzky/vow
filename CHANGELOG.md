@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.9.4
 
 - Fixed (unsound): the axioms of a recursive specification function with a struct
   parameter held of every value, though its body was proved only for values satisfying
