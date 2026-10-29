@@ -553,6 +553,12 @@ fn verify_fn(v: inout Verifier, f: FnDecl) -> FnVc do
     add_fact(st: inout st, f: fact)
     add_src(st: inout st, f: pretty_expr(r))
   end for
+  // The measure is a specification too, evaluated on entry by a checked build.
+  match fi.dec
+  case Some(value: d) then
+    check_wd(v: inout v, st: st, pos: d.pos, e: d, sp: state_spec(v: v, st: st, subj: "", res: ""))
+  case None then
+  end match
   vblock(v: inout v, stmts: f.body, st: inout st)
   if (not st.dead) and (ty_show(fi.ret.ty) == "Unit") then
     check_post(v: inout v, st: st, pos: f.pos, val: "0")

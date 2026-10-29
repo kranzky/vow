@@ -92,6 +92,7 @@ class Spec:
         self.sid, self.scope, self.kind, self.text = sid, scope, kind, text
         self.extra = extra  # a parameter, field or loop the contract belongs to
         self.line = 0
+        self.alt = None  # the line written instead when it is removed (None: nothing)
 
 
 class Out:
@@ -109,10 +110,21 @@ class Out:
         self.emit(ind, prefix + text, s)
         return s
 
+    def choice(self, ind, scope, kind, line, alt):
+        """A line the verifier may reject (a recursive call whose argument may not
+        decrease the measure), replaced by alt if it does."""
+        s = Spec(len(self.specs), scope, kind, line)
+        s.alt = alt
+        self.specs.append(s)
+        self.emit(ind, line, s)
+        return s
+
     def text(self, off):
         out = []
         for ind, t, s in self.lines:
             if s is not None and s.sid in off:
+                if s.alt is not None:
+                    out.append("  " * ind + s.alt)
                 continue
             if s is not None:
                 s.line = len(out) + 1
@@ -285,11 +297,20 @@ class Gen:
             if f.measure == "count":
                 # Bounded, so that nested calls (f(f(...))) cannot recurse millions deep.
                 o.emit(1, f"if ({x} > 0) and ({x} < 40) then")
-                args = [(partner.params[0][0], B("-", ("var", x), ("lit", 1)))]
-                for q, _, _, _ in partner.params[1:]:
-                    args.append((q, self.int_expr(env, 2)))
+                rest = [(q, self.int_expr(env, 2)) for q, _, _, _ in partner.params[1:]]
+                good = [(partner.params[0][0], B("-", ("var", x), ("lit", 1)))] + rest
                 r = self.fresh("r")
-                o.emit(2, f"let {r} = {render(('call', partner.name, args))}")
+                line = f"let {r} = {render(('call', partner.name, good))}"
+                if self.chance(0.5):
+                    # An argument that may not decrease the measure: if the verifier
+                    # rejects the call, it becomes x - 1.
+                    arg = self.r.choice([("var", x), B("+", ("var", x), ("lit", 1)), B("-", ("var", x), ("lit", 2)),
+                                         B("*", ("var", x), ("lit", 2)), B("/", ("var", x), ("lit", 2)),
+                                         self.int_expr(env, 1)])
+                    bad = [(partner.params[0][0], arg)] + rest
+                    o.choice(2, f.name, "call", f"let {r} = {render(('call', partner.name, bad))}", line)
+                else:
+                    o.emit(2, line)
                 o.emit(2, f"return {r} + {render(self.int_expr(env, 2), False)}")
                 o.emit(1, "end if")
             else:

@@ -467,7 +467,8 @@ file.vow --totality` lists the functions not proved to terminate, with the reaso
 
 **Checking contracts while the program runs.** `vowc run file.vow --no-verify
 --check-contracts` runs code whose proofs do not go through yet, checking every
-contract, refinement, invariant and loop measure as it executes: the first one that a
+contract, refinement, invariant and measure (of loops and of recursive calls) as it
+executes: the first one that a
 real input breaks panics with its line (`postcondition failed: result > n`). Use it to
 find out whether a failed proof is a wrong contract or a missing fact.
 

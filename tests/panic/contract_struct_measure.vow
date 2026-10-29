@@ -1,0 +1,19 @@
+// language: 0.9
+// Checked builds check structural measures too, by the value's height.
+// vowflags: --no-verify --check-contracts
+
+enum Tree
+  Leaf,
+  Node(left: Tree, right: Tree),
+end enum Tree
+
+fn grow(t: Tree, k: Int) -> Int decreases t do
+  if k > 0 then
+    return grow(t: Tree.Node(left: t, right: Tree.Leaf), k: k - 1)
+  end if
+  return 0
+end fn grow
+
+fn main() do
+  let _ = grow(t: Tree.Leaf, k: 2)
+end fn main

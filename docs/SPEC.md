@@ -496,7 +496,8 @@ only what runs (the right side of `and`, `or` and `implies` only where the left 
 lets it run). The verifier proves this alongside the specification itself
 ("cannot prove 'xs[i] > 0' is defined"), because a build with `--check-contracts`
 evaluates it. A `requires` may rely on the ones before it: `requires len(xs) > 0`
-then `requires xs[0] > 0`.
+then `requires xs[0] > 0`; a function's `decreases` measure, evaluated on entry, on all
+of them.
 
 Generic functions are verified once for all type arguments (see Generics); calls to
 them are checked against their contracts with the type arguments of the call.
@@ -606,8 +607,11 @@ verifier proves: preconditions and parameter refinements on entry; postcondition
 using `old(x)`, and the result's refinement at every return; the refinements of `let`s
 and `var`s whenever they are assigned, including by an inout call; field refinements
 wherever a struct or variant value is built, `with` included; loop invariants at the
-top of every iteration, when the loop ends and at every `break`; an `Int` loop measure's
-being non-negative and smaller at the end of every iteration and at every `continue`;
+top of every iteration, when the loop ends and at every `break`; a loop measure's being
+non-negative and smaller at the end of every iteration and at every `continue`; at every
+call within a group of recursive functions, the caller's measure on entry being
+non-negative and the callee's, on the arguments, smaller (a structural measure is
+compared by the value's height);
 `assert`; and the bounds and division checks above. A failure panics with the contract
 that failed (`vow: panic at f.vow:3: postcondition failed: result > n`). On a verified
 program no such check can fail, so one that does is a bug in the verifier; on a program

@@ -56,7 +56,9 @@ struct Gen
   // parameters; spec_binds C values for names in a field refinement (its sibling
   // fields); var_preds the refinements of vars and inout parameters; and for each
   // enclosing loop, innermost last, its invariants, its measure and the measure's value
-  // when the iteration began ("" if none).
+  // when the iteration began ("" if none); dec_c the C variable holding the function's
+  // own measure on entry ("" if none), and ranks the types whose values a structural
+  // measure measures, each needing a vrank_ function.
   contracts: Bool,
   fname: String,
   it_c: String,
@@ -67,6 +69,8 @@ struct Gen
   loop_invs: List<List<Expr>>,
   loop_dec: List<List<Expr>>,
   loop_m: List<String>,
+  dec_c: String,
+  ranks: List<Ty>,
 end struct Gen
 
 fn c_string(s: String) -> String do
@@ -112,7 +116,7 @@ fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool, 
     owned_vars: [], scope_marks: [], loop_marks: [], temps: [], temp_marks: [], move_id: -1,
     moved: false, inout_vars: [], steal_ids: [], eqs: [], src: no_pos(), mapped_file: -1, mapped_next: -1, lines: lines,
     contracts: contracts, fname: "", it_c: "", result_c: "", olds: {}, spec_binds: {}, var_preds: {}, loop_invs: [],
-    loop_dec: [], loop_m: [])
+    loop_dec: [], loop_m: [], dec_c: "", ranks: [])
   // Generic functions are compiled through their instances.
   var fns: List<FnDecl> = []
   for item in items do
@@ -164,8 +168,19 @@ fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool, 
   for t in g.eqs do
     set c = push(list: c, item: "static V " ++ eq_c_name(t) ++ "(V a, V b);")
   end for
+  // Rank functions for structural measures (checked builds); likewise.
+  var rank_defs: List<String> = []
+  var rdone = 0
+  while rdone < len(g.ranks) invariant rdone >= 0 do
+    let t = g.ranks[rdone]
+    set rdone = rdone + 1
+    set rank_defs = rank_defs ++ gen_rank_fn(g: inout g, t: t)
+  end while
+  for t in g.ranks do
+    set c = push(list: c, item: "static int64_t " ++ rank_c_name(t) ++ "(V a);")
+  end for
   set c = push(list: c, item: "")
-  set c = c ++ eq_defs
+  set c = c ++ eq_defs ++ rank_defs
   // The functions come last: from their first #line directive on, every C line is
   // attributed to Vow source.
   set c = push(list: c, item: "int main(int argc, char **argv) {")
@@ -637,7 +652,7 @@ fn gen_function(g: inout Gen, f: FnDecl) do
     end if
   end for
   set g = g with (io_params: io, owned_vars: [], scope_marks: [], loop_marks: [], temps: [], temp_marks: [], src: f.pos,
-    fname: f.name, olds: {}, var_preds: {}, loop_invs: [], loop_dec: [], loop_m: [])
+    fname: f.name, olds: {}, var_preds: {}, loop_invs: [], loop_dec: [], loop_m: [], dec_c: "")
   line(g: inout g, s: "static V " ++ c_fn(f.name) ++ "(" ++ c_params(f) ++ ") {")
   indent(inout g)
   if g.contracts then
@@ -780,14 +795,14 @@ fn gen_stmt(g: inout Gen, s: Stmt) do
     if g.contracts then
       match dec
       case Some(value: d) then
-        if ty_show(type_of(info: g.info, e: d)) == "Int" then
-          let mv = gen_top(g: inout g, e: d)
-          flush(inout g)
-          set m = fresh_tmp(inout g)
-          line(g: inout g, s: "V " ++ m ++ " = " ++ mv.c ++ ";")
-          line(g: inout g, s: "if (VI(" ++ m ++ ") < 0) " ++ panic_at(g: g, pos: d.pos, msg: c_string("loop measure is negative: " ++ pretty_expr(d))))
-          set decs = [d]
-        end if
+        // An Int measure, or a structural one measured by its rank.
+        let mv = gen_top(g: inout g, e: d)
+        let mc = c_measure(g: inout g, d: d, c: mv.c)
+        set m = fresh_tmp(inout g)
+        line(g: inout g, s: "int64_t " ++ m ++ " = " ++ mc ++ ";")
+        flush(inout g)
+        line(g: inout g, s: "if (" ++ m ++ " < 0) " ++ panic_at(g: g, pos: d.pos, msg: c_string("loop measure is negative: " ++ pretty_expr(d))))
+        set decs = [d]
       case None then
       end match
     end if
@@ -989,9 +1004,111 @@ fn gen_entry_checks(g: inout Gen, f: FnDecl) do
     for r in fi.pre do
       gen_check(g: inout g, e: r, what: "precondition failed")
     end for
+    // The measure on entry, which each call within the function's recursive group must
+    // decrease (gen_call_measure_check).
+    match fi.dec
+    case Some(value: d) then
+      line(g: inout g, s: "int64_t vow_dec = 0;")
+      line(g: inout g, s: "if (vow_spec_depth == 0) {")
+      indent(inout g)
+      line(g: inout g, s: "vow_spec_depth++;")
+      push_frame(inout g)
+      let v = gen_expr(g: inout g, e: d)
+      let m = c_measure(g: inout g, d: d, c: v.c)
+      line(g: inout g, s: "vow_dec = " ++ m ++ ";")
+      pop_frame(inout g)
+      line(g: inout g, s: "vow_spec_depth--;")
+      dedent(inout g)
+      line(g: inout g, s: "}")
+      set g = g with (dec_c: "vow_dec")
+    case None then
+    end match
   case None then
   end match
 end fn gen_entry_checks
+
+// A measure's value as a C int64_t: an Int measure is itself, any other value its rank
+// (as in the verifier's as_measure).
+fn c_measure(g: inout Gen, d: Expr, c: String) -> String do
+  let t = type_of(info: g.info, e: d)
+  if ty_show(t) == "Int" then
+    return "VI(" ++ c ++ ")"
+  end if
+  return c_rank(g: inout g, t: t, a: c)
+end fn c_measure
+
+// Before a call within the caller's recursive group (checked builds): the caller's
+// measure on entry is not negative, and the callee's measure on the arguments, p in
+// parameter order, is smaller. As in the verifier, which proves it at the call.
+fn gen_call_measure_check(g: inout Gen, pos: Pos, name: String, args: List<Arg>, order: List<Int>, p: List<Val>) do
+  if (not g.contracts) or (len(g.dec_c) == 0) then
+    return
+  end if
+  let k = scc_of_fn(info: g.info, name: g.fname)
+  if (name != g.fname) and ((k < 0) or (scc_of_fn(info: g.info, name: name) != k)) then
+    return
+  end if
+  match get_fn(info: g.info, name: name)
+  case Some(value: fi) then
+    match fi.dec
+    case Some(value: cd) then
+      // The callee's parameters, bound to the arguments' values (an inout argument's
+      // value is its var's).
+      var binds = g.spec_binds
+      for i in 0..len(fi.params) do
+        if (i < len(p)) and (i < len(order)) then
+          var c = p[i].c
+          let ai = order[i]
+          if (ai >= 0) and (ai < len(args)) and args[ai].is_inout then
+            match args[ai].value.kind
+            case Var(name: n) then
+              set c = cvar(g: g, n: n)
+            else
+            end match
+          end if
+          set binds = insert(map: binds, key: fi.params[i].name, value: c)
+        end if
+      end for
+      let io = g.inout_vars
+      let mid = g.move_id
+      let steals = g.steal_ids
+      let saved = g.spec_binds
+      set g = g with (inout_vars: [], move_id: -1, steal_ids: [], spec_binds: binds)
+      line(g: inout g, s: "if (vow_spec_depth == 0) {")
+      indent(inout g)
+      line(g: inout g, s: "vow_spec_depth++;")
+      push_frame(inout g)
+      let v = gen_expr(g: inout g, e: cd)
+      let now = c_measure(g: inout g, d: cd, c: v.c)
+      line(g: inout g, s: "vow_spec_depth--;")
+      var what = "recursive call to '" ++ name ++ "' did not decrease its measure: " ++ pretty_expr(cd)
+      if name != g.fname then
+        set what = "call to '" ++ name ++ "' did not decrease the measure of '" ++ g.fname ++ "': " ++ pretty_expr(cd) ++ " < " ++ dec_text(g: g)
+      end if
+      line(g: inout g, s: "if (!((" ++ g.dec_c ++ " >= 0) && (" ++ now ++ " < " ++ g.dec_c ++ "))) " ++ panic_at(g: g, pos: pos, msg: c_string(what)))
+      pop_frame(inout g)
+      dedent(inout g)
+      line(g: inout g, s: "}")
+      set g = g with (inout_vars: io, move_id: mid, steal_ids: steals, spec_binds: saved)
+    case None then
+    end match
+  case None then
+  end match
+end fn gen_call_measure_check
+
+// The caller's measure, as written.
+fn dec_text(g: Gen) -> String do
+  match get_fn(info: g.info, name: g.fname)
+  case Some(value: fi) then
+    match fi.dec
+    case Some(value: d) then
+      return pretty_expr(d)
+    case None then
+    end match
+  case None then
+  end match
+  return ""
+end fn dec_text
 
 // On return: the result's refinements and the postconditions, with res the C value
 // returned ("0" for Unit).
@@ -1039,7 +1156,8 @@ fn gen_measure_check(g: inout Gen) do
   set g = g with (inout_vars: [])
   push_frame(inout g)
   let v = gen_expr(g: inout g, e: d)
-  line(g: inout g, s: "if (!(VI(" ++ v.c ++ ") < VI(" ++ m ++ "))) " ++ panic_at(g: g, pos: d.pos, msg: c_string("loop measure did not decrease: " ++ pretty_expr(d))))
+  let now = c_measure(g: inout g, d: d, c: v.c)
+  line(g: inout g, s: "if (!(" ++ now ++ " < " ++ m ++ ")) " ++ panic_at(g: g, pos: d.pos, msg: c_string("loop measure did not decrease: " ++ pretty_expr(d))))
   pop_frame(inout g)
   set g = g with (inout_vars: io)
 end fn gen_measure_check
@@ -1554,6 +1672,92 @@ fn gen_eq_fn(g: inout Gen, t: Ty) -> List<String> do
   return out
 end fn gen_eq_fn
 
+fn rank_c_name(t: Ty) -> String do
+  return "vrank_" ++ mangle(ty_show(t))
+end fn rank_c_name
+
+// A value's rank, for a structural measure: its height, where an enum or option value
+// and a list are one more than their highest part, a struct as high as its highest
+// field, and anything else 0. Each part has a smaller rank than an enum value or list,
+// and no larger than a struct, as the verifier assumes (rank_part).
+fn c_rank(g: inout Gen, t: Ty, a: String) -> String do
+  var structured = false
+  match t
+  case TList(elem: x) then
+    set structured = true
+  case TOpt(inner: x) then
+    set structured = true
+  case TStruct(name: n) then
+    set structured = true
+  case TEnum(name: n) then
+    set structured = true
+  else
+  end match
+  if not structured then
+    return "0"
+  end if
+  let name = rank_c_name(t)
+  var known = false
+  for x in g.ranks do
+    if rank_c_name(x) == name then
+      set known = true
+    end if
+  end for
+  if not known then
+    set g = g with (ranks: push(list: g.ranks, item: t))
+  end if
+  return name ++ "(" ++ a ++ ")"
+end fn c_rank
+
+fn gen_rank_fn(g: inout Gen, t: Ty) -> List<String> do
+  var out = ["static int64_t " ++ rank_c_name(t) ++ "(V a) {", "    int64_t r = 0, x;"]
+  var more = " + 1"
+  match t
+  case TStruct(name: n) then
+    set more = ""
+    let fields = struct_fields(info: g.info, name: n)
+    for i in 0..len(fields) do
+      let rk = c_rank(g: inout g, t: fields[i].rty.ty, a: "VP(a)[" ++ int_to_str(i) ++ "]")
+      if rk != "0" then
+        set out = push(list: out, item: "    x = " ++ rk ++ "; if (x > r) r = x;")
+      end if
+    end for
+  case TList(elem: et) then
+    let rk = c_rank(g: inout g, t: et, a: "VB(VL(a)->buf)->items[i]")
+    if rk != "0" then
+      set out = push(list: out, item: "    for (int64_t i = 0; i < VL(a)->len; i++) {")
+      set out = push(list: out, item: "        x = " ++ rk ++ "; if (x > r) r = x;")
+      set out = push(list: out, item: "    }")
+    end if
+  else
+    match variants_of(info: g.info, t: t)
+    case Some(value: vs) then
+      set out = push(list: out, item: "    switch (VP(a)[0]) {")
+      for i in 0..len(vs) do
+        let fields = vs[i].fields
+        var body: List<String> = []
+        for k in 0..len(fields) do
+          let rk = c_rank(g: inout g, t: fields[k].rty.ty, a: "VP(a)[" ++ int_to_str(k + 1) ++ "]")
+          if rk != "0" then
+            set body = push(list: body, item: "        x = " ++ rk ++ "; if (x > r) r = x;")
+          end if
+        end for
+        if len(body) > 0 then
+          set out = push(list: out, item: "    case " ++ int_to_str(i) ++ ":")
+          set out = out ++ body
+          set out = push(list: out, item: "        break;")
+        end if
+      end for
+      set out = push(list: out, item: "    }")
+    case None then
+    end match
+  end match
+  set out = push(list: out, item: "    return r" ++ more ++ ";")
+  set out = push(list: out, item: "}")
+  set out = push(list: out, item: "")
+  return out
+end fn gen_rank_fn
+
 fn gen_call(g: inout Gen, e: Expr, args: List<Arg>) -> Val do
   var ci = CallInfo(kind: "", name: "", variant: 0, order: [])
   match call_info(info: g.info, e: e)
@@ -1607,6 +1811,7 @@ fn gen_call(g: inout Gen, e: Expr, args: List<Arg>) -> Val do
   end if
   let rh = heap_of(g: g, e: e)
   if ci.kind == "user" then
+    gen_call_measure_check(g: inout g, pos: e.pos, name: ci.name, args: args, order: ci.order, p: p)
     // Parameters are borrowed: the arguments stay owned by this statement.
     var cs: List<String> = []
     for v in p do

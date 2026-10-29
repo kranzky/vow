@@ -1,0 +1,22 @@
+// language: 0.9
+// Checked builds check that a call within a group of mutually recursive functions
+// decreases the caller's measure.
+// vowflags: --no-verify --check-contracts
+
+fn even(n: Int) -> Bool decreases n do
+  if n <= 0 then
+    return true
+  end if
+  return odd(n: n)
+end fn even
+
+fn odd(n: Int) -> Bool decreases n do
+  if n <= 0 then
+    return false
+  end if
+  return even(n: n - 1)
+end fn odd
+
+fn main() do
+  let _ = even(n: 4)
+end fn main

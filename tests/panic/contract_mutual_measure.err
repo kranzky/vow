@@ -1,0 +1,1 @@
+vow: panic at panic/contract_mutual_measure.vow:10: call to 'odd' did not decrease the measure of 'even': n < n

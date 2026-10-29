@@ -1,0 +1,14 @@
+// language: 0.9
+// Checked builds check that a recursive call decreases its function's measure.
+// vowflags: --no-verify --check-contracts
+
+fn f(n: Int) -> Int decreases n do
+  if (n > 0) and (n < 5) then
+    return f(n: n + 1)
+  end if
+  return 0
+end fn f
+
+fn main() do
+  let _ = f(n: 1)
+end fn main

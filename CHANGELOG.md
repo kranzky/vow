@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- `--check-contracts` checks the measures of recursive functions: at every call within a
+  group of recursive functions, the caller's measure on entry is non-negative and the
+  callee's, on the arguments, smaller ("recursive call to 'f' did not decrease its
+  measure: n"). Structural measures, of loops too, are compared by the value's height.
+- A function's `decreases` measure must be defined on entry (its indexes in range and so
+  on, given the preconditions), since a checked build evaluates it there. The verifier
+  version is now 10.
+- `tests/genfuzz.py` writes recursive calls whose argument may not decrease the measure,
+  and finds a verifier that skips the measure obligation within a few hundred programs.
+
 ## v0.9.4
 
 - Fixed (unsound): the axioms of a recursive specification function with a struct

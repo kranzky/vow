@@ -61,6 +61,7 @@ BUG_MESSAGES = [
     "refinement of",
     "loop invariant failed",
     "loop measure",
+    "did not decrease",
     "assertion failed",
     "out of bounds",
     "division by zero",

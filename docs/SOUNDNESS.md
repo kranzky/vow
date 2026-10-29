@@ -155,7 +155,8 @@ calls in a specification as total functions, but a build with `--check-contracts
 evaluates the specification. So wherever a specification is checked (a parameter
 refinement or `requires` on entry, given the ones before it; an `ensures` or result
 refinement at each return; an invariant, a loop measure, an `assert`, a stored value's
-refinement, a field refinement at a construction), it is also proved defined: each index
+refinement, a field refinement at a construction, a function's measure on entry), it is
+also proved defined: each index
 in range, each Int divisor not zero and each call's preconditions true, counting only
 the parts that run (the right operand of `and`, `or` and `implies` where the left one
 lets it run, a quantifier's body for each value in range). A specification assumed
@@ -229,8 +230,9 @@ two checks with the cache on.
 
 - Termination is proved only where measures are given; elsewhere contracts hold for
   runs that return.
-- `--check-contracts` does not check the measures of recursive calls, nor the contracts
-  of functions called while a specification is evaluated.
+- `--check-contracts` does not check the contracts of functions called while a
+  specification is evaluated. It checks a structural measure by the value's height,
+  which is one rank the verifier's facts allow, not the only one.
 - Integer arithmetic is proved for mathematical integers; a run that overflows traps.
 - The argument above is informal. The rules it lists are the verifier's; a rule the
   verifier applies but that is missing here is a gap in this document, and should be

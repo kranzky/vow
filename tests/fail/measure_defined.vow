@@ -1,0 +1,14 @@
+// error: cannot prove 'xs[0]' is defined (indexes in range, divisors not zero, calls' preconditions met)
+// language: 0.9
+// A function's measure is evaluated on entry by a checked build, so it must be defined
+// there; before, it was proved only inside the obligations of recursive calls.
+fn f(xs: List<Int>) -> Int decreases xs[0] do
+  if (len(xs) > 0) and (xs[0] > 0) then
+    return f(xs: [xs[0] - 1])
+  end if
+  return 0
+end fn f
+
+fn main() do
+  let _ = f(xs: [])
+end fn main
