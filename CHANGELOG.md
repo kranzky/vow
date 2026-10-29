@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.9.3
 
 Soundness: an independent review of the verifier against `docs/SOUNDNESS.md` found six
 bugs, all fixed. The verifier version is now 8, so results cached by earlier versions
