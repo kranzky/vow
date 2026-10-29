@@ -1,0 +1,89 @@
+// language: 0.9
+// Refinements inside type arguments: List<Nat>, Option<Nat>, nested lists, struct and
+// variant fields, aliases of refined lists, inout, and a recursive specification
+// function over a refined list.
+type Nat = Int where it >= 0
+type Nats = List<Nat>
+
+struct Basket
+  items: List<Nat>,
+  n: Int,
+end struct Basket
+
+enum Bag
+  Full(items: Nats),
+  Empty,
+end enum Bag
+
+fn total(xs: List<Nat>) -> Nat do
+  var t = 0
+  for x in xs invariant t >= 0 do
+    set t = t + x
+  end for
+  return t
+end fn total
+
+fn sum_from(xs: List<Nat>, i: Int) -> Int
+  requires (0 <= i) and (i <= len(xs))
+  ensures result >= 0
+  decreases len(xs) - i
+do
+  if i == len(xs) then
+    return 0
+  end if
+  return xs[i] + sum_from(xs: xs, i: i + 1)
+end fn sum_from
+
+fn first(xs: List<Nat>) -> Option<Nat> do
+  if len(xs) > 0 then
+    return Option.Some(value: xs[0])
+  end if
+  return Option.None
+end fn first
+
+fn add(xs: inout List<Nat>, n: Nat) ensures len(xs) == (len(old(xs)) + 1) do
+  set xs = push(list: xs, item: n)
+end fn add
+
+fn bag_total(b: Bag) -> Nat do
+  match b
+  case Full(items: xs) then
+    return total(xs)
+  case Empty then
+    return 0
+  end match
+end fn bag_total
+
+fn main() uses console do
+  var xs: List<Nat> = [3, 4]
+  set xs = push(list: xs, item: 5)
+  add(xs: inout xs, n: 7)
+  assert xs[3] >= 0
+  set xs = set_at(list: xs, at: 0, value: 1)
+  assert sum_from(xs: xs, i: 0) >= 0
+  match first(xs)
+  case Some(value: v) then
+    assert v >= 0
+    print("first " ++ int_to_str(v) ++ "\n")
+  case None then
+  end match
+  let o: Option<Int where it >= 0> = Option.Some(value: 3)
+  let p: Option<Int where (it > 0)> = Option.None
+  let b = Basket(items: xs, n: 0)
+  let c = b with (n: 1)
+  assert forall i in 0..len(c.items): c.items[i] >= 0
+  let grid: List<List<Nat>> = [[1, 2], [], [3]]
+  var cells = 0
+  for row in grid invariant cells >= 0 do
+    for cell in row invariant cells >= 0 do
+      set cells = cells + cell
+    end for
+  end for
+  var evens: Nats = []
+  for i in 0..5 do
+    set evens = push(list: evens, item: i * 2)
+  end for
+  print("total " ++ int_to_str(total(xs)) ++ " " ++ int_to_str(sum_from(xs: xs, i: 0)) ++ "\n")
+  print("cells " ++ int_to_str(cells) ++ ", bag " ++ int_to_str(bag_total(b: Bag.Full(items: evens))) ++ "\n")
+  print("o " ++ int_to_str(value_or(opt: o, default: 0)) ++ ", p " ++ int_to_str(value_or(opt: p, default: 0)) ++ "\n")
+end fn main

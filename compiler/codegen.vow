@@ -65,7 +65,7 @@ struct Gen
   result_c: String,
   olds: Map<String, String>,
   spec_binds: Map<String, String>,
-  var_preds: Map<String, List<Expr>>,
+  var_preds: Map<String, RTy>,
   loop_invs: List<List<Expr>>,
   loop_dec: List<List<Expr>>,
   loop_m: List<String>,
@@ -722,14 +722,14 @@ fn gen_stmt(g: inout Gen, s: Stmt) do
         declare_owned(g: inout g, c: "l_" ++ name)
       end if
       if g.contracts then
-        var preds: List<Expr> = []
+        var r = plain(Ty.TUnknown)
         match ty
         case Some(value: te) then
-          set preds = resolve_quiet(info: g.info, te: te).preds
+          set r = resolve_quiet(info: g.info, te: te)
         case None then
         end match
-        set g = g with (var_preds: insert(map: g.var_preds, key: name, value: preds))
-        gen_preds(g: inout g, preds: preds, subject: "l_" ++ name, what: "refinement of '" ++ name ++ "' failed")
+        set g = g with (var_preds: insert(map: g.var_preds, key: name, value: r))
+        gen_rty(g: inout g, r: r, subject: "l_" ++ name, desc: "'" ++ name ++ "'")
       end if
     end if
     gen_inout_checks(g: inout g, e: value)
@@ -753,8 +753,8 @@ fn gen_stmt(g: inout Gen, s: Stmt) do
     line(g: inout g, s: lv ++ " = " ++ c ++ ";")
     flush(inout g)
     if g.contracts then
-      gen_preds(g: inout g, preds: value_or(opt: lookup(map: g.var_preds, key: name), default: []), subject: lv,
-        what: "refinement of '" ++ name ++ "' failed")
+      gen_rty(g: inout g, r: value_or(opt: lookup(map: g.var_preds, key: name), default: plain(Ty.TUnknown)), subject: lv,
+        desc: "'" ++ name ++ "'")
     end if
     gen_inout_checks(g: inout g, e: value)
   case Return(value: rv) then
@@ -938,6 +938,66 @@ fn gen_preds(g: inout Gen, preds: List<Expr>, subject: String, what: String) do
   set g = g with (it_c: saved)
 end fn gen_preds
 
+// Checks a value's refinements, its own (desc names it: "'x'", "parameter 'x'") and
+// those inside its type arguments.
+fn gen_rty(g: inout Gen, r: RTy, subject: String, desc: String) do
+  gen_preds(g: inout g, preds: r.preds, subject: subject, what: "refinement of " ++ desc ++ " failed")
+  gen_inner(g: inout g, r: r, subject: subject, desc: desc)
+end fn gen_rty
+
+// The refinements inside a value's type arguments: of each element of a list, of the
+// value in an option, of the fields of an instance of a generic type.
+fn gen_inner(g: inout Gen, r: RTy, subject: String, desc: String) do
+  if len(r.args) == 0 then
+    return
+  end if
+  let a = r.args[0]
+  match r.ty
+  case TList(elem: et) then
+    let k = fresh_tmp(inout g)
+    line(g: inout g, s: "for (int64_t " ++ k ++ " = 0; " ++ k ++ " < VL(" ++ subject ++ ")->len; " ++ k ++ "++) {")
+    indent(inout g)
+    gen_rty(g: inout g, r: a, subject: "VB(VL(" ++ subject ++ ")->buf)->items[" ++ k ++ "]", desc: "an element of " ++ desc)
+    dedent(inout g)
+    line(g: inout g, s: "}")
+  case TOpt(inner: ot) then
+    line(g: inout g, s: "if (VP(" ++ subject ++ ")[0] == 1) {")
+    indent(inout g)
+    gen_rty(g: inout g, r: a, subject: "VP(" ++ subject ++ ")[1]", desc: "the value in " ++ desc)
+    dedent(inout g)
+    line(g: inout g, s: "}")
+  case TStruct(name: sn) then
+    let fields = struct_fields(info: g.info, name: sn)
+    let refs = struct_field_refs(info: g.info, name: sn, args: r.args)
+    for i in 0..len(fields) do
+      if (i < len(refs)) and not is_plain(refs[i]) then
+        gen_rty(g: inout g, r: refs[i], subject: "VP(" ++ subject ++ ")[" ++ int_to_str(i) ++ "]", desc: "field '" ++ fields[i].name ++ "' of " ++ desc)
+      end if
+    end for
+  case TEnum(name: en) then
+    match variants_of(info: g.info, t: r.ty)
+    case Some(value: vs) then
+      let refs = variant_field_refs(info: g.info, name: en, args: r.args)
+      for vi in 0..len(vs) do
+        if vi < len(refs) then
+          for fi in 0..len(vs[vi].fields) do
+            if (fi < len(refs[vi])) and not is_plain(refs[vi][fi]) then
+              line(g: inout g, s: "if (VP(" ++ subject ++ ")[0] == " ++ int_to_str(vi) ++ ") {")
+              indent(inout g)
+              gen_rty(g: inout g, r: refs[vi][fi], subject: "VP(" ++ subject ++ ")[" ++ int_to_str(fi + 1) ++ "]",
+                desc: "field '" ++ vs[vi].fields[fi].name ++ "' of " ++ desc ++ " (when " ++ vs[vi].name ++ ")")
+              dedent(inout g)
+              line(g: inout g, s: "}")
+            end if
+          end for
+        end if
+      end for
+    case None then
+    end match
+  else
+  end match
+end fn gen_inner
+
 fn gen_invs(g: inout Gen, invs: List<Expr>) do
   for i in invs do
     gen_check(g: inout g, e: i, what: "loop invariant failed")
@@ -949,7 +1009,7 @@ end fn gen_invs
 fn gen_field_checks(g: inout Gen, r: String, fields: List<FieldInfo>, offset: Int, tname: String) do
   var any = false
   for f in fields do
-    if len(f.rty.preds) > 0 then
+    if not is_plain(f.rty) then
       set any = true
     end if
   end for
@@ -965,6 +1025,8 @@ fn gen_field_checks(g: inout Gen, r: String, fields: List<FieldInfo>, offset: In
   for i in 0..len(fields) do
     let what = "refinement of field '" ++ fields[i].name ++ "' of " ++ tname ++ " failed"
     gen_preds(g: inout g, preds: fields[i].rty.preds, subject: "VP(" ++ r ++ ")[" ++ int_to_str(i + offset) ++ "]", what: what)
+    gen_inner(g: inout g, r: fields[i].rty, subject: "VP(" ++ r ++ ")[" ++ int_to_str(i + offset) ++ "]",
+      desc: "field '" ++ fields[i].name ++ "' of " ++ tname)
   end for
   set g = g with (spec_binds: saved)
 end fn gen_field_checks
@@ -977,8 +1039,8 @@ fn gen_inout_checks(g: inout Gen, e: Expr) do
   var io: List<String> = []
   inout_in_expr(e: e, out: inout io)
   for n in io do
-    gen_preds(g: inout g, preds: value_or(opt: lookup(map: g.var_preds, key: n), default: []), subject: cvar(g: g, n: n),
-      what: "refinement of '" ++ n ++ "' failed")
+    gen_rty(g: inout g, r: value_or(opt: lookup(map: g.var_preds, key: n), default: plain(Ty.TUnknown)), subject: cvar(g: g, n: n),
+      desc: "'" ++ n ++ "'")
   end for
 end fn gen_inout_checks
 
@@ -989,9 +1051,9 @@ fn gen_entry_checks(g: inout Gen, f: FnDecl) do
   case Some(value: fi) then
     for i in 0..len(fi.params) do
       let p = fi.params[i]
-      gen_preds(g: inout g, preds: p.rty.preds, subject: cvar(g: g, n: p.name), what: "refinement of parameter '" ++ p.name ++ "' failed")
+      gen_rty(g: inout g, r: p.rty, subject: cvar(g: g, n: p.name), desc: "parameter '" ++ p.name ++ "'")
       if (i < len(fi.io)) and fi.io[i] then
-        set g = g with (var_preds: insert(map: g.var_preds, key: p.name, value: p.rty.preds))
+        set g = g with (var_preds: insert(map: g.var_preds, key: p.name, value: p.rty))
         let o = "o_" ++ p.name
         line(g: inout g, s: "V " ++ o ++ " = " ++ cvar(g: g, n: p.name) ++ ";")
         if is_heap(p.rty.ty) then
@@ -1116,6 +1178,7 @@ fn gen_exit_checks(g: inout Gen, res: String) do
   match get_fn(info: g.info, name: g.fname)
   case Some(value: fi) then
     gen_preds(g: inout g, preds: fi.ret.preds, subject: res, what: "refinement of the result failed")
+    gen_inner(g: inout g, r: fi.ret, subject: res, desc: "the result")
     let saved = g.result_c
     set g = g with (result_c: res)
     for en in fi.post do

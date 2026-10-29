@@ -1,0 +1,7 @@
+// language: 0.9
+// Checked builds check refinements inside type arguments.
+// vowflags: --no-verify --check-contracts
+
+fn main() do
+  let o: Option<Int where 2 < it> = Option.Some(value: 1)
+end fn main

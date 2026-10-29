@@ -1,0 +1,11 @@
+// error: cannot prove field 'v' of 'b' satisfies it >= 0
+// language: 0.9
+// A refined type argument of a generic struct refines its fields of that type.
+type Nat = Int where it >= 0
+struct Box<T>
+  v: T,
+end struct Box
+
+fn main() do
+  let b: Box<Nat> = Box(v: 0 - 4)
+end fn main

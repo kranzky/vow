@@ -1,0 +1,6 @@
+// error: cannot prove the value in 'o' satisfies 2 < it
+// language: 0.9
+// The value in an option is checked against its refinement.
+fn main() do
+  let o: Option<Int where 2 < it> = Option.Some(value: 1)
+end fn main

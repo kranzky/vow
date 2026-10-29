@@ -1,0 +1,7 @@
+// error: cannot prove every element of 'xs' satisfies (100 / it) > 0
+// language: 0.9
+// An element refinement is evaluated by a checked build, so it must be defined.
+type Inv = Int where (100 / it) > 0
+fn main() do
+  let xs: List<Inv> = [0]
+end fn main

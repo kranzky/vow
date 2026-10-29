@@ -1,0 +1,61 @@
+// language: 0.9
+// Refined type arguments of generic types: Result<Nat, String> with try, Box<Nat>, and a
+// generic struct whose fields hold the type parameter in a List and an Option.
+type Nat = Int where it >= 0
+
+struct Box<T>
+  v: T,
+end struct Box
+
+struct Stack<T>
+  items: List<T>,
+  top: Option<T>,
+end struct Stack
+
+fn parse(s: String) -> Result<Nat, String> do
+  match str_to_int(s)
+  case Some(value: n) then
+    if n >= 0 then
+      return Result.Ok(value: n)
+    end if
+    return Result.Err(error: "negative")
+  case None then
+    return Result.Err(error: "not a number")
+  end match
+end fn parse
+
+fn twice(s: String) -> Result<Nat, String> do
+  let n = try parse(s)
+  assert n >= 0
+  return Result.Ok(value: n * 2)
+end fn twice
+
+fn unbox(b: Box<Nat>) -> Nat do
+  return b.v
+end fn unbox
+
+fn total(s: Stack<Nat>) -> Nat do
+  var t = 0
+  for x in s.items invariant t >= 0 do
+    set t = t + x
+  end for
+  match s.top
+  case Some(value: x) then
+    set t = t + x
+  case None then
+  end match
+  return t
+end fn total
+
+fn main() uses console do
+  match twice(s: "21")
+  case Ok(value: n) then
+    assert n >= 0
+    print("ok " ++ int_to_str(n) ++ "\n")
+  case Err(error: e) then
+    print("err " ++ e ++ "\n")
+  end match
+  let b: Box<Nat> = Box(v: 4)
+  let s: Stack<Nat> = Stack(items: [1, 2], top: Option.Some(value: 3))
+  print(int_to_str(unbox(b: b)) ++ " " ++ int_to_str(total(s: s)) ++ "\n")
+end fn main

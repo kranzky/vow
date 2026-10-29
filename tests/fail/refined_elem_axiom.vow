@@ -1,0 +1,23 @@
+// error: cannot prove 'sumr(xs: ys, i: 0) >= 0' is defined (indexes in range, divisors not zero, calls' preconditions met)
+// language: 0.9
+// The axioms of a specification function hold only for arguments satisfying its
+// parameters' refinements, the ones inside type arguments included.
+type Nat = Int where it >= 0
+fn sumr(xs: List<Nat>, i: Int) -> Int
+  requires (0 <= i) and (i <= len(xs))
+  ensures result >= 0
+  decreases len(xs) - i
+do
+  if i == len(xs) then
+    return 0
+  end if
+  return xs[i] + sumr(xs: xs, i: i + 1)
+end fn sumr
+
+fn g(ys: List<Int>) -> Int requires len(ys) == 1 do
+  assert sumr(xs: ys, i: 0) >= 0
+  return 0
+end fn g
+
+fn main() do
+end fn main

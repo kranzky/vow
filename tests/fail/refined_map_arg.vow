@@ -1,0 +1,9 @@
+// error: refined types are allowed inside the type arguments of List, Option and generic types, not here
+// language: 0.9
+// Nothing could check a refinement of a map's values: a specification cannot quantify
+// over a map.
+type Nat = Int where it >= 0
+
+fn main() do
+  let m: Map<String, Nat> = {}
+end fn main

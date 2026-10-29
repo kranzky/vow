@@ -1,0 +1,9 @@
+// language: 0.9
+// Checked builds check refinements inside type arguments.
+// vowflags: --no-verify --check-contracts
+
+type Nat = Int where it >= 0
+fn main() do
+  var xs: List<Nat> = [3, 4]
+  set xs = push(list: xs, item: 0 - 5)
+end fn main

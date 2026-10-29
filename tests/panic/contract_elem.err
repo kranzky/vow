@@ -1,0 +1,1 @@
+vow: panic at panic/contract_elem.vow:5: refinement of an element of 'xs' failed: it >= 0

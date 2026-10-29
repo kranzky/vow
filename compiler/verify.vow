@@ -38,10 +38,13 @@ struct FnVc
   axioms: Bool,
 end struct FnVc
 
+// preds and args are the refinements assumed again where the variable may have changed
+// (a var, an inout parameter), and those inside its type arguments.
 struct VVar
   term: String,
   ty: Ty,
   preds: List<Expr>,
+  args: List<RTy>,
 end struct VVar
 
 struct St
@@ -541,11 +544,15 @@ fn verify_fn(v: inout Verifier, f: FnDecl) -> FnVc do
       add_fact(st: inout st, f: fact)
       add_src(st: inout st, f: p.name ++ " where " ++ pretty_expr(pr))
     end for
+    // Proved by every caller, defined included.
+    assume_inner(v: inout v, st: inout st, name: "'" ++ p.name ++ "'", r: p.rty, term: t)
     var preds: List<Expr> = []
+    var args: List<RTy> = []
     if (i < len(fi.io)) and fi.io[i] then
       set preds = p.rty.preds
+      set args = p.rty.args
     end if
-    set st = st with (env: insert(map: st.env, key: p.name, value: VVar(term: t, ty: p.rty.ty, preds: preds)))
+    set st = st with (env: insert(map: st.env, key: p.name, value: VVar(term: t, ty: p.rty.ty, preds: preds, args: args)))
   end for
   for r in fi.pre do
     check_wd(v: inout v, st: st, pos: r.pos, e: r, sp: state_spec(v: v, st: st, subj: "", res: ""))
@@ -573,6 +580,7 @@ fn check_post(v: inout Verifier, st: St, pos: Pos, val: String) do
     let g = spec_goal(v: inout v, e: p, st: st, subj: val, res: "")
     obligation(v: inout v, st: st, pos: pos, what: "return value of '" ++ v.fname ++ "' satisfies " ++ pretty_expr(p), goal: g)
   end for
+  check_inner(v: inout v, st: st, pos: pos, name: "the return value of '" ++ v.fname ++ "'", r: ret, term: val)
   let ens = v.post
   for e in ens do
     check_wd(v: inout v, st: st, pos: pos, e: e, sp: state_spec(v: v, st: st, subj: "", res: val))
@@ -713,6 +721,7 @@ fn struct_facts(v: inout Verifier, t: Ty, term: String, depth: Int, out: inout L
       for p in fl.rty.preds do
         set out = push(list: out, item: spec_with(v: inout v, e: p, binds: binds, subj: ft))
       end for
+      set out = out ++ inner_facts(v: inout v, r: fl.rty, term: ft)
       if depth > 0 then
         struct_facts(v: inout v, t: fl.rty.ty, term: ft, depth: depth - 1, out: inout out)
       end if
@@ -912,6 +921,11 @@ fn swd(v: inout Verifier, e: Expr, sp: Spec) -> String do
         for i in 0..len(fi.params) do
           for pr in fi.params[i].rty.preds do
             set conds = push(list: conds, item: sexpr(v: inout v, e: pr, sp: callee with (subj: arg_str(p: p, i: i))))
+          end for
+          var ins: List<Inner> = []
+          inner_refs(v: inout v, r: fi.params[i].rty, term: arg_str(p: p, i: i), name: "", defined: true, out: inout ins)
+          for x in ins do
+            set conds = push(list: conds, item: x.fact)
           end for
         end for
         for r in fi.pre do
@@ -1179,6 +1193,8 @@ fn spec_fn_axioms(v: inout Verifier, fi: FnInfo, body: List<Stmt>) do
     for p in fi.params[i].rty.preds do
       set pre = push(list: pre, item: sexpr(v: inout v, e: p, sp: top with (subj: "sa" ++ int_to_str(i))))
     end for
+    // The refinements inside its parameters' types, which the body assumed too.
+    set pre = pre ++ inner_facts(v: inout v, r: fi.params[i].rty, term: "sa" ++ int_to_str(i))
   end for
   for r in fi.pre do
     set pre = push(list: pre, item: sexpr(v: inout v, e: r, sp: top))
@@ -1207,6 +1223,7 @@ fn spec_fn_axioms(v: inout Verifier, fi: FnInfo, body: List<Stmt>) do
     for p in fi.ret.preds do
       set post = push(list: post, item: sexpr(v: inout v, e: p, sp: top with (subj: app)))
     end for
+    set post = post ++ inner_facts(v: inout v, r: fi.ret, term: app)
     for en in fi.post do
       set post = push(list: post, item: sexpr(v: inout v, e: en, sp: top with (res: app)))
     end for
@@ -1351,6 +1368,124 @@ fn check_preds(v: inout Verifier, st: St, pos: Pos, name: String, preds: List<Ex
     obligation(v: inout v, st: st, pos: pos, what: "'" ++ name ++ "' satisfies " ++ pretty_expr(p), goal: g)
   end for
 end fn check_preds
+
+// ---- refinements inside type arguments (List<Nat>, Option<Int where it > 0>) ----
+
+// What the refinements inside r's type arguments say of term, a value of type r.ty:
+// each element of a list (one quantified formula per refinement) or the value in an
+// option (when there is one) satisfies its own refinements, and so on inside it. With
+// defined, each formula also says the refinement is defined there (for an obligation; a
+// checked build evaluates it). desc says what each formula states, for messages.
+struct Inner
+  fact: String,
+  desc: String,
+end struct Inner
+
+fn inner_refs(v: inout Verifier, r: RTy, term: String, name: String, defined: Bool, out: inout List<Inner>) do
+  if len(r.args) == 0 then
+    return
+  end if
+  let a = r.args[0]
+  match r.ty
+  case TList(elem: et) then
+    let k = fresh_q(inout v)
+    let el = "(elem_" ++ sort_of(et) ++ " " ++ term ++ " " ++ k ++ ")"
+    var sub: List<Inner> = []
+    value_refs(v: inout v, r: a, term: el, name: "every element of " ++ name, defined: defined, out: inout sub)
+    let range = "(and (<= 0 " ++ k ++ ") (< " ++ k ++ " (len " ++ term ++ ")))"
+    for x in sub do
+      set out = push(list: out, item: Inner(fact: "(forall ((" ++ k ++ " Int)) (! (=> " ++ range ++ " " ++ x.fact ++ ") :pattern (" ++ el ++ ")))", desc: x.desc))
+    end for
+  case TOpt(inner: ot) then
+    let f = vfield_fn(v: inout v, ename: "Option", vname: "Some", field: "value", t: ot)
+    var sub: List<Inner> = []
+    value_refs(v: inout v, r: a, term: "(" ++ f ++ " " ++ term ++ ")", name: "the value in " ++ name, defined: defined, out: inout sub)
+    for x in sub do
+      set out = push(list: out, item: Inner(fact: "(=> (= (tag " ++ term ++ ") 1) " ++ x.fact ++ ")", desc: x.desc))
+    end for
+  case TStruct(name: sn) then
+    // An instance of a generic struct: its fields of a refined type parameter.
+    let fields = struct_fields(info: v.info, name: sn)
+    let refs = struct_field_refs(info: v.info, name: sn, args: r.args)
+    for i in 0..len(fields) do
+      if (i < len(refs)) and not is_plain(refs[i]) then
+        let f = field_fn(v: inout v, sname: sn, field: fields[i].name, t: fields[i].rty.ty)
+        value_refs(v: inout v, r: refs[i], term: "(" ++ f ++ " " ++ term ++ ")", name: "field '" ++ fields[i].name ++ "' of " ++ name,
+          defined: defined, out: inout out)
+      end if
+    end for
+  case TEnum(name: en) then
+    // An instance of a generic enum: the fields of each variant, when it is that one.
+    match variants_of(info: v.info, t: r.ty)
+    case Some(value: vs) then
+      let refs = variant_field_refs(info: v.info, name: en, args: r.args)
+      for vi in 0..len(vs) do
+        if vi < len(refs) then
+          for fi in 0..len(vs[vi].fields) do
+            if (fi < len(refs[vi])) and not is_plain(refs[vi][fi]) then
+              let fl = vs[vi].fields[fi]
+              let f = vfield_fn(v: inout v, ename: en, vname: vs[vi].name, field: fl.name, t: fl.rty.ty)
+              var sub: List<Inner> = []
+              value_refs(v: inout v, r: refs[vi][fi], term: "(" ++ f ++ " " ++ term ++ ")",
+                name: "field '" ++ fl.name ++ "' of " ++ name ++ " (when " ++ vs[vi].name ++ ")", defined: defined, out: inout sub)
+              for x in sub do
+                set out = push(list: out, item: Inner(fact: "(=> (= (tag " ++ term ++ ") " ++ int_to_str(vi) ++ ") " ++ x.fact ++ ")", desc: x.desc))
+              end for
+            end if
+          end for
+        end if
+      end for
+    case None then
+    end match
+  else
+  end match
+end fn inner_refs
+
+// r's own refinements of term, and those inside it.
+fn value_refs(v: inout Verifier, r: RTy, term: String, name: String, defined: Bool, out: inout List<Inner>) do
+  let sp = Spec(binds: {}, subj: term, res: "", fuel: 2, scc: -1)
+  for p in r.preds do
+    var f = sexpr(v: inout v, e: p, sp: sp)
+    if defined then
+      let w = swd(v: inout v, e: p, sp: sp)
+      if w != "true" then
+        set f = "(and " ++ w ++ " " ++ f ++ ")"
+      end if
+    end if
+    set out = push(list: out, item: Inner(fact: f, desc: name ++ " satisfies " ++ pretty_expr(p)))
+  end for
+  inner_refs(v: inout v, r: r, term: term, name: name, defined: defined, out: inout out)
+end fn value_refs
+
+// The inner refinements of r as facts about term.
+fn inner_facts(v: inout Verifier, r: RTy, term: String) -> List<String> do
+  var parts: List<Inner> = []
+  inner_refs(v: inout v, r: r, term: term, name: "", defined: false, out: inout parts)
+  var out: List<String> = []
+  for x in parts do
+    set out = push(list: out, item: x.fact)
+  end for
+  return out
+end fn inner_facts
+
+fn assume_inner(v: inout Verifier, st: inout St, name: String, r: RTy, term: String) do
+  var parts: List<Inner> = []
+  inner_refs(v: inout v, r: r, term: term, name: name, defined: false, out: inout parts)
+  for x in parts do
+    add_fact(st: inout st, f: x.fact)
+    add_src(st: inout st, f: x.desc)
+  end for
+end fn assume_inner
+
+// The obligations that term, about to be stored where r is declared, satisfies r's
+// inner refinements; name says where ("'xs'", "the result of 'f'").
+fn check_inner(v: inout Verifier, st: St, pos: Pos, name: String, r: RTy, term: String) do
+  var parts: List<Inner> = []
+  inner_refs(v: inout v, r: r, term: term, name: name, defined: true, out: inout parts)
+  for x in parts do
+    obligation(v: inout v, st: st, pos: pos, what: x.desc, goal: x.fact)
+  end for
+end fn check_inner
 
 fn check_entry(v: inout Verifier, st: St, invs: List<Expr>) do
   for i in invs do
@@ -1746,12 +1881,18 @@ fn vstmt(v: inout Verifier, s: Stmt, st: inout St) do
     case None then
     end match
     check_preds(v: inout v, st: st, pos: s.pos, name: name, preds: r.preds, term: t)
-    set st = st with (env: insert(map: st.env, key: name, value: VVar(term: t, ty: r.ty, preds: r.preds)))
+    // The refinements inside its type (List<Nat>): proved, then known.
+    check_inner(v: inout v, st: st, pos: s.pos, name: "'" ++ name ++ "'", r: r, term: t)
+    assume_inner(v: inout v, st: inout st, name: "'" ++ name ++ "'", r: r, term: t)
+    set st = st with (env: insert(map: st.env, key: name, value: VVar(term: t, ty: r.ty, preds: r.preds, args: r.args)))
   case Set(name: name, value: value) then
     let t = vexpr(v: inout v, e: value, st: inout st)
     match lookup(map: st.env, key: name)
     case Some(value: x) then
       check_preds(v: inout v, st: st, pos: s.pos, name: name, preds: x.preds, term: t)
+      let xr = RTy(ty: x.ty, preds: [], args: x.args)
+      check_inner(v: inout v, st: st, pos: s.pos, name: "'" ++ name ++ "'", r: xr, term: t)
+      assume_inner(v: inout v, st: inout st, name: "'" ++ name ++ "'", r: xr, term: t)
       set st = st with (env: insert(map: st.env, key: name, value: x with (term: t)))
     case None then
     end match
@@ -1823,14 +1964,14 @@ fn vstmt(v: inout Verifier, s: Stmt, st: inout St) do
     // variable, which is lo on entry and one more after each iteration.
     let a = vexpr(v: inout v, e: lo, st: inout st)
     let b = vexpr(v: inout v, e: hi, st: inout st)
-    let entry = st with (env: insert(map: st.env, key: var_name, value: VVar(term: a, ty: Ty.TInt, preds: [])))
+    let entry = st with (env: insert(map: st.env, key: var_name, value: VVar(term: a, ty: Ty.TInt, preds: [], args: [])))
     check_entry(v: inout v, st: entry, invs: invs)
     let no_invs: List<Expr> = []
     var head = havoc(v: inout v, body: body, st: st, invs: no_invs)
     let iv = fresh(v: inout v, sort: "Int")
     add_fact(st: inout head, f: "(<= " ++ a ++ " " ++ iv ++ ")")
     add_fact(st: inout head, f: "(or (<= " ++ iv ++ " " ++ b ++ ") (= " ++ iv ++ " " ++ a ++ "))")
-    set head = head with (env: insert(map: head.env, key: var_name, value: VVar(term: iv, ty: Ty.TInt, preds: [])))
+    set head = head with (env: insert(map: head.env, key: var_name, value: VVar(term: iv, ty: Ty.TInt, preds: [], args: [])))
     for i in invs do
       let t = spec_term(v: inout v, e: i, st: head, subj: "", res: "")
       add_fact(st: inout head, f: t)
@@ -1869,7 +2010,7 @@ fn vstmt(v: inout Verifier, s: Stmt, st: inout St) do
     if len(rk) > 0 then
       add_fact(st: inout inner, f: rk)
     end if
-    set inner = inner with (env: insert(map: inner.env, key: var_name, value: VVar(term: x, ty: et, preds: [])))
+    set inner = inner with (env: insert(map: inner.env, key: var_name, value: VVar(term: x, ty: et, preds: [], args: [])))
     add_src(st: inout inner, f: var_name ++ " is an element of " ++ pretty_expr(l))
     push_loop(v: inout v, l: plain_loop(invs))
     vblock(v: inout v, stmts: body, st: inout inner)
@@ -1972,13 +2113,16 @@ fn vmatch(v: inout Verifier, scrut: Expr, cases: List<Case>, els: Option<List<St
             let t = spec_with(v: inout v, e: p, binds: fbinds, subj: ft)
             add_fact(st: inout arm, f: t)
           end for
+          for f in inner_facts(v: inout v, r: fl.rty, term: ft) do
+            add_fact(st: inout arm, f: f)
+          end for
           let rk = rank_part(v: inout v, t: fl.rty.ty, part: ft, whole: sv, strict: true)
           if len(rk) > 0 then
             add_fact(st: inout arm, f: rk)
           end if
           for b in binds do
             if b.field == fl.name then
-              set arm = arm with (env: insert(map: arm.env, key: b.binder, value: VVar(term: ft, ty: fl.rty.ty, preds: [])))
+              set arm = arm with (env: insert(map: arm.env, key: b.binder, value: VVar(term: ft, ty: fl.rty.ty, preds: [], args: [])))
             end if
           end for
         end for
@@ -2052,6 +2196,7 @@ fn havoc(v: inout Verifier, body: List<Stmt>, st: St, invs: List<Expr>) -> St do
       let t = fresh(v: inout v, sort: sort_of(x.ty))
       set h = h with (env: insert(map: h.env, key: n, value: x with (term: t)))
       assume_preds(v: inout v, st: inout h, name: n, preds: x.preds, term: t)
+      assume_inner(v: inout v, st: inout h, name: "'" ++ n ++ "'", r: RTy(ty: x.ty, preds: [], args: x.args), term: t)
     case None then
     end match
   end for
@@ -2264,6 +2409,9 @@ fn vexpr(v: inout Verifier, e: Expr, st: inout St) -> String do
         let t = spec_with(v: inout v, e: p, binds: binds, subj: term)
         add_fact(st: inout st, f: t)
       end for
+      for x in inner_facts(v: inout v, r: fields[fi].rty, term: term) do
+        add_fact(st: inout st, f: x)
+      end for
       let rk = rank_part(v: inout v, t: fields[fi].rty.ty, part: term, whole: ov, strict: false)
       if len(rk) > 0 then
         add_fact(st: inout st, f: rk)
@@ -2287,6 +2435,9 @@ fn vexpr(v: inout Verifier, e: Expr, st: inout St) -> String do
         for p in fl.rty.preds do
           let t = spec_with(v: inout v, e: p, binds: obinds, subj: bind_of(binds: obinds, n: fl.name))
           add_fact(st: inout st, f: t)
+        end for
+        for x in inner_facts(v: inout v, r: fl.rty, term: bind_of(binds: obinds, n: fl.name)) do
+          add_fact(st: inout st, f: x)
         end for
       end for
     end if
@@ -2327,7 +2478,7 @@ fn vexpr(v: inout Verifier, e: Expr, st: inout St) -> String do
     let iv = fresh(v: inout v, sort: "Int")
     add_fact(st: inout sub, f: "(<= " ++ a ++ " " ++ iv ++ ")")
     add_fact(st: inout sub, f: "(< " ++ iv ++ " " ++ b ++ ")")
-    set sub = sub with (env: insert(map: sub.env, key: qn, value: VVar(term: iv, ty: Ty.TInt, preds: [])))
+    set sub = sub with (env: insert(map: sub.env, key: qn, value: VVar(term: iv, ty: Ty.TInt, preds: [], args: [])))
     let _ = vexpr(v: inout v, e: body, st: inout sub)
     if not translatable(v: v, e: body) then
       return fresh(v: inout v, sort: "Bool")
@@ -2422,6 +2573,7 @@ fn construct_struct(v: inout Verifier, st: inout St, pos: Pos, sn: String, binds
       let what = "field '" ++ fl.name ++ "' of " ++ sn ++ " satisfies " ++ pretty_expr(p)
       obligation(v: inout v, st: st, pos: pos, what: what, goal: g)
     end for
+    check_inner(v: inout v, st: st, pos: pos, name: "field '" ++ fl.name ++ "' of " ++ sn, r: fl.rty, term: bind_of(binds: binds, n: fl.name))
   end for
   // The fields are path facts, stated after the refinements are proved: as global
   // facts they would describe a value that breaks them wherever the construction cannot
@@ -2497,6 +2649,8 @@ fn vcall(v: inout Verifier, e: Expr, args: List<Arg>, st: inout St) -> String do
         let what = "field '" ++ fl.name ++ "' of " ++ ci.name ++ "." ++ vinfo.name ++ " satisfies " ++ pretty_expr(pr)
         obligation(v: inout v, st: st, pos: e.pos, what: what, goal: g)
       end for
+      check_inner(v: inout v, st: st, pos: e.pos, name: "field '" ++ fl.name ++ "' of " ++ ci.name ++ "." ++ vinfo.name, r: fl.rty,
+        term: bind_of(binds: binds, n: fl.name))
     end for
     let r = fresh(v: inout v, sort: "Val")
     add_def(v: inout v, d: "(assert (= (tag " ++ r ++ ") " ++ int_to_str(ci.variant) ++ "))")
@@ -2532,6 +2686,7 @@ fn vcall_user(v: inout Verifier, e: Expr, name: String, p: List<String>, pe: Lis
         let what = "argument '" ++ fp.name ++ "' of '" ++ name ++ "' satisfies " ++ pretty_expr(pr)
         obligation(v: inout v, st: st, pos: pe[i].pos, what: what, goal: g)
       end for
+      check_inner(v: inout v, st: st, pos: pe[i].pos, name: "argument '" ++ fp.name ++ "' of '" ++ name ++ "'", r: fp.rty, term: p[i])
       set binds = insert(map: binds, key: fp.name, value: p[i])
     end if
   end for
@@ -2588,6 +2743,9 @@ fn vcall_user(v: inout Verifier, e: Expr, name: String, p: List<String>, pe: Lis
         let t = spec_with(v: inout v, e: pr, binds: post, subj: nv)
         add_fact(st: inout st, f: t)
       end for
+      for f in inner_facts(v: inout v, r: fp.rty, term: nv) do
+        add_fact(st: inout st, f: f)
+      end for
     end if
   end for
   let res = fresh(v: inout v, sort: sort_of(fi.ret.ty))
@@ -2600,6 +2758,9 @@ fn vcall_user(v: inout Verifier, e: Expr, name: String, p: List<String>, pe: Lis
     let t = spec_with(v: inout v, e: pr, binds: post, subj: res)
     add_fact(st: inout st, f: t)
   end for
+  for f in inner_facts(v: inout v, r: fi.ret, term: res) do
+    add_fact(st: inout st, f: f)
+  end for
   for en in fi.post do
     let t = sexpr(v: inout v, e: en, sp: Spec(binds: post, subj: "", res: res, fuel: 2, scc: -1))
     add_fact(st: inout st, f: t)
@@ -2608,6 +2769,9 @@ fn vcall_user(v: inout Verifier, e: Expr, name: String, p: List<String>, pe: Lis
     match lookup(map: st.env, key: u.var_name)
     case Some(value: x) then
       check_preds(v: inout v, st: st, pos: e.pos, name: u.var_name, preds: x.preds, term: u.term)
+      let xr = RTy(ty: x.ty, preds: [], args: x.args)
+      check_inner(v: inout v, st: st, pos: e.pos, name: "'" ++ u.var_name ++ "'", r: xr, term: u.term)
+      assume_inner(v: inout v, st: inout st, name: "'" ++ u.var_name ++ "'", r: xr, term: u.term)
       set st = st with (env: insert(map: st.env, key: u.var_name, value: x with (term: u.term)))
     case None then
     end match

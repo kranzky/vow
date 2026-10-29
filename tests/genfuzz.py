@@ -176,6 +176,23 @@ class Gen:
     def is_int(self, t):
         return t == INT or t in self.aliases
 
+    def elem_alias(self):
+        """An alias for a list's or option's elements (List<Al3>), or None."""
+        if self.aliases and self.chance(0.5):
+            return self.r.choice(sorted(self.aliases))
+        return None
+
+    def elems_ok(self, alias, lst, on):
+        """The condition that every element of the list lst satisfies alias's refinement
+        (for a guard), or None if there is nothing to check."""
+        conds = [s for s in on if s.scope == alias and s.kind == "alias"]
+        if not alias or not conds:
+            return None
+        k = "kg"
+        el = ("raw", "(" + render(lst) + ")[" + k + "]")
+        body = " and ".join("(" + render(subst(c.text, {"it": el})) + ")" for c in conds)
+        return ("raw", f"forall {k} in 0..len({render(lst)}): ({body})")
+
     # -- predicates over a value ('it' or a variable) ------------------------
 
     def pred(self, x, siblings=()):
@@ -376,8 +393,9 @@ class Gen:
             for j in range(self.r.randint(1, 3)):
                 fname = "f" + str(j)
                 if j == 2 and self.chance(0.5):
-                    fields.append((fname, LIST, None))
-                    self.o.emit(1, f"{fname}: List<Int>")
+                    al = self.elem_alias()
+                    fields.append((fname, LIST, al))
+                    self.o.emit(1, f"{fname}: List<{al or 'Int'}>")
                     if self.chance(0.6):
                         pr = B(self.r.choice([">", ">="]), ("len", ("raw", "it")), ("lit", self.r.randint(0, 2)))
                         self.o.spec(2, "where ", name, "field", pr, fname)
@@ -658,7 +676,7 @@ class Gen:
                 env[name] = (INT, mut)
             elif r < 0.7:
                 mut = self.chance(0.5)
-                o.emit(ind, f"{'var' if mut else 'let'} {name}: List<Int> = {render(self.list_expr(env))}")
+                o.emit(ind, f"{'var' if mut else 'let'} {name}: List<{self.elem_alias() or 'Int'}> = {render(self.list_expr(env))}")
                 env[name] = (LIST, mut)
             elif r < 0.8:
                 o.emit(ind, f"let {name} = {render(self.bool_expr(env))}")
@@ -669,7 +687,7 @@ class Gen:
                 env[name] = (TREE, mut)
             else:
                 if self.chance(0.5):
-                    o.emit(ind, f"let {name}: Option<Int> = Option.Some(value: {render(self.int_expr(env))})")
+                    o.emit(ind, f"let {name}: Option<{self.elem_alias() or 'Int'}> = Option.Some(value: {render(self.int_expr(env))})")
                 else:
                     o.emit(ind, f"let {name}: Option<Int> = Option.None")
                 env[name] = (OPT, False)
@@ -975,7 +993,7 @@ class Gen:
             env[p] = (t, False)
         if self.chance(0.4):
             p = self.fresh("xs")
-            params.append((p, LIST, None, False))
+            params.append((p, LIST, self.elem_alias(), False))
             env[p] = (LIST, False)
         if self.structs and self.chance(0.4):
             p = self.fresh("sp")
@@ -993,8 +1011,9 @@ class Gen:
         self.fns[name] = f
         o = self.o
         o.emit(0, f"fn {name}(")
-        for i, (p, t, _, inout) in enumerate(params):
-            o.emit(1, f"{p}: {'inout ' if inout else ''}{t}")
+        for i, (p, t, ref, inout) in enumerate(params):
+            shown = f"List<{ref}>" if t == LIST and ref else t
+            o.emit(1, f"{p}: {'inout ' if inout else ''}{shown}")
             if t == INT and not inout and self.chance(0.3):
                 pr = self.pred(("raw", "it"))
                 o.spec(2, "where ", name, "param", pr, p)
@@ -1154,6 +1173,10 @@ class Gen:
                 if s.scope == sname and s.kind == "field":
                     fval = env[s.extra]
                     conds.append(subst(s.text, dict(env, it=fval)))
+            for f, t, al in self.structs[sname]:
+                c = self.elems_ok(al, env[f], on) if t == LIST else None
+                if c:
+                    conds.append(c)
             return render(self.conj(conds))
 
         def call_guard(m):
@@ -1170,6 +1193,10 @@ class Gen:
                     for s in on:
                         if s.scope == t and s.kind == "alias":
                             conds.append(subst(s.text, {"it": env[p]}))
+            for p, t, al, io in g.params:
+                c = self.elems_ok(al, env[p], on) if t == LIST and p in env else None
+                if c:
+                    conds.append(c)
             for s in on:
                 if s.scope == g.name and s.kind == "requires":
                     conds.append(subst(s.text, env))

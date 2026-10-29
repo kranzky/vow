@@ -1,0 +1,10 @@
+// error: cannot prove every element of the return value of 'f' satisfies it > 0
+// language: 0.9
+// A return value is checked against the refinement of the result's elements.
+fn f() -> List<Int where (it > 0)> do
+  return [1, 0]
+end fn f
+
+fn main() do
+  let _ = f()
+end fn main

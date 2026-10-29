@@ -1,0 +1,8 @@
+// error: in a type argument, a refinement comparing with '>' needs parentheses
+// language: 0.9
+// A refinement inside type arguments ends at '>': a comparison with '>' needs
+// parentheses.
+fn main() do
+  let o: Option<Int where it >= 0> = Option.Some(value: 3)
+  let p: Option<Int where it > 0> = Option.None
+end fn main

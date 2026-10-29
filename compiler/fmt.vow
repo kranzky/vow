@@ -125,10 +125,13 @@ fn ends_operand(t: RawTok) -> Bool do
 end fn ends_operand
 
 // One line of code at the given indentation. Type arguments are written without spaces
-// (see opens_type_args).
+// (see opens_type_args). angles holds, for each open '<' of type arguments, the bracket
+// depth it opened at: only a '>' at that depth closes it, so one inside parentheses (a
+// refinement in a type argument, List<Int where (it > 0)>) compares.
 fn layout_line(toks: List<RawTok>, ind: Int) -> String do
   var parts = [repeat(s: "  ", n: ind)]
-  var angle = 0
+  var angles: List<Int> = []
+  var brackets = 0
   var prev = RawTok(kind: "", text: "", gap: 0)
   var prev_open = false
   var prev_close = false
@@ -141,8 +144,8 @@ fn layout_line(toks: List<RawTok>, ind: Int) -> String do
     var closes = false
     if opens_type_args(toks: toks, i: i) then
       set opens = true
-    elif (t.text == ">") and (angle > 0) then
-      set closes = true
+    elif (t.text == ">") and (len(angles) > 0) then
+      set closes = angles[len(angles) - 1] == brackets
     end if
     if first then
       set space = false
@@ -174,9 +177,13 @@ fn layout_line(toks: List<RawTok>, ind: Int) -> String do
     set parts = push(list: parts, item: t.text)
     set prev_unary = (t.text == "-") and (first or not (ends_operand(prev) or prev_close))
     if opens then
-      set angle = angle + 1
-    elif closes then
-      set angle = angle - 1
+      set angles = push(list: angles, item: brackets)
+    elif closes and (len(angles) > 0) then
+      set angles = slice(of: angles, from: 0, to: len(angles) - 1)
+    elif contains_str(xs: ["(", "[", "{"], x: t.text) then
+      set brackets = brackets + 1
+    elif contains_str(xs: [")", "]", "}"], x: t.text) then
+      set brackets = brackets - 1
     end if
     set prev_open = opens
     set prev_close = closes
@@ -216,17 +223,22 @@ end fn opens_type_args
 
 // Whether the line's last '>' closes type arguments (-> List<T>) rather than comparing.
 fn ends_type_args(toks: List<RawTok>) -> Bool do
-  var angle = 0
+  var angles: List<Int> = []
+  var brackets = 0
   var closed = false
   for i in 0..len(toks) do
     let t = toks[i]
     if t.kind != "comment" then
       set closed = false
       if opens_type_args(toks: toks, i: i) then
-        set angle = angle + 1
-      elif (t.text == ">") and (angle > 0) then
-        set angle = angle - 1
+        set angles = push(list: angles, item: brackets)
+      elif (t.text == ">") and (len(angles) > 0) and (angles[len(angles) - 1] == brackets) then
+        set angles = slice(of: angles, from: 0, to: len(angles) - 1)
         set closed = true
+      elif contains_str(xs: ["(", "[", "{"], x: t.text) then
+        set brackets = brackets + 1
+      elif contains_str(xs: [")", "]", "}"], x: t.text) then
+        set brackets = brackets - 1
       end if
     end if
   end for

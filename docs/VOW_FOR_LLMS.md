@@ -285,6 +285,27 @@ end fn advance
 (0 <= it) and (it < 16))` makes every caller prove the range, and lets the body use
 it freely.
 
+**Refine what is inside a list or option.** `List<Nat>` (with `type Nat = Int where it
+>= 0`) is a list of `Int`s each of which is a `Nat`: proved wherever such a list is
+stored (`push`, `++`, `slice`, `set_at` and literals are all understood), known wherever
+an element is read (`xs[i]`, `for x in xs`). The same works for `Option<Nat>`, nested
+lists (`List<List<Nat>>`) and generic types (`Result<Nat, String>`, `Box<Nat>`):
+
+```
+fn total(xs: List<Nat>) -> Nat do
+  var t = 0
+  for x in xs invariant t >= 0 do
+    set t = t + x                           // x >= 0 is known
+  end for
+  return t
+end fn total
+```
+
+Inline, a refinement inside a type argument ends at `>`: write `Option<Int where it >= 0>`
+or `List<Int where (it > 0)>`, with parentheses around a `>`. Map values cannot be
+refined. A generic function's type parameters are never refined, so `last(xs)` on a
+`List<Nat>` returns a plain `Int`: check or assert what you need of it.
+
 **Quantify over ranges.** `forall i in a..b: P` and `exists i in a..b: P` work in any
 specification (and at runtime, as loops). The verifier knows how `push`, `++`, `slice`
 and literals relate the elements or bytes of their results to their inputs, so
@@ -538,10 +559,10 @@ fn parse_line(text: String, line: Int) -> Result<Setting, String> do
 end fn parse_line
 ```
 
-Contracts cannot look inside a `Result` (or an `Option`). When callers need a fact
-about the `Ok` value, return a struct with a refined field (`Result<Count, String>`
-where `Count` has `value: Int where it >= 0`): reading `count.value` gives the
-verifier the refinement.
+Contracts cannot look inside a `Result` (or an `Option`), but its type can: a function
+returning `Result<Nat, String>` must return an `Ok` value that is a `Nat`, and
+`let n = try f(...)` then knows `n >= 0`. For a fact that relates the value to the
+arguments, return a struct whose field refinement says it.
 
 A function that can only succeed or fail returns `Result<Unit, E>`, writes
 `return Result.Ok` (no value), and its callers write `try check(...)` as a statement.

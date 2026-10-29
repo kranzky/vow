@@ -1,0 +1,9 @@
+// error: unknown variable 'n'
+// language: 0.9
+// A refinement inside a type argument may name only 'it'.
+fn f(n: Int, xs: List<Int where it < n>) -> Int do
+  return n
+end fn f
+
+fn main() do
+end fn main

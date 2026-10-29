@@ -1,0 +1,12 @@
+// language: 0.9
+// Checked builds check the fields a refined type argument refines.
+// vowflags: --no-verify --check-contracts
+
+type Nat = Int where it >= 0
+struct Box<T>
+  v: T,
+end struct Box
+
+fn main() do
+  let b: Box<Nat> = Box(v: 0 - 4)
+end fn main

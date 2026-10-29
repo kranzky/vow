@@ -217,6 +217,13 @@ fn parse_file(p: inout Parser) -> Parsed do
 end fn parse_file
 
 fn parse_type(p: inout Parser) -> TypeExpr do
+  return parse_type_in(p: inout p, in_args: false)
+end fn parse_type
+
+// in_args: a type argument, whose refinement ends at a '>' (the one closing the
+// arguments), so a comparison with '>' in it needs parentheses:
+// List<Int where (it > 0)>, or Option<Int where it >= 0>.
+fn parse_type_in(p: inout Parser, in_args: Bool) -> TypeExpr do
   let name = ident(p: inout p, ctx: "for a type")
   // A type from a module imported with `as`: m.Name.
   var full = name.text
@@ -228,28 +235,34 @@ fn parse_type(p: inout Parser) -> TypeExpr do
   if accept(p: inout p, text: "<") then
     var more = true
     while more do
-      set args = push(list: args, item: parse_type_noref(inout p))
+      set args = push(list: args, item: parse_type_in(p: inout p, in_args: true))
       set more = accept(p: inout p, text: ",")
     end while
     let _ = expect(p: inout p, text: ">", ctx: "to close the type arguments")
   end if
   var refine: Option<Expr> = Option.None
   if accept(p: inout p, text: "where") then
-    set refine = Option.Some(value: parse_expr(inout p))
+    if in_args then
+      var ops: List<String> = []
+      for op in binops() do
+        if op != ">" then
+          set ops = push(list: ops, item: op)
+        end if
+      end for
+      let r = parse_expr_ops(p: inout p, ops: ops)
+      set refine = Option.Some(value: r)
+      // '>' then an operand: a comparison taken for the end of the arguments.
+      let nx = peek_at(p: p, k: 1)
+      if is_tok(p: p, text: ">") and ((nx.kind == "int") or (nx.kind == "float") or (nx.kind == "ident") or (nx.text == "(")) then
+        let d = diag(pos: peek(p).pos, msg: "in a type argument, a refinement comparing with '>' needs parentheses")
+        fail(p: inout p, d: with_note(d: d, note: "write List<Int where (it > 0)>, or turn the comparison round: 0 < it"))
+      end if
+    else
+      set refine = Option.Some(value: parse_expr(inout p))
+    end if
   end if
   return TypeExpr(name: full, args: args, refine: refine, pos: name.pos)
-end fn parse_type
-
-fn parse_type_noref(p: inout Parser) -> TypeExpr do
-  let t = parse_type(inout p)
-  match t.refine
-  case Some(value: r) then
-    let d = diag(pos: r.pos, msg: "refinements are not allowed inside type arguments")
-    fail(p: inout p, d: with_note(d: d, note: "wrap the element in a struct with a refined field instead"))
-  case None then
-  end match
-  return t
-end fn parse_type_noref
+end fn parse_type_in
 
 fn parse_fields(p: inout Parser, closer: String, labels: Bool) -> List<Param> do
   var fields: List<Param> = []
@@ -664,7 +677,11 @@ fn binops() -> List<String> do
 end fn binops
 
 fn parse_expr(p: inout Parser) -> Expr do
-  let ops = binops()
+  return parse_expr_ops(p: inout p, ops: binops())
+end fn parse_expr
+
+// An expression whose binary operators are among ops (the others end it).
+fn parse_expr_ops(p: inout Parser, ops: List<String>) -> Expr do
   let chainable = ["+", "*", "++", "and", "or"]
   var left = parse_unary(inout p)
   var first = ""
@@ -692,7 +709,7 @@ fn parse_expr(p: inout Parser) -> Expr do
     set first = op
   end while
   return left
-end fn parse_expr
+end fn parse_expr_ops
 
 fn parse_unary(p: inout Parser) -> Expr do
   let t = peek(p)

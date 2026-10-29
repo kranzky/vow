@@ -71,14 +71,13 @@ Must-have, language and proofs:
 - [x] Field refinements assumed inside specifications: a goal assumes the field
       refinements of the struct values it names
 - [ ] Generic functions usable in specifications
-- [ ] Refined type arguments (`List<Cents>`, `Option<Int where it >= 0>`), so contracts
-      can describe what is inside a `List`, `Option` or `Result`: a value is checked
-      against the refinement where it goes in (a literal, `push`, `Some(...)`, any
-      argument of type `T` to a generic function) and the refinement is assumed where
-      it comes out (an index, a loop variable, a `case` binding, a result of type `T`).
-      Generic functions are verified for every `T`, so they cannot break it. Only
-      refinements that mention no variables, to start with. Today the workaround is a
-      struct with a refined field (`examples/money/money.vow`)
+- [x] Refined type arguments (`List<Cents>`, `Option<Int where it >= 0>`,
+      `Result<Cents, String>`, `Box<Nat>`): checked wherever a value is stored, assumed
+      wherever it is read; only refinements that mention no variables
+- [ ] Refined type arguments through generic functions: infer `T = Nat` at a call
+      whose `T` arguments are `Nat`s (or `List<Nat>`s), so that `last(xs)` on a
+      `List<Nat>` returns a `Nat`. Sound because a generic function is verified for every
+      `T`, so a `T` it returns came from its arguments; not where `T` appears in a map
 - [ ] Lexicographic measures (`decreases (a, b)`), for recursion that one Int or
       structural measure cannot order: a rose tree walked through a helper over its
       children, or mutual recursion mixing a list index and a tree

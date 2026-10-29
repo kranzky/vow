@@ -1,0 +1,11 @@
+// error: cannot prove every element of 'xs' satisfies it >= 0
+// language: 0.9
+// A refinement inside a type argument holds of every element: it is checked where a
+// list is stored, here after a push.
+type Nat = Int where it >= 0
+
+fn main() do
+  var xs: List<Nat> = [1]
+  set xs = push(list: xs, item: 0 - 5)
+  assert xs[1] >= 0
+end fn main

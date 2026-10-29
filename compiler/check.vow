@@ -65,14 +65,25 @@ fn compatible(got: Ty, want: Ty) -> Bool do
   return ty_eq(a: got, b: want) or is_unknown(got) or is_unknown(want)
 end fn compatible
 
+// A type with its refinements: preds, of the value ('it'), and args, of the values
+// inside it, one for each type argument of a List, an Option or an instance of a
+// generic type (empty when none of them is refined). List<Int where it >= 0> is a
+// List<Int> each of whose elements satisfies it >= 0; Box<Nat> a Box<Int> whose fields
+// of type T are Nats (struct_field_refs).
 struct RTy
   ty: Ty,
   preds: List<Expr>,
+  args: List<RTy>,
 end struct RTy
 
 fn plain(t: Ty) -> RTy do
-  return RTy(ty: t, preds: [])
+  return RTy(ty: t, preds: [], args: [])
 end fn plain
+
+// Whether a type says nothing beyond its Ty.
+fn is_plain(r: RTy) -> Bool do
+  return (len(r.preds) == 0) and (len(r.args) == 0)
+end fn is_plain
 
 struct FieldInfo
   name: String,
@@ -511,11 +522,17 @@ fn resolve_type(info: inout Info, te: TypeExpr, errs: inout List<Diag>) -> RTy d
     if n != 1 then
       set errs = push(list: errs, item: diag(pos: te.pos, msg: msg ++ "1 type argument(s), got " ++ int_to_str(n)))
     else
-      let a = resolve_arg(info: inout info, te: te.args[0], errs: inout errs)
+      // The element type may be refined (List<Nat>): checked where a value is stored,
+      // assumed where it is read, like a refinement of the value itself.
+      let a = resolve_type(info: inout info, te: te.args[0], errs: inout errs)
+      var inner: List<RTy> = []
+      if not is_plain(a) then
+        set inner = [a]
+      end if
       if te.name == "List" then
-        set base = plain(Ty.TList(elem: a))
+        set base = RTy(ty: Ty.TList(elem: a.ty), preds: [], args: inner)
       else
-        set base = plain(Ty.TOpt(inner: a))
+        set base = RTy(ty: Ty.TOpt(inner: a.ty), preds: [], args: inner)
       end if
     end if
   elif (te.name == "Map") or (te.name == "HashMap") then
@@ -540,11 +557,25 @@ fn resolve_type(info: inout Info, te: TypeExpr, errs: inout List<Diag>) -> RTy d
     if n != want then
       set errs = push(list: errs, item: diag(pos: te.pos, msg: msg ++ int_to_str(want) ++ " type argument(s), got " ++ int_to_str(n)))
     else
+      // A type argument may be refined (Result<Nat, String>): its fields of that type
+      // parameter are then refined too (inst_field_refs).
       var targs: List<Ty> = []
+      var rargs: List<RTy> = []
+      var refined = false
       for a in te.args do
-        set targs = push(list: targs, item: resolve_arg(info: inout info, te: a, errs: inout errs))
+        let ra = resolve_type(info: inout info, te: a, errs: inout errs)
+        set targs = push(list: targs, item: ra.ty)
+        set rargs = push(list: rargs, item: ra)
+        if not is_plain(ra) then
+          set refined = true
+        end if
       end for
-      set base = plain(instantiate_type(info: inout info, name: te.name, args: targs, pos: te.pos, errs: inout errs))
+      let inst = instantiate_type(info: inout info, name: te.name, args: targs, pos: te.pos, errs: inout errs)
+      if refined then
+        set base = RTy(ty: inst, preds: [], args: rargs)
+      else
+        set base = plain(inst)
+      end if
     end if
   elif has(map: info.structs, key: te.name) then
     if n != 0 then
@@ -575,11 +606,95 @@ fn resolve_type(info: inout Info, te: TypeExpr, errs: inout List<Diag>) -> RTy d
   return base
 end fn resolve_type
 
+// The refinements of the fields of an instance of a generic struct whose type arguments
+// are refined as args (Box<Nat>: its fields of type T are Nats), field by field: each
+// field's declared type with each type parameter replaced by its argument's refinement.
+fn struct_field_refs(info: Info, name: String, args: List<RTy>) -> List<RTy> do
+  var out: List<RTy> = []
+  let fields = struct_fields(info: info, name: name)
+  match lookup(map: info.gstructs, key: generic_base(name))
+  case Some(value: s) then
+    for i in 0..len(fields) do
+      if i < len(s.fields) then
+        set out = push(list: out, item: refine_like(info: info, t: fields[i].rty.ty, te: s.fields[i].ty, tps: s.tparams, args: args))
+      end if
+    end for
+  case None then
+  end match
+  return out
+end fn struct_field_refs
+
+// The same for an instance of a generic enum, variant by variant.
+fn variant_field_refs(info: Info, name: String, args: List<RTy>) -> List<List<RTy>> do
+  var out: List<List<RTy>> = []
+  match lookup(map: info.genums, key: generic_base(name))
+  case Some(value: e) then
+    match lookup(map: info.enums, key: name)
+    case Some(value: vs) then
+      for vi in 0..len(vs) do
+        var refs: List<RTy> = []
+        if vi < len(e.variants) then
+          let ps = e.variants[vi].fields
+          for fi in 0..len(vs[vi].fields) do
+            if fi < len(ps) then
+              set refs = push(list: refs, item: refine_like(info: info, t: vs[vi].fields[fi].rty.ty, te: ps[fi].ty, tps: e.tparams, args: args))
+            end if
+          end for
+        end if
+        set out = push(list: out, item: refs)
+      end for
+    case None then
+    end match
+  case None then
+  end match
+  return out
+end fn variant_field_refs
+
+// The refinement a value of type t gets from the refined type arguments args, where the
+// generic declaration wrote its type as te over the type parameters tps.
+fn refine_like(info: Info, t: Ty, te: TypeExpr, tps: List<String>, args: List<RTy>) -> RTy do
+  for i in 0..len(tps) do
+    if (tps[i] == te.name) and (i < len(args)) then
+      return args[i] with (ty: t)
+    end if
+  end for
+  if len(te.args) == 0 then
+    return plain(t)
+  end if
+  var parts: List<Ty> = []
+  match t
+  case TList(elem: et) then
+    set parts = [et]
+  case TOpt(inner: ot) then
+    set parts = [ot]
+  case TStruct(name: n) then
+    set parts = value_or(opt: lookup(map: info.inst_args, key: n), default: [])
+  case TEnum(name: n) then
+    set parts = value_or(opt: lookup(map: info.inst_args, key: n), default: [])
+  else
+  end match
+  var sub: List<RTy> = []
+  var refined = false
+  for k in 0..len(te.args) do
+    if k < len(parts) then
+      let r = refine_like(info: info, t: parts[k], te: te.args[k], tps: tps, args: args)
+      set sub = push(list: sub, item: r)
+      if not is_plain(r) then
+        set refined = true
+      end if
+    end if
+  end for
+  if refined then
+    return RTy(ty: t, preds: [], args: sub)
+  end if
+  return plain(t)
+end fn refine_like
+
 fn resolve_arg(info: inout Info, te: TypeExpr, errs: inout List<Diag>) -> Ty do
   let r = resolve_type(info: inout info, te: te, errs: inout errs)
-  if len(r.preds) > 0 then
-    let d = diag(pos: te.pos, msg: "refined types are not allowed inside type arguments")
-    set errs = push(list: errs, item: with_note(d: d, note: "wrap the element in a struct with a refined field instead"))
+  if not is_plain(r) then
+    let d = diag(pos: te.pos, msg: "refined types are allowed inside the type arguments of List, Option and generic types, not here")
+    set errs = push(list: errs, item: with_note(d: d, note: "wrap the value in a struct with a refined field instead"))
   end if
   return r.ty
 end fn resolve_arg
@@ -945,8 +1060,36 @@ fn check_info_preds(c: inout Checker, fields: List<FieldInfo>) do
     for p in fields[i].rty.preds do
       check_pred(c: inout c, e: p, scope: others, subject: Option.Some(value: fields[i].rty.ty), res: Option.None)
     end for
+    check_rty_args(c: inout c, r: fields[i].rty)
   end for
 end fn check_info_preds
+
+// The refinements inside a type's arguments, each of a value of the argument's type
+// with nothing else in scope: a value inside a list or option is checked where the
+// list or option is stored, where no other name is known to be in scope.
+fn check_rty_args(c: inout Checker, r: RTy) do
+  for a in r.args do
+    let scope: List<NamedTy> = []
+    for p in a.preds do
+      check_pred(c: inout c, e: p, scope: scope, subject: Option.Some(value: a.ty), res: Option.None)
+    end for
+    check_rty_args(c: inout c, r: a)
+  end for
+end fn check_rty_args
+
+// The refinements written inside the type arguments of te (List<Int where it > 0>);
+// those of a named alias are checked once, with the alias.
+fn check_arg_refines(c: inout Checker, te: TypeExpr) do
+  for a in te.args do
+    match a.refine
+    case Some(value: r) then
+      let scope: List<NamedTy> = []
+      check_pred(c: inout c, e: r, scope: scope, subject: Option.Some(value: resolve_quiet(info: c.info, te: a).ty), res: Option.None)
+    case None then
+    end match
+    check_arg_refines(c: inout c, te: a)
+  end for
+end fn check_arg_refines
 
 fn find_local(c: Checker, name: String) -> Option<Local> do
   var i = len(c.locals) - 1
@@ -1207,6 +1350,7 @@ fn check_program(items: List<Item>, files: List<String>, next_id: Int) -> Checke
   for item in items do
     match item
     case AliasItem(decl: a) then
+      check_arg_refines(c: inout c, te: a.ty)
       match a.ty.refine
       case Some(value: r) then
         var base = Ty.TUnknown
@@ -1358,6 +1502,7 @@ fn check_contracts(c: inout Checker, f: FnDecl) do
       set all = push(list: all, item: NamedTy(name: p.name, ty: p.rty.ty))
     end for
     for i in 0..len(f.params) do
+      check_arg_refines(c: inout c, te: f.params[i].ty)
       match f.params[i].ty.refine
       case Some(value: r) then
         if i < len(all) then
@@ -1380,6 +1525,7 @@ fn check_contracts(c: inout Checker, f: FnDecl) do
     end for
     match f.ret
     case Some(value: t) then
+      check_arg_refines(c: inout c, te: t)
       match t.refine
       case Some(value: r) then
         check_pred(c: inout c, e: r, scope: all, subject: Option.Some(value: fi.ret.ty), res: Option.None)
@@ -1469,6 +1615,7 @@ end fn collect_fields
 
 fn check_field_preds(c: inout Checker, ps: List<Param>, fields: List<FieldInfo>) do
   for i in 0..len(ps) do
+    check_arg_refines(c: inout c, te: ps[i].ty)
     match ps[i].ty.refine
     case Some(value: r) then
       var others: List<NamedTy> = []
@@ -2070,6 +2217,7 @@ fn check_stmt(c: inout Checker, s: Stmt) do
     match ty
     case Some(value: te) then
       let r = resolve(c: inout c, te: te)
+      check_arg_refines(c: inout c, te: te)
       match te.refine
       case Some(value: p) then
         if m then

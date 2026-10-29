@@ -66,11 +66,12 @@ ones the verifier depends on most also have must-fail tests.
   that declares its own `Result` (or any type) is checked against its own declaration,
   `try` included.
 - **Refinements are only where they are checked.** A refinement can be written on a
-  `let` or `var`, a parameter, a result, a field or a type alias, never inside a type
-  argument (`List<Nat>`, `Option<Nat>` are errors), and inference never produces one
-  there: `[n]` with `n: Nat` is a `List<Int>`, and a generic function or struct
-  instantiated at `n` has `T = Int`. Nothing checks the elements of a list or the
-  value in an option, so nothing may assume a refinement of them.
+  `let` or `var`, a parameter, a result, a field or a type alias, and inside the type
+  arguments of `List`, `Option` and generic types (see "Refinements inside type
+  arguments"), never inside those of `Map` and `HashMap`, whose values no
+  specification can quantify over. Inference never produces one: `[n]` with `n: Nat`
+  is a `List<Int>`, and a generic function or struct instantiated at `n` has
+  `T = Int`. A refinement inside a type argument names only `it`.
 - **Every name means one thing.** No variable, parameter, loop variable, pattern binder
   or quantifier variable is declared while another of that name is in scope (no
   shadowing); a merged import may not declare a name twice; the built-in functions and
@@ -163,6 +164,23 @@ inout parameter may name only variables that cannot change: `let`s and parameter
 are not inout *(checker)*. Field refinements may name sibling fields, but struct values
 are immutable, and `with` rechecks the refinements of the fields it leaves when they
 name ones it changes.
+
+**Refinements inside type arguments.** `List<Nat>` is a refinement of the list as a
+whole: every element in range satisfies `Nat`'s refinement (one quantified formula per
+refinement, with the element read as `elem(xs, k)`); `Option<Nat>` says the value is a
+`Nat` if the option is `Some`; for an instance of a generic type, each field whose
+declared type mentions a refined type parameter gets the refinement that declared type
+has with the parameter replaced (a field `items: List<T>` of a `Stack<Nat>` says
+`List<Nat>`), under its variant's tag for an enum. These are handled exactly as
+refinements of the value itself, at the same places: proved, defined included,
+wherever a value is stored where they are declared (a `let`, `var` or `set`, an
+argument, a return, a field at a construction or `with`, an inout argument's var after
+the call), and assumed where it is read back (a parameter on entry, a call's result and
+inout values, a field, a `case` binding, and a var at a loop head, which only `set` and
+inout calls change, both checked). Values are immutable, so a list proved to hold
+`Nat`s holds them for as long as it exists. A specification function's axioms are
+guarded by its parameters' inner refinements too, which its body assumed. Since they
+name only `it`, no change to another variable can make them false.
 
 **Every change to a variable is seen.** A variable changes only by `set` or by being
 passed inout, and only a plain variable can be passed inout *(parser)*. The verifier

@@ -1,6 +1,21 @@
 # Changelog
 
-## v0.9.5
+## Unreleased
+
+- Refined type arguments: `List<Nat>`, `Option<Int where it >= 0>`, `List<List<Nat>>`,
+  and refined arguments of generic types (`Result<Nat, String>`, `Box<Nat>`, whose
+  fields of type `T` are then `Nat`s). Such a refinement is proved wherever a value is
+  stored where it is declared, as one quantified obligation per element refinement
+  ("cannot prove every element of 'xs' satisfies it >= 0"), and known wherever a value
+  is read: `xs[i]`, `for x in xs`, `case Some(value: v)`, `try`, a field. Checked builds
+  check it too. Map values cannot be refined, and a generic function's type parameters
+  are still inferred unrefined. Before, any refinement inside a type argument was an
+  error, and the workaround was a struct with a refined field.
+- Inside type arguments, an inline refinement ends at `>`: a comparison with `>` needs
+  parentheses (`List<Int where (it > 0)>`), and the error says so.
+- `vowc fmt` keeps a `>` inside parentheses in type arguments a comparison.
+- `tests/genfuzz.py` generates refined list and option types; with the check of inner
+  refinements removed from the verifier, 400 programs give 11 findings.
 
 - `--check-contracts` checks the measures of recursive functions: at every call within a
   group of recursive functions, the caller's measure on entry is non-negative and the

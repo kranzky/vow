@@ -192,8 +192,21 @@ an `inout` parameter may name only variables that cannot change (`let`s and para
 that are not `inout`): it is checked when its own variable is assigned, and assumed
 again where that variable may have changed, so a change to another variable must not be
 able to falsify it. State such a fact as a loop invariant, a `check` or a
-postcondition. Refinements nested inside `List<...>`, `Map<...>` or `Option<...>` are not
-allowed; wrap the element in a struct with a refined field instead.
+postcondition.
+
+A type argument of `List`, `Option` or a generic struct or enum may be refined, through
+an alias or inline: `List<Nat>`, `Option<Int where it >= 0>`, `Result<Cents, String>`,
+`List<List<Nat>>`. It refines the values inside: every element of the list, the value
+in the option when there is one, and each field of the struct or variant whose declared
+type is that type parameter (a field `items: List<T>` of a `Stack<Nat>` is a
+`List<Nat>`). Such a type is the same type as its unrefined form for type checking, and
+like any refinement it is checked wherever a value is stored in a position that
+declares it (a `let`, `var` or `set`, an argument, a return, a field) and assumed where
+the value is read: an index, a `for` loop's variable, a `case` binding, a field. A
+refinement inside a type argument may name only `it`, and ends at a `>`, which closes
+the type arguments: a comparison with `>` in it needs parentheses
+(`List<Int where (it > 0)>`). `Map` and `HashMap` arguments may not be refined, since no
+specification can say something of every value in a map.
 
 ## Declarations
 
@@ -294,8 +307,10 @@ end fn reversed
   use of `==` on `T` is checked again for each type argument, so a generic function
   that compares its `T` values cannot be used with a map type. A type
   parameter may be a map key; each use checks that its key type is `Int` or `String`.
-- Type parameters may not have the name of a type, and type arguments may not be
-  refined (wrap the element in a struct with a refined field instead).
+- Type parameters may not have the name of a type. The type arguments of a generic
+  type may be refined (`Box<Nat>`, see Refinements); those of a generic function call
+  are inferred without refinements, so a value that passes through a generic function
+  (`last(xs)` for a `List<Nat>`) comes back as a plain `Int`.
 - Generic functions cannot be used in specifications.
 - Each generic declaration is type-checked and verified once, with its type
   parameters as unknown types (in the logic, values of the uninterpreted sort `Val`).
@@ -607,7 +622,9 @@ verifier proves: preconditions and parameter refinements on entry; postcondition
 using `old(x)`, and the result's refinement at every return; the refinements of `let`s
 and `var`s whenever they are assigned, including by an inout call; field refinements
 wherever a struct or variant value is built, `with` included; loop invariants at the
-top of every iteration, when the loop ends and at every `break`; a loop measure's being
+top of every iteration, when the loop ends and at every `break`; the refinements inside
+type arguments wherever a value is stored (every element of a list, the value in an
+option, the fields of a generic type's instance); a loop measure's being
 non-negative and smaller at the end of every iteration and at every `continue`; at every
 call within a group of recursive functions, the caller's measure on entry being
 non-negative and the callee's, on the arguments, smaller (a structural measure is
