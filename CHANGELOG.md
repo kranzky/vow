@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.9.6
 
 - Refined type arguments: `List<Nat>`, `Option<Int where it >= 0>`, `List<List<Nat>>`,
   and refined arguments of generic types (`Result<Nat, String>`, `Box<Nat>`, whose
