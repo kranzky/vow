@@ -1,0 +1,14 @@
+// error: a refined type argument of a recursive type cannot be checked: 'Tree' contains itself
+// language: 0.9
+// The same through an alias and inside a list.
+type Nat = Int where it >= 0
+
+enum Tree<T>
+  Leaf,
+  Node(kids: List<Tree<T>>, value: T),
+end enum Tree
+
+type Forest = List<Tree<Nat>>
+
+fn main() do
+end fn main

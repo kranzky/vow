@@ -71,7 +71,15 @@ ones the verifier depends on most also have must-fail tests.
   arguments"), never inside those of `Map` and `HashMap`, whose values no
   specification can quantify over. Inference never produces one: `[n]` with `n: Nat`
   is a `List<Int>`, and a generic function or struct instantiated at `n` has
-  `T = Int`. A refinement inside a type argument names only `it`.
+  `T = Int`. A refinement inside a type argument names only `it`, and none is the
+  argument of a generic type that contains itself (`Tree<Nat>`).
+- **A generic function makes no values of its type parameters.** Inside a generic
+  function a type parameter `T` is a type of which nothing is known: no literal,
+  operation or non-generic function produces a `T`, so every `T` the body has came from
+  its parameters, through lists, options, maps, fields and variants that hold `T`s,
+  and through calls to other functions that are generic over it (this one included),
+  which are bound by the same rule. This is the premise of "Refinements through generic
+  functions".
 - **Every name means one thing.** No variable, parameter, loop variable, pattern binder
   or quantifier variable is declared while another of that name is in scope (no
   shadowing); a merged import may not declare a name twice; the built-in functions and
@@ -181,6 +189,25 @@ inout calls change, both checked). Values are immutable, so a list proved to hol
 `Nat`s holds them for as long as it exists. A specification function's axioms are
 guarded by its parameters' inner refinements too, which its body assumed. Since they
 name only `it`, no change to another variable can make them false.
+
+**Refinements through generic functions.** At a call to a generic function, the
+verifier takes from each argument's declared type the refinement it gives each type
+parameter (`last(xs)` with `xs: List<Nat>`: `T` is refined by `Nat`), and for each such
+refinement `R` of a type parameter `T` assumes one implication: if every `T` in the
+arguments as passed satisfies `R`, then so does every `T` in the result and in each
+inout argument's new value. "Every `T` in" a value is the formula `inner_refs` writes
+for the parameter's declared type with `T` refined by `R`, the same formula the rules
+above prove and assume. The implication is true of any property `R` because a generic
+function makes no value of type `T` *(checker)*: every `T` in its results is one of the
+`T`s in its arguments, which satisfies `R` when the antecedent holds. That premise needs
+the formula to reach every `T` in the arguments, so no implication is made for a type
+parameter that a parameter's or the result's declared type puts inside a `Map` or
+`HashMap` (whose values no formula covers) or inside a generic type that contains
+itself (which would need a formula about every node); lists, options and the fields
+and variants of other generic types are covered completely. `R` must name only `it`,
+like any refinement inside a type argument. Where the candidates come from (declared
+types of variables, fields, elements and results) does not matter for soundness: the
+implication adds no obligation and holds for any `R`.
 
 **Every change to a variable is seen.** A variable changes only by `set` or by being
 passed inout, and only a plain variable can be passed inout *(parser)*. The verifier
@@ -335,11 +362,15 @@ two checks with the cache on.
 - **Generated programs** (`tests/genfuzz.py`, `make fuzz-gen`): random well-typed
   programs full of contracts (refined aliases, structs and enums, recursive and mutually
   recursive specification functions, inout parameters with `old`, loops with invariants
-  and measures, quantifiers, floats). Each contract the verifier rejects is removed until
+  and measures, quantifiers, floats, refined lists and options, calls to generic
+  functions bound to refined types). Each contract the verifier rejects is removed until
   the program verifies; then `main` calls every function over a grid of inputs with
   contract checks on, and a failed check, or a checked build that hangs or crashes where
   the plain build runs, is a soundness bug (`tests/reduce.py` shrinks one to a small
-  program). Run against v0.9.2, it finds four of the six bug classes the review found.
+  program). Run against v0.9.2, it finds four of the six bug classes the review found;
+  with the check of refinements inside type arguments removed, or with refinements
+  through generic functions assumed unconditionally or through maps, it finds each
+  hole within a few hundred programs.
 - **Differential testing**: the frozen Rust bootstrap verifier and the self-hosted one
   must emit identical SMT for every program in the v0.3 language.
 

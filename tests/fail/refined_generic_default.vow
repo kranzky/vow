@@ -1,0 +1,17 @@
+// error: cannot prove 'b' satisfies it >= 0
+// language: 0.9
+// A generic function's result is known to be a Nat only when every argument of type T
+// is one: here the default is not.
+type Nat = Int where it >= 0
+
+fn first_or<T>(xs: List<T>, d: T) -> T do
+  if len(xs) == 0 then
+    return d
+  end if
+  return xs[0]
+end fn first_or
+
+fn main() do
+  let xs: List<Nat> = [3, 1, 4]
+  let b: Nat = first_or(xs: xs, d: 0 - 1)
+end fn main

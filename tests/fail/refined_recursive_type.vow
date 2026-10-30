@@ -1,0 +1,16 @@
+// error: a refined type argument of a recursive type cannot be checked: 'Tree' contains itself
+// language: 0.9
+// Tree<Nat> would have to say every node holds a Nat, which no finite formula does.
+type Nat = Int where it >= 0
+
+enum Tree<T>
+  Leaf,
+  Node(left: Tree<T>, value: T, right: Tree<T>),
+end enum Tree
+
+fn size(t: Tree<Nat>) -> Int do
+  return 0
+end fn size
+
+fn main() do
+end fn main

@@ -546,13 +546,9 @@ fn verify_fn(v: inout Verifier, f: FnDecl) -> FnVc do
     end for
     // Proved by every caller, defined included.
     assume_inner(v: inout v, st: inout st, name: "'" ++ p.name ++ "'", r: p.rty, term: t)
-    var preds: List<Expr> = []
-    var args: List<RTy> = []
-    if (i < len(fi.io)) and fi.io[i] then
-      set preds = p.rty.preds
-      set args = p.rty.args
-    end if
-    set st = st with (env: insert(map: st.env, key: p.name, value: VVar(term: t, ty: p.rty.ty, preds: preds, args: args)))
+    // A parameter that is not inout cannot be assigned, so its declared refinements
+    // are kept only for known_rty.
+    set st = st with (env: insert(map: st.env, key: p.name, value: VVar(term: t, ty: p.rty.ty, preds: p.rty.preds, args: p.rty.args)))
   end for
   for r in fi.pre do
     check_wd(v: inout v, st: st, pos: r.pos, e: r, sp: state_spec(v: v, st: st, subj: "", res: ""))
@@ -1487,6 +1483,362 @@ fn check_inner(v: inout Verifier, st: St, pos: Pos, name: String, r: RTy, term: 
   end for
 end fn check_inner
 
+// ---- refined type arguments through generic functions ----
+
+// A generic function is verified for every type T, so the values of type T in what it
+// returns (or leaves in an inout argument) are values of type T it was given: it has no
+// other way to make one. So for any property R, if every T in the arguments satisfies
+// R, every T in the results does. At a call, each refinement that the arguments' own
+// types give T (last(xs) with xs a List<Nat>: R is Nat) becomes that implication. It
+// adds facts and no obligations: a call whose arguments do not satisfy R is unaffected.
+// A T reached only through a map, or through a recursive type, is not covered by the
+// formulas inner_refs writes, so such a T is left out.
+
+// True if te mentions the type parameter x.
+fn te_mentions(te: TypeExpr, x: String) -> Bool do
+  if te.name == x then
+    return true
+  end if
+  for a in te.args do
+    if te_mentions(te: a, x: x) then
+      return true
+    end if
+  end for
+  return false
+end fn te_mentions
+
+// The types of the fields of the generic struct or enum name, as declared.
+fn generic_field_types(info: Info, name: String) -> List<TypeExpr> do
+  var out: List<TypeExpr> = []
+  match lookup(map: info.gstructs, key: name)
+  case Some(value: s) then
+    for f in s.fields do
+      set out = push(list: out, item: f.ty)
+    end for
+  case None then
+  end match
+  match lookup(map: info.genums, key: name)
+  case Some(value: e) then
+    for vd in e.variants do
+      for f in vd.fields do
+        set out = push(list: out, item: f.ty)
+      end for
+    end for
+  case None then
+  end match
+  return out
+end fn generic_field_types
+
+// True if inner_refs reaches every value of the type parameter x inside a value of type
+// te: through lists, options and the fields of generic types, not through maps or a
+// type that contains itself. visiting holds the generic types being looked inside.
+fn te_covers(info: Info, te: TypeExpr, x: String, visiting: List<String>) -> Bool do
+  if (te.name == x) or not te_mentions(te: te, x: x) then
+    return true
+  end if
+  if (te.name == "List") or (te.name == "Option") then
+    return (len(te.args) == 1) and te_covers(info: info, te: te.args[0], x: x, visiting: visiting)
+  end if
+  if contains_str(xs: visiting, x: te.name) then
+    return false
+  end if
+  let tps = generic_tparams(info: info, name: te.name)
+  if (len(tps) == 0) or (len(tps) != len(te.args)) then
+    return false
+  end if
+  let inside = push(list: visiting, item: te.name)
+  for k in 0..len(te.args) do
+    if (k < len(tps)) and te_mentions(te: te.args[k], x: x) then
+      if not te_covers(info: info, te: te.args[k], x: x, visiting: visiting) then
+        return false
+      end if
+      for ft in generic_field_types(info: info, name: te.name) do
+        if not te_covers(info: info, te: ft, x: tps[k], visiting: inside) then
+          return false
+        end if
+      end for
+    end if
+  end for
+  return true
+end fn te_covers
+
+// The refinement e is known to have from the types it was declared with: a variable's,
+// a field's, a list's elements, a function's result. Only a source of candidates for R
+// above; nothing is assumed from it.
+fn known_rty(v: Verifier, st: St, e: Expr) -> RTy do
+  match e.kind
+  case Var(name: n) then
+    match lookup(map: st.env, key: n)
+    case Some(value: x) then
+      return RTy(ty: x.ty, preds: x.preds, args: x.args)
+    case None then
+    end match
+  case Index(obj: o, idx: i) then
+    let r = known_rty(v: v, st: st, e: o)
+    match r.ty
+    case TList(elem: et) then
+      if len(r.args) > 0 then
+        return r.args[0]
+      end if
+    else
+    end match
+  case Field(obj: o, name: n) then
+    let r = known_rty(v: v, st: st, e: o)
+    match r.ty
+    case TStruct(name: sn) then
+      let fields = struct_fields(info: v.info, name: sn)
+      let refs = struct_field_refs(info: v.info, name: sn, args: r.args)
+      for i in 0..len(fields) do
+        if fields[i].name == n then
+          if (len(r.args) > 0) and (i < len(refs)) and not is_plain(refs[i]) then
+            return refs[i] with (preds: fields[i].rty.preds ++ refs[i].preds)
+          end if
+          return fields[i].rty
+        end if
+      end for
+    else
+    end match
+  case Call(callee: c, args: args) then
+    match call_info(info: v.info, e: e)
+    case Some(value: ci) then
+      if ci.kind == "user" then
+        match get_fn(info: v.info, name: ci.name)
+        case Some(value: fi) then
+          match generic_decl(info: v.info, name: ci.name)
+          case Some(value: gd) then
+            match gd.ret
+            case Some(value: rt) then
+              let pe = ordered_args(args: args, order: ci.order)
+              let cands = generic_cands(v: v, st: st, gd: gd, pe: pe)
+              var targs: List<RTy> = []
+              for tp in gd.tparams do
+                var a = plain(Ty.TUnknown)
+                let cs = value_or(opt: lookup(map: cands, key: tp), default: [])
+                if len(cs) > 0 then
+                  set a = cs[0]
+                end if
+                set targs = push(list: targs, item: a)
+              end for
+              let r = refine_like(info: v.info, t: fi.ret.ty, te: rt, tps: gd.tparams, args: targs)
+              return r with (preds: fi.ret.preds ++ r.preds)
+            case None then
+            end match
+          case None then
+          end match
+          return fi.ret
+        case None then
+        end match
+      end if
+    case None then
+    end match
+  else
+  end match
+  return plain(type_of(info: v.info, e: e))
+end fn known_rty
+
+// The generic function an instance (such as "last<Int>") was made from.
+fn generic_decl(info: Info, name: String) -> Option<FnDecl> do
+  match lookup(map: info.origins, key: name)
+  case Some(value: g) then
+    return lookup(map: info.gfns, key: g)
+  case None then
+    return Option.None
+  end match
+end fn generic_decl
+
+fn ordered_args(args: List<Arg>, order: List<Int>) -> List<Expr> do
+  var out: List<Expr> = []
+  for i in order do
+    if (i >= 0) and (i < len(args)) then
+      set out = push(list: out, item: args[i].value)
+    end if
+  end for
+  return out
+end fn ordered_args
+
+// A key telling refinements apart, to list each candidate once.
+fn rty_key(r: RTy) -> String do
+  var k = "("
+  for p in r.preds do
+    set k = k ++ pretty_expr(p) ++ ";"
+  end for
+  for a in r.args do
+    set k = k ++ rty_key(a)
+  end for
+  return k ++ ")"
+end fn rty_key
+
+// True if e mentions no variable but it and the names in bound: a refinement that
+// can be stated of any value. Function names and enum names are not variables.
+fn closed_expr(info: Info, e: Expr, bound: List<String>) -> Bool do
+  match e.kind
+  case Var(name: n) then
+    return contains_str(xs: bound, x: n)
+  case Result then
+    return false
+  case Hole(name: n) then
+    return false
+  case Call(callee: c, args: args) then
+    for a in args do
+      if not closed_expr(info: info, e: a.value, bound: bound) then
+        return false
+      end if
+    end for
+    return true
+  case ListLit(items: items) then
+    for x in items do
+      if not closed_expr(info: info, e: x, bound: bound) then
+        return false
+      end if
+    end for
+    return true
+  case Index(obj: o, idx: i) then
+    return closed_expr(info: info, e: o, bound: bound) and closed_expr(info: info, e: i, bound: bound)
+  case Field(obj: o, name: n) then
+    match o.kind
+    case Var(name: en) then
+      if has(map: info.enums, key: en) or (en == "Option") then
+        return true
+      end if
+    else
+    end match
+    return closed_expr(info: info, e: o, bound: bound)
+  case With(obj: o, args: args) then
+    for a in args do
+      if not closed_expr(info: info, e: a.value, bound: bound) then
+        return false
+      end if
+    end for
+    return closed_expr(info: info, e: o, bound: bound)
+  case Unary(op: op, x: x) then
+    return closed_expr(info: info, e: x, bound: bound)
+  case Binary(op: op, l: l, r: r) then
+    return closed_expr(info: info, e: l, bound: bound) and closed_expr(info: info, e: r, bound: bound)
+  case Quant(q: q, name: n, lo: lo, hi: hi, body: b) then
+    return closed_expr(info: info, e: lo, bound: bound) and closed_expr(info: info, e: hi, bound: bound)
+    and closed_expr(info: info, e: b, bound: push(list: bound, item: n))
+  else
+    return true
+  end match
+end fn closed_expr
+
+fn closed_rty(info: Info, r: RTy) -> Bool do
+  let none: List<String> = []
+  for p in r.preds do
+    if not closed_expr(info: info, e: p, bound: none) then
+      return false
+    end if
+  end for
+  for a in r.args do
+    if not closed_rty(info: info, r: a) then
+      return false
+    end if
+  end for
+  return true
+end fn closed_rty
+
+// The refinements the arguments' types give each type parameter: where the parameter's
+// declared type has a type parameter, the refinement at the same place in the argument's.
+// Only refinements that mention no variables (it < n says nothing of another T).
+fn collect_cands(info: Info, te: TypeExpr, r: RTy, tps: List<String>, keys: inout List<String>, out: inout Map<String, List<RTy>>) do
+  if contains_str(xs: tps, x: te.name) then
+    if (not is_plain(r)) and closed_rty(info: info, r: r) then
+      let k = te.name ++ " " ++ rty_key(r)
+      let have = value_or(opt: lookup(map: out, key: te.name), default: [])
+      if (len(have) < 4) and not contains_str(xs: keys, x: k) then
+        set keys = push(list: keys, item: k)
+        set out = insert(map: out, key: te.name, value: push(list: have, item: r))
+      end if
+    end if
+    return
+  end if
+  for k in 0..len(te.args) do
+    if k < len(r.args) then
+      collect_cands(info: info, te: te.args[k], r: r.args[k], tps: tps, keys: inout keys, out: inout out)
+    end if
+  end for
+end fn collect_cands
+
+fn generic_cands(v: Verifier, st: St, gd: FnDecl, pe: List<Expr>) -> Map<String, List<RTy>> do
+  var keys: List<String> = []
+  var out: Map<String, List<RTy>> = {}
+  for i in 0..len(gd.params) do
+    if i < len(pe) then
+      collect_cands(info: v.info, te: gd.params[i].ty, r: known_rty(v: v, st: st, e: pe[i]), tps: gd.tparams, keys: inout keys, out: inout out)
+    end if
+  end for
+  return out
+end fn generic_cands
+
+// The implications above, for a call to the instance fi of gd: arguments p (as passed
+// in, by parameter), the new values of inout parameters in post, the result res.
+fn generic_facts(v: inout Verifier, st: inout St, gd: FnDecl, fi: FnInfo, pe: List<Expr>, p: List<String>,
+    post: Map<String, String>, res: String) do
+  let cands = generic_cands(v: v, st: st, gd: gd, pe: pe)
+  let none: List<String> = []
+  for ti in 0..len(gd.tparams) do
+    let x = gd.tparams[ti]
+    var covered = true
+    for gp in gd.params do
+      if not te_covers(info: v.info, te: gp.ty, x: x, visiting: none) then
+        set covered = false
+      end if
+    end for
+    match gd.ret
+    case Some(value: rt) then
+      if not te_covers(info: v.info, te: rt, x: x, visiting: none) then
+        set covered = false
+      end if
+    case None then
+    end match
+    let cs = value_or(opt: lookup(map: cands, key: x), default: [])
+    if covered and (len(cs) > 0) then
+      for cand in cs do
+        var targs: List<RTy> = []
+        for k in 0..len(gd.tparams) do
+          if k == ti then
+            set targs = push(list: targs, item: cand)
+          else
+            set targs = push(list: targs, item: plain(Ty.TUnknown))
+          end if
+        end for
+        var ante: List<Inner> = []
+        var concl: List<Inner> = []
+        for i in 0..len(gd.params) do
+          if (i < len(fi.params)) and (i < len(p)) and te_mentions(te: gd.params[i].ty, x: x) then
+            let r = refine_like(info: v.info, t: fi.params[i].rty.ty, te: gd.params[i].ty, tps: gd.tparams, args: targs)
+            value_refs(v: inout v, r: r, term: p[i], name: "'" ++ gd.params[i].name ++ "'", defined: false, out: inout ante)
+            if (i < len(fi.io)) and fi.io[i] then
+              let nv = bind_of(binds: post, n: fi.params[i].name)
+              value_refs(v: inout v, r: r, term: nv, name: "'" ++ gd.params[i].name ++ "' after the call to '" ++ gd.name ++ "'",
+                defined: false, out: inout concl)
+            end if
+          end if
+        end for
+        match gd.ret
+        case Some(value: rt) then
+          if te_mentions(te: rt, x: x) then
+            let r = refine_like(info: v.info, t: fi.ret.ty, te: rt, tps: gd.tparams, args: targs)
+            value_refs(v: inout v, r: r, term: res, name: "the result of '" ++ gd.name ++ "'", defined: false, out: inout concl)
+          end if
+        case None then
+        end match
+        if len(ante) > 0 then
+          var a = "(and"
+          for f in ante do
+            set a = a ++ " " ++ f.fact
+          end for
+          set a = a ++ ")"
+          for c in concl do
+            add_fact(st: inout st, f: "(=> " ++ a ++ " " ++ c.fact ++ ")")
+            add_src(st: inout st, f: c.desc ++ ", if the arguments' values of " ++ x ++ " do")
+          end for
+        end if
+      end for
+    end if
+  end for
+end fn generic_facts
+
 fn check_entry(v: inout Verifier, st: St, invs: List<Expr>) do
   for i in invs do
     check_wd(v: inout v, st: st, pos: i.pos, e: i, sp: state_spec(v: v, st: st, subj: "", res: ""))
@@ -1884,7 +2236,17 @@ fn vstmt(v: inout Verifier, s: Stmt, st: inout St) do
     // The refinements inside its type (List<Nat>): proved, then known.
     check_inner(v: inout v, st: st, pos: s.pos, name: "'" ++ name ++ "'", r: r, term: t)
     assume_inner(v: inout v, st: inout st, name: "'" ++ name ++ "'", r: r, term: t)
-    set st = st with (env: insert(map: st.env, key: name, value: VVar(term: t, ty: r.ty, preds: r.preds, args: r.args)))
+    // A let without a type keeps the refinement its value is known to have, for
+    // known_rty (it cannot be assigned, so nothing else uses it).
+    var kr = r
+    match ty
+    case None then
+      if not m then
+        set kr = known_rty(v: v, st: st, e: value)
+      end if
+    case Some(value: te) then
+    end match
+    set st = st with (env: insert(map: st.env, key: name, value: VVar(term: t, ty: r.ty, preds: kr.preds, args: kr.args)))
   case Set(name: name, value: value) then
     let t = vexpr(v: inout v, e: value, st: inout st)
     match lookup(map: st.env, key: name)
@@ -2010,7 +2372,14 @@ fn vstmt(v: inout Verifier, s: Stmt, st: inout St) do
     if len(rk) > 0 then
       add_fact(st: inout inner, f: rk)
     end if
-    set inner = inner with (env: insert(map: inner.env, key: var_name, value: VVar(term: x, ty: et, preds: [], args: [])))
+    // The element's refinement, if the list's type has one (it cannot be assigned, so
+    // only known_rty uses it).
+    var er = plain(et)
+    let lr = known_rty(v: v, st: st, e: l)
+    if len(lr.args) > 0 then
+      set er = lr.args[0]
+    end if
+    set inner = inner with (env: insert(map: inner.env, key: var_name, value: VVar(term: x, ty: et, preds: er.preds, args: er.args)))
     add_src(st: inout inner, f: var_name ++ " is an element of " ++ pretty_expr(l))
     push_loop(v: inout v, l: plain_loop(invs))
     vblock(v: inout v, stmts: body, st: inout inner)
@@ -2765,6 +3134,11 @@ fn vcall_user(v: inout Verifier, e: Expr, name: String, p: List<String>, pe: Lis
     let t = sexpr(v: inout v, e: en, sp: Spec(binds: post, subj: "", res: res, fuel: 2, scc: -1))
     add_fact(st: inout st, f: t)
   end for
+  match generic_decl(info: v.info, name: name)
+  case Some(value: gd) then
+    generic_facts(v: inout v, st: inout st, gd: gd, fi: fi, pe: pe, p: p, post: post, res: res)
+  case None then
+  end match
   for u in updated do
     match lookup(map: st.env, key: u.var_name)
     case Some(value: x) then

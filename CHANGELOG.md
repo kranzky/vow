@@ -8,14 +8,27 @@
   stored where it is declared, as one quantified obligation per element refinement
   ("cannot prove every element of 'xs' satisfies it >= 0"), and known wherever a value
   is read: `xs[i]`, `for x in xs`, `case Some(value: v)`, `try`, a field. Checked builds
-  check it too. Map values cannot be refined, and a generic function's type parameters
-  are still inferred unrefined. Before, any refinement inside a type argument was an
-  error, and the workaround was a struct with a refined field.
+  check it too. Map values cannot be refined, nor the arguments of a recursive generic
+  type (`Tree<Nat>`, an error that says so). Before, any refinement inside a type
+  argument was an error, and the workaround was a struct with a refined field.
+- Refinements pass through generic functions: with `xs: List<Nat>`, `let n: Nat =
+  last(xs)` and `let ys: List<Nat> = reversed(xs)` verify for generic `last` and
+  `reversed`. A generic function can only
+  return a `T` it was given, so at each call the verifier assumes that if every `T` in
+  the arguments satisfies a refinement their declared types give `T`, every `T` in the
+  result and in inout arguments does too. It adds facts and no obligations, so no
+  program that verified before is rejected. Not where `T` is inside a map in the
+  signature, or for refinements that name other variables.
 - Inside type arguments, an inline refinement ends at `>`: a comparison with `>` needs
   parentheses (`List<Int where (it > 0)>`), and the error says so.
 - `vowc fmt` keeps a `>` inside parentheses in type arguments a comparison.
 - `tests/genfuzz.py` generates refined list and option types; with the check of inner
-  refinements removed from the verifier, 400 programs give 11 findings.
+  refinements removed from the verifier, 400 programs give 11 findings. It also
+  generates calls to generic functions whose results are bound to refined types; with
+  the map exclusion removed, or the implication made unconditional, 300 programs give a
+  finding each.
+- Verifier version `vow-verifier-11`: calls to generic functions with refined arguments
+  give new facts.
 
 - `--check-contracts` checks the measures of recursive functions: at every call within a
   group of recursive functions, the caller's measure on entry is non-negative and the

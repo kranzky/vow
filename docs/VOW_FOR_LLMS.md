@@ -303,8 +303,17 @@ end fn total
 
 Inline, a refinement inside a type argument ends at `>`: write `Option<Int where it >= 0>`
 or `List<Int where (it > 0)>`, with parentheses around a `>`. Map values cannot be
-refined. A generic function's type parameters are never refined, so `last(xs)` on a
-`List<Nat>` returns a plain `Int`: check or assert what you need of it.
+refined, nor can the arguments of a recursive generic type (`Tree<Nat>`).
+
+A refinement passes through a generic function you write: with `fn last<T>(xs:
+List<T>) -> T` and `xs: List<Nat>`, `let n: Nat = last(xs)` verifies, and so does `let ys:
+List<Nat> = reversed(xs)` for a `fn reversed<T>(xs: List<T>) -> List<T>`, because a
+generic function can only return a `T` it was given. It works from declared types:
+annotate the variables you pass (or bind them from a call whose result type is
+refined), and every argument of type `T` must have the refinement, so `first_or(xs: xs,
+default: -1)` gives no `Nat`. It does not work when `T` appears inside a map in the
+function's signature, nor for refinements that name other variables (`Int where it <
+n`).
 
 **Quantify over ranges.** `forall i in a..b: P` and `exists i in a..b: P` work in any
 specification (and at runtime, as loops). The verifier knows how `push`, `++`, `slice`

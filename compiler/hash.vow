@@ -9,7 +9,7 @@ import "pretty.vow"
 // changes (tests/fingerprint.sh enforces this), so that results proved by an earlier
 // verifier, which might have had a soundness bug since fixed, are not reused.
 fn verifier_version() -> String do
-  return "vow-verifier-10"
+  return "vow-verifier-11"
 end fn verifier_version
 
 fn calls_in_expr(e: Expr, info: Info, out: inout List<String>) do

@@ -1,0 +1,15 @@
+// error: cannot prove 'j' satisfies it < n
+// language: 0.9
+// Only refinements that mention no variables pass through a generic function.
+fn id<T>(x: T) -> T do
+  return x
+end fn id
+
+fn f(n: Int, i: Int where it < n) -> Int do
+  let j: Int where it < n = id(i)
+  return j
+end fn f
+
+fn main() do
+  let _ = f(n: 5, i: 2)
+end fn main

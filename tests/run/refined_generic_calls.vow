@@ -1,0 +1,107 @@
+// language: 0.9
+// Refined type arguments through generic functions: a generic function returns only
+// values of type T it was given, so when every T argument is a Nat, so is every T in
+// the result (and in an inout argument afterwards).
+type Nat = Int where it >= 0
+
+struct Box<T>
+  item: T,
+end struct Box
+
+struct Stack<T>
+  items: List<T>,
+end struct Stack
+
+struct Account
+  owner: String,
+  balance: Nat,
+end struct Account
+
+fn last<T>(xs: List<T>) -> T requires len(xs) > 0 do
+  return xs[len(xs) - 1]
+end fn last
+
+fn first_or<T>(xs: List<T>, d: T) -> T do
+  if len(xs) == 0 then
+    return d
+  end if
+  return xs[0]
+end fn first_or
+
+fn rev<T>(xs: List<T>) -> List<T> do
+  var out: List<T> = []
+  var i = len(xs)
+  while i > 0 invariant i <= len(xs) do
+    set i = i - 1
+    set out = push(list: out, item: xs[i])
+  end while
+  return out
+end fn rev
+
+fn wrap<T>(x: T) -> Box<T> do
+  return Box(item: x)
+end fn wrap
+
+fn unwrap<T>(b: Box<T>) -> T do
+  return b.item
+end fn unwrap
+
+fn add_to<T>(xs: inout List<T>, x: T) do
+  set xs = push(list: xs, item: x)
+end fn add_to
+
+fn top<T>(s: Stack<T>) -> Option<T> do
+  if len(s.items) == 0 then
+    return Option.None
+  end if
+  return Option.Some(value: s.items[len(s.items) - 1])
+end fn top
+
+fn ok_or<T>(r: Result<T, String>, d: T) -> T do
+  match r
+  case Ok(value: x) then
+    return x
+  case Err(error: e) then
+    return d
+  end match
+end fn ok_or
+
+fn either<T>(a: T, b: T, pick_a: Bool) -> T do
+  if pick_a then
+    return a
+  end if
+  return b
+end fn either
+
+fn parse(s: String) -> Result<Nat, String> do
+  if s == "four" then
+    return Result.Ok(value: 4)
+  end if
+  return Result.Err(error: "not a number: " ++ s)
+end fn parse
+
+fn main() uses console do
+  let xs: List<Nat> = [3, 1, 4]
+  let a: Nat = last(xs)
+  let b: Nat = first_or(xs: xs, d: 7)
+  let ys: List<Nat> = rev(xs)
+  let c: Nat = first_or(xs: rev(xs), d: 0)
+  let n: Nat = 5
+  let d: Nat = unwrap(wrap(n))
+  var zs: List<Nat> = []
+  add_to(xs: inout zs, x: n)
+  var total = 0
+  for x in xs do
+    let e: Nat = unwrap(wrap(x))
+    set total = total + e
+  end for
+  let r = parse("four")
+  let f: Nat = ok_or(r: r, d: 0)
+  let s: Stack<Nat> = Stack(items: [1, 2])
+  let t: Option<Nat> = top(s)
+  let acct = Account(owner: "ann", balance: 10)
+  let accts: List<Account> = [acct]
+  let g: Nat = either(a: acct.balance, b: accts[0].balance, pick_a: true)
+  print(int_to_str(a) ++ " " ++ int_to_str(b) ++ " " ++ int_to_str(len(ys)) ++ " " ++ int_to_str(c) ++ " " ++ int_to_str(d) ++ "\n")
+  print(int_to_str(len(zs)) ++ " " ++ int_to_str(total) ++ " " ++ int_to_str(f) ++ " " ++ int_to_str(value_or(opt: t, default: 0)) ++ " " ++ int_to_str(g) ++ "\n")
+end fn main

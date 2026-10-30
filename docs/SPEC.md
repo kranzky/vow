@@ -206,7 +206,9 @@ the value is read: an index, a `for` loop's variable, a `case` binding, a field.
 refinement inside a type argument may name only `it`, and ends at a `>`, which closes
 the type arguments: a comparison with `>` in it needs parentheses
 (`List<Int where (it > 0)>`). `Map` and `HashMap` arguments may not be refined, since no
-specification can say something of every value in a map.
+specification can say something of every value in a map, and neither may those of a
+generic type that contains itself (`Tree<Nat>`, for an `enum Tree<T>` whose nodes hold
+`Tree<T>`s), since that would say something of every node.
 
 ## Declarations
 
@@ -309,8 +311,18 @@ end fn reversed
   parameter may be a map key; each use checks that its key type is `Int` or `String`.
 - Type parameters may not have the name of a type. The type arguments of a generic
   type may be refined (`Box<Nat>`, see Refinements); those of a generic function call
-  are inferred without refinements, so a value that passes through a generic function
-  (`last(xs)` for a `List<Nat>`) comes back as a plain `Int`.
+  are inferred without refinements, for type checking. For the verifier, a refinement
+  passes through a generic function: a generic function has no way to make a value of
+  type `T` except to take it from its arguments, so if every `T` in the arguments
+  satisfies a refinement, so does every `T` in its result and in its inout arguments
+  afterwards. At each call, every refinement that an argument's declared type gives a
+  type parameter (`last(xs)` with `xs: List<Nat>` gives `T` the refinement `Nat`) is
+  assumed of the result in that form: `let n: Nat = last(xs)` is proved. The declared
+  type of a `let` without one is its value's (`let r = parse(s)` with
+  `parse(s: String) -> Result<Nat, String>`), and that of a `for` loop's variable is the
+  list's element type. The refinement must name only `it`, and it is not assumed when
+  the type parameter appears in a parameter or the result inside a `Map` or `HashMap`,
+  or inside a generic type that contains itself, whose values no formula covers.
 - Generic functions cannot be used in specifications.
 - Each generic declaration is type-checked and verified once, with its type
   parameters as unknown types (in the logic, values of the uninterpreted sort `Val`).

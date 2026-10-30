@@ -153,6 +153,7 @@ class Gen:
         self.structs = {}  # name -> [(field, type, refinement)]
         self.enum = None  # (name, [(variant, [fields])])
         self.tree = False
+        self.generics = False  # the generic helpers (g_pick, ...) are declared
         self.fns = {}
 
     def fresh(self, p):
@@ -656,6 +657,8 @@ class Gen:
             kinds += ["struct", "with"]
         if loop is not None:
             kinds += ["break"]
+        if self.generics:
+            kinds += ["generic"]
         k = self.r.choice(kinds)
         o = self.o
         mutable_ints = [v for v, (t, m) in env.items() if m and t == INT]
@@ -693,6 +696,8 @@ class Gen:
                 env[name] = (OPT, False)
         elif k == "assert":
             self.assert_stmt(ind, env, fn)
+        elif k == "generic":
+            self.generic_stmt(ind, env, fn)
         elif k == "set":
             muts = [v for v, (t, m) in env.items() if m]
             if not muts:
@@ -918,6 +923,113 @@ class Gen:
                 o.emit(ind, "else")
                 self.assert_stmt(ind + 1, env, fn)
             o.emit(ind, "end match")
+
+    GENERIC_HELPERS = """struct GBox<T>
+  item: T,
+end struct GBox
+
+fn g_pick<T>(a: T, b: T, c: Bool) -> T do
+  if c then
+    return a
+  end if
+  return b
+end fn g_pick
+
+fn g_first<T>(xs: List<T>, d: T) -> T do
+  if len(xs) == 0 then
+    return d
+  end if
+  return xs[len(xs) - 1]
+end fn g_first
+
+fn g_rev<T>(xs: List<T>) -> List<T> do
+  var out: List<T> = []
+  for x in xs do
+    set out = [x] ++ out
+  end for
+  return out
+end fn g_rev
+
+fn g_two<T>(a: T, b: T) -> List<T> do
+  return [a, b]
+end fn g_two
+
+fn g_box<T>(x: T) -> GBox<T> do
+  return GBox(item: x)
+end fn g_box
+
+fn g_unbox<T>(b: GBox<T>) -> T do
+  return b.item
+end fn g_unbox
+
+fn g_get<T>(o: Option<T>, d: T) -> T do
+  match o
+  case Some(value: x) then
+    return x
+  case None then
+    return d
+  end match
+end fn g_get
+
+fn g_add<T>(xs: inout List<T>, x: T) do
+  set xs = push(list: xs, item: x)
+end fn g_add
+
+fn g_keyed<T>(m: Map<Int, T>, d: T) -> T do
+  match lookup(map: m, key: 0)
+  case Some(value: x) then
+    return x
+  case None then
+    return d
+  end match
+end fn g_keyed
+"""
+
+    def generic_helpers(self):
+        """Generic functions, called with arguments of refined types and their results
+        bound to refined types: the verifier proves those from the arguments' types."""
+        for line in self.GENERIC_HELPERS.splitlines():
+            self.o.emit(0, line)
+        self.o.emit(0, "")
+        self.generics = True
+
+    def generic_stmt(self, ind, env, fn):
+        al = self.r.choice(sorted(self.aliases))
+        refined = self.vars_of(env, lambda t: t in self.aliases)
+        lists = self.vars_of(env, lambda t: t == LIST)
+        opts = self.vars_of(env, lambda t: t == OPT)
+        mut_lists = [v for v, (t, m) in env.items() if m and t == LIST]
+
+        def x():
+            if refined and self.chance(0.6):
+                return render(("var", self.r.choice(refined)))
+            return render(self.int_expr(env, 1))
+
+        forms = [lambda: (al, f"g_pick(a: {x()}, b: {x()}, c: {render(self.bool_expr(env, 1))})"),
+                 lambda: (al, f"g_unbox(g_box({x()}))"),
+                 lambda: (f"List<{al}>", f"g_two(a: {x()}, b: {x()})")]
+        if lists:
+            forms += [lambda: (al, f"g_first(xs: {self.r.choice(lists)}, d: {x()})"),
+                      lambda: (f"List<{al}>", f"g_rev({self.r.choice(lists)})"),
+                      lambda: (al, f"g_first(xs: g_rev({self.r.choice(lists)}), d: {x()})")]
+        if opts:
+            forms += [lambda: (al, f"g_get(o: {self.r.choice(opts)}, d: {x()})")]
+        if mut_lists and self.chance(0.3):
+            # An inout argument: the list's declared type is checked after the call.
+            self.o.choice(ind, fn.name, "generic", f"g_add(xs: inout {self.r.choice(mut_lists)}, x: {x()})", None)
+            return
+        if refined and self.chance(0.15):
+            # A T reached through a map: nothing is known of the result, though the
+            # default is refined.
+            m = self.fresh("m")
+            self.o.emit(ind, f"let {m}: Map<Int, Int> = insert(map: {{}}, key: 0, value: {render(self.int_expr(env, 1))})")
+            line = f"g_keyed(m: {m}, d: {self.r.choice(refined)})"
+            t = al
+        else:
+            t, line = self.r.choice(forms)()
+        name = self.fresh("q")
+        self.o.choice(ind, fn.name, "generic", f"let {name}: {t} = {line}", f"let {name} = {line}")
+        env[name] = (LIST if t.startswith("List") else INT, False)
 
     def call_stmt(self, ind, env, fn):
         callable_ = [f for f in self.fns.values() if f.kind == "plain" and f.name != fn.name and f.order < fn.order]
@@ -1149,6 +1261,8 @@ class Gen:
             self.spec_group()
         self.alias_decls()
         self.struct_decls()
+        if self.aliases and self.chance(0.6):
+            self.generic_helpers()
         if self.structs and self.chance(0.6):
             self.spec_group(structs=True)
         self.enum_decl()

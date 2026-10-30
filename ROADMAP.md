@@ -74,10 +74,9 @@ Must-have, language and proofs:
 - [x] Refined type arguments (`List<Cents>`, `Option<Int where it >= 0>`,
       `Result<Cents, String>`, `Box<Nat>`): checked wherever a value is stored, assumed
       wherever it is read; only refinements that mention no variables
-- [ ] Refined type arguments through generic functions: infer `T = Nat` at a call
-      whose `T` arguments are `Nat`s (or `List<Nat>`s), so that `last(xs)` on a
-      `List<Nat>` returns a `Nat`. Sound because a generic function is verified for every
-      `T`, so a `T` it returns came from its arguments; not where `T` appears in a map
+- [x] Refined type arguments through generic functions: `last(xs)` on a `List<Nat>`
+      is a `Nat`, because a generic function can only return a `T` it was given; not
+      where `T` appears in a map or a recursive type
 - [ ] Lexicographic measures (`decreases (a, b)`), for recursion that one Int or
       structural measure cannot order: a rose tree walked through a helper over its
       children, or mutual recursion mixing a list index and a tree

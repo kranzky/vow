@@ -1077,9 +1077,59 @@ fn check_rty_args(c: inout Checker, r: RTy) do
   end for
 end fn check_rty_args
 
+// The generic type that the refinements inside r's type arguments reach again through
+// its own fields, or "": a refined recursive type (Tree<Nat>), whose refinement would
+// have to hold at every node, which no finite formula says.
+fn refined_cycle(info: Info, r: RTy, seen: List<String>) -> String do
+  if len(r.args) == 0 then
+    return ""
+  end if
+  match r.ty
+  case TList(elem: x) then
+    return refined_cycle(info: info, r: r.args[0], seen: seen)
+  case TOpt(inner: x) then
+    return refined_cycle(info: info, r: r.args[0], seen: seen)
+  case TStruct(name: n) then
+    if contains_str(xs: seen, x: n) then
+      return n
+    end if
+    for f in struct_field_refs(info: info, name: n, args: r.args) do
+      let c = refined_cycle(info: info, r: f, seen: push(list: seen, item: n))
+      if len(c) > 0 then
+        return c
+      end if
+    end for
+    return ""
+  case TEnum(name: n) then
+    if contains_str(xs: seen, x: n) then
+      return n
+    end if
+    for vs in variant_field_refs(info: info, name: n, args: r.args) do
+      for f in vs do
+        let c = refined_cycle(info: info, r: f, seen: push(list: seen, item: n))
+        if len(c) > 0 then
+          return c
+        end if
+      end for
+    end for
+    return ""
+  else
+    return ""
+  end match
+end fn refined_cycle
+
 // The refinements written inside the type arguments of te (List<Int where it > 0>);
 // those of a named alias are checked once, with the alias.
 fn check_arg_refines(c: inout Checker, te: TypeExpr) do
+  if len(te.args) > 0 then
+    let seen: List<String> = []
+    let cyc = refined_cycle(info: c.info, r: resolve_quiet(info: c.info, te: te), seen: seen)
+    if len(cyc) > 0 then
+      let d = diag(pos: te.pos, msg: "a refined type argument of a recursive type cannot be checked: '" ++ generic_base(cyc) ++ "' contains itself")
+      err_d(c: inout c, d: with_note(d: d, note: "refine the values where they are used instead"))
+      return
+    end if
+  end if
   for a in te.args do
     match a.refine
     case Some(value: r) then

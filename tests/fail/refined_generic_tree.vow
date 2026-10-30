@@ -1,0 +1,25 @@
+// error: cannot prove 'b' satisfies it >= 0
+// language: 0.9
+// A T reached through a recursive type is not covered either: no formula says every
+// node's value satisfies something.
+type Nat = Int where it >= 0
+
+enum Tree<T>
+  Leaf,
+  Node(left: Tree<T>, value: T, right: Tree<T>),
+end enum Tree
+
+fn top_or<T>(t: Tree<T>, d: T) -> T do
+  match t
+  case Node(left: l, value: x, right: r) then
+    return x
+  else
+    return d
+  end match
+end fn top_or
+
+fn main() do
+  let t: Tree<Int> = Tree.Node(left: Tree.Leaf, value: 0 - 5, right: Tree.Leaf)
+  let n: Nat = 3
+  let b: Nat = top_or(t: t, d: n)
+end fn main

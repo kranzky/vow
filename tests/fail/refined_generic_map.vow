@@ -1,0 +1,21 @@
+// error: cannot prove 'b' satisfies it >= 0
+// language: 0.9
+// A T reached through a map is not known to satisfy anything, so a function with one
+// gives no refinement of T to its result, though the list it is also given holds Nats.
+type Nat = Int where it >= 0
+
+fn pick<T>(xs: List<T>, m: Map<String, T>) -> T requires len(xs) > 0 do
+  match lookup(map: m, key: "a")
+  case Some(value: x) then
+    return x
+  case None then
+    return xs[0]
+  end match
+end fn pick
+
+fn main() do
+  let xs: List<Nat> = [3]
+  let e: Map<String, Int> = {}
+  let m = insert(map: e, key: "a", value: 0 - 1)
+  let b: Nat = pick(xs: xs, m: m)
+end fn main
