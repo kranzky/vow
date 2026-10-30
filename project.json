@@ -1,0 +1,59 @@
+{
+  "id": "026",
+  "name": "Vow",
+  "slug": "vow",
+  "tagline": "A programming language for LLM authors, with every contract proved by Z3",
+  "status": "launched",
+  "category": "labs",
+  "target": "Coding agents writing software whose contracts, refinements and termination are machine-checked, and the people who review their work by reading contracts instead of bodies",
+  "stack": ["Vow", "C", "Z3", "Rust"],
+  "links": {
+    "github": "https://github.com/kranzky/vow",
+    "website": "https://vow.kranzky.com"
+  },
+  "mrrHistory": [],
+  "log": [
+    {
+      "date": "2026-10-26",
+      "summary": "From spec to self-hosting in a day: a Rust bootstrap compiler (lexer, parser, type and effect checker, C code generation, Z3 verifier with refinements, contracts, invariants and counterexamples, verification cache), then a self-hosted compiler written in Vow that compiles itself to identical C. Guides for LLMs and humans, CI on macOS and Linux, quantified specs and termination measures, std/text.vow, benchmarks, reference counting with in-place updates, HashMap, generics with Result and try (and the Rust bootstrap frozen at the v0.3 language). vowsite, a verified static site generator, was built by OpenAI Codex from the docs alone and builds vow.kranzky.com. Released v0.1.0 to v0.3.0 with prebuilt binaries, install.sh and a Homebrew tap.",
+      "humanMinutes": 40,
+      "aiMinutes": 270,
+      "costs": []
+    },
+    {
+      "date": "2026-10-27",
+      "summary": "Specification language and tooling: structural ==, old(x), mutual and structural termination measures with a --totality report, recursive specification functions, field refinements assumed in goals, #line directives, Z3 pinned at 5.3.2, a verifier version enforced by SMT fingerprints, vowc fmt, vowc test, std/json.vow, vow-lsp (a language server whose hover shows what the verifier knows), Float, and more benchmarks. Released v0.4.0 to v0.8.0.",
+      "humanMinutes": 30,
+      "aiMinutes": 280,
+      "costs": []
+    },
+    {
+      "date": "2026-10-28",
+      "summary": "Modules (import as, selected imports, private declarations) and packages pinned to git commits (vow.pkg, vowc add, vowc fetch, a packages page on the site). Soundness work: a red-team pass with must-fail tests, --check-contracts (checked builds as the oracle), mutation fuzzing, cache and inout fixes, and docs/SOUNDNESS.md, a written soundness argument. Released v0.9.0 to v0.9.2.",
+      "humanMinutes": 40,
+      "aiMinutes": 202,
+      "costs": []
+    },
+    {
+      "date": "2026-10-29",
+      "summary": "Fixed six soundness bugs found by an independent review of the verifier against SOUNDNESS.md. Built tests/genfuzz.py, a random program generator whose surviving contracts are checked at runtime; it found and fixed one more bug. Runtime checks of recursive calls' measures, and SOUNDNESS.md extended to what the verifier relies on the type checker for. Released v0.9.3 to v0.9.5.",
+      "humanMinutes": 32,
+      "aiMinutes": 168,
+      "costs": []
+    },
+    {
+      "date": "2026-10-30",
+      "summary": "Refined type arguments (List<Nat>, Option<Nat>, Result<Nat, String>, Box<Nat>), checked wherever a value is stored and assumed wherever it is read, and refinements through generic functions (last(xs) on a List<Nat> is a Nat), validated by fuzzing with planted holes. Released v0.9.6. Closed the soundness follow-ups from the review: unambiguous field names in the SMT, measures may not call their own recursive group, structural measures in the cache key.",
+      "humanMinutes": 8,
+      "aiMinutes": 90,
+      "costs": []
+    },
+    {
+      "date": "2026-10-30",
+      "summary": "Added Vow to the Lean Machine portfolio as a labs project: project.json with history reconstructed from git, linked in via a symlink (project-026-vow -> ../vow). AI minutes are active time measured from the session transcript (gaps under five minutes); human minutes are estimated at about two per message.",
+      "humanMinutes": 2,
+      "aiMinutes": 15,
+      "costs": []
+    }
+  ]
+}
