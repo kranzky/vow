@@ -1,0 +1,9 @@
+// error: function 'Result' has the same name as the type declared at
+// language: 0.9
+// A function named Result once removed the prelude's Result.
+fn Result(n: Int) -> Int do
+  return n
+end fn Result
+
+fn main() do
+end fn main

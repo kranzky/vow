@@ -195,10 +195,14 @@ fn string_at(xs: List<String>, i: Int) -> String do
 end fn string_at
 
 // Resolves the names in a loaded program. files[0] is the main file; the files listed
-// in shared (the prelude) are merged into every file.
-fn resolve_modules(files: List<ModFile>, shared: List<Int>) -> Resolved do
+// in shared (the prelude) are merged into every file, the main file's global namespace
+// included only when shared_in_root (not when the program declares its own Result).
+fn resolve_modules(files: List<ModFile>, shared: List<Int>, shared_in_root: Bool) -> Resolved do
   let tags = module_tags(files)
-  let root = merge_closure(files: files, start: 0) ++ shared
+  var root = merge_closure(files: files, start: 0)
+  if shared_in_root then
+    set root = root ++ shared
+  end if
   // How many root declarations have each name: a private one keeps its own name only
   // if it is the only one.
   var counts: Map<String, Int> = {}

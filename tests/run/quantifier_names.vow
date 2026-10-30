@@ -1,0 +1,55 @@
+// language: 0.9
+// A quantifier's variable may share a name with the value its refinement is about, a
+// field, a parameter or a caller's variable. Checked builds evaluate these refinements
+// in C, where the quantifier's variable once captured the other name.
+type Big = Int where forall i in 0..3: it != i
+
+struct S
+  i: Int where forall i in 0..3: it != i,
+  j: Int,
+end struct S
+
+fn count(i: List<Big>) -> Int do
+  return len(i)
+end fn count
+
+fn step(i: inout Int) do
+  let y: Big = 5
+  set i = i + y
+end fn step
+
+fn g(k: inout Int where forall k in 0..2: it != k) do
+  set k = 7
+end fn g
+
+fn pick(b: Bool, n: Int) -> Int do
+  if b then
+    return n
+  end if
+  return 0
+end fn pick
+
+fn f(x: inout Int, n: Int) -> Int
+  requires n >= 0
+  decreases pick(b: forall k in 0..1: x >= k, n: n)
+do
+  if (n == 0) or (x < 0) then
+    return 0
+  end if
+  var k = -1
+  return f(x: inout k, n: n)
+end fn f
+
+fn main() uses console do
+  let i: Big = 5
+  let xs: List<Big> = [5, 6]
+  let s = S(i: 5, j: 1)
+  var n = 0
+  step(i: inout n)
+  var m = 4
+  g(k: inout m)
+  var a = 5
+  let r = f(x: inout a, n: 3)
+  print(int_to_str(i) ++ " " ++ int_to_str(count(xs)) ++ " " ++ int_to_str(s.i) ++ " " ++ int_to_str(n) ++ " "
+    ++ int_to_str(m) ++ " " ++ int_to_str(r) ++ "\n")
+end fn main

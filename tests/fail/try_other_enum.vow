@@ -1,0 +1,15 @@
+// error: 'try' in a function that returns Result needs Result, but this is Mine
+// language: 0.9
+// try works on a Result or an Option, not on any enum with variants of those names.
+enum Mine
+  Ok(value: Int),
+  Err(error: String),
+end enum Mine
+
+fn f(m: Mine) -> Result<Int, String> do
+  let x = try m
+  return Result.Ok(value: x + 1)
+end fn f
+
+fn main() do
+end fn main

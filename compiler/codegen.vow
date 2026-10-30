@@ -1564,11 +1564,17 @@ fn gen_expr(g: inout Gen, e: Expr) -> Val do
       set init = "1"
     end if
     let t = bind(g: inout g, rhs: init)
-    let lv = "l_" ++ v
+    // A C name of its own: in a contract check, names the quantifier shares with the
+    // refined variable, a field or a caller's variable are bound too, and must not
+    // capture it.
+    let lv = "q_" ++ fresh_tmp(inout g) ++ "_" ++ v
     line(g: inout g, s: "for (V " ++ lv ++ " = " ++ a.c ++ "; VI(" ++ lv ++ ") < VI(" ++ b.c ++ "); " ++ lv ++ " = (V)(VI(" ++ lv ++ ") + 1)) {")
     indent(inout g)
     push_frame(inout g)
+    let saved_binds = g.spec_binds
+    set g = g with (spec_binds: insert(map: g.spec_binds, key: v, value: lv))
     let bv = gen_expr(g: inout g, e: body)
+    set g = g with (spec_binds: saved_binds)
     pop_frame(inout g)
     if is_forall then
       line(g: inout g, s: "if (!" ++ bv.c ++ ") { " ++ t ++ " = 0; break; }")

@@ -11,6 +11,24 @@
     Such a measure could never be proved, and would rest on the termination it proves.
   - The verification cache key includes whether the program has structural measures,
     which add facts to every function's queries.
+- An independent review of the type checker against `docs/SOUNDNESS.md` found, and
+  this release fixes:
+  - Generic enums and structs accepted duplicate variants and fields, and inout fields.
+    Duplicate variants could prove `assert 1 == 2`.
+  - A function could share a generic struct's name, which made a constructor look like
+    a specification function call and proved two different values equal. Functions and
+    types may no longer share a name.
+  - In checked builds, a quantifier's variable captured a variable, field or parameter
+    of the same name: spurious failures, a segfault, C that did not compile.
+  - A refined recursive type in a generic declaration's field, or inferred through
+    generic calls, crashed the verifier.
+  - An enum with no variants is an error ("enum 'Never' has no variants").
+  - A program may declare its own `Result` and still import `std/json`; a function
+    named `Result` is an error rather than removing the prelude's.
+  - `try` works only on `Result` and `Option`, as the spec says, not on any enum with
+    the same variant names.
+- The verifier stops with an internal error if an SMT function would be declared with
+  two signatures, rather than letting Z3 choose between them.
 - Verifier version `vow-verifier-12`.
 
 ## v0.9.6

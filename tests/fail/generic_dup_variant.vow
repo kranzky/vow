@@ -1,0 +1,18 @@
+// error: duplicate variant 'A'
+// language: 0.9
+// Generic enums skipped the duplicate check: a constructor took the last A and a case
+// the first, and the field c was declared in the SMT as both Bool and Int, which Z3
+// 5.3.3 accepted and used to prove assert 1 == 2.
+enum E<T>
+  A(c: Bool),
+  A(c: T),
+end enum E
+
+fn main() do
+  let e: E<Int> = E.A(c: 5)
+  match e
+  case A(c: b) then
+  else
+  end match
+  assert 1 == 2
+end fn main

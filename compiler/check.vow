@@ -1120,15 +1120,23 @@ end fn refined_cycle
 
 // The refinements written inside the type arguments of te (List<Int where it > 0>);
 // those of a named alias are checked once, with the alias.
-fn check_arg_refines(c: inout Checker, te: TypeExpr) do
+// True, after reporting it, if te (or a type inside it) is a refined recursive type.
+fn check_refined_cycles(c: inout Checker, te: TypeExpr) -> Bool do
   if len(te.args) > 0 then
     let seen: List<String> = []
     let cyc = refined_cycle(info: c.info, r: resolve_quiet(info: c.info, te: te), seen: seen)
     if len(cyc) > 0 then
       let d = diag(pos: te.pos, msg: "a refined type argument of a recursive type cannot be checked: '" ++ generic_base(cyc) ++ "' contains itself")
       err_d(c: inout c, d: with_note(d: d, note: "refine the values where they are used instead"))
-      return
+      return true
     end if
+  end if
+  return false
+end fn check_refined_cycles
+
+fn check_arg_refines(c: inout Checker, te: TypeExpr) do
+  if check_refined_cycles(c: inout c, te: te) then
+    return
   end if
   for a in te.args do
     match a.refine
@@ -1290,6 +1298,10 @@ fn check_program(items: List<Item>, files: List<String>, next_id: Int) -> Checke
         set c = c with (info: info with (structs: insert(map: info.structs, key: s.name, value: empty)))
       end if
     case EnumItem(decl: e) then
+      if len(e.variants) == 0 then
+        // No value has such a type, and a match on one would have no arms to denote.
+        err(c: inout c, pos: e.pos, msg: "enum '" ++ e.name ++ "' has no variants")
+      end if
       if len(e.tparams) > 0 then
         set c = c with (info: info with (genums: insert(map: info.genums, key: e.name, value: e)))
       else
@@ -1300,6 +1312,19 @@ fn check_program(items: List<Item>, files: List<String>, next_id: Int) -> Checke
       if len(f.tparams) > 0 then
         set c = c with (info: info with (gfns: insert(map: info.gfns, key: f.name, value: f)))
       end if
+    else
+    end match
+  end for
+  // A function may not share a type's name: a call such as P(a: x) would mean the
+  // function to one part of the compiler and the constructor to another.
+  for item in items do
+    match item
+    case FnItem(decl: f) then
+      match lookup(map: seen_types, key: f.name)
+      case Some(value: p) then
+        err(c: inout c, pos: f.pos, msg: "function '" ++ f.name ++ "' has the same name as the type declared at " ++ at(c: c, p: p))
+      case None then
+      end match
     else
     end match
   end for
@@ -1345,6 +1370,9 @@ fn check_program(items: List<Item>, files: List<String>, next_id: Int) -> Checke
   end for
   for item in items do
     if len(item_tparams(item)) > 0 then
+      // A generic type is resolved per instance, but the shape of its declaration
+      // (distinct variants and fields, none inout) is checked here, as for any other.
+      check_generic_shape(c: inout c, item: item)
       continue
     end if
     match item
@@ -1416,8 +1444,25 @@ fn check_program(items: List<Item>, files: List<String>, next_id: Int) -> Checke
     case StructItem(decl: s) then
       if len(s.tparams) == 0 then
         check_field_preds(c: inout c, ps: s.fields, fields: struct_fields(info: c.info, name: s.name))
+      else
+        // Its fields' refinements are checked per instance; a refined recursive type
+        // among them is refused here, before an instance can be unfolded.
+        set_tenv(c: inout c, env: identity_env(s.tparams))
+        for f in s.fields do
+          let _ = check_refined_cycles(c: inout c, te: f.ty)
+        end for
+        set_tenv(c: inout c, env: {})
       end if
     case EnumItem(decl: e) then
+      if len(e.tparams) > 0 then
+        set_tenv(c: inout c, env: identity_env(e.tparams))
+        for vd in e.variants do
+          for f in vd.fields do
+            let _ = check_refined_cycles(c: inout c, te: f.ty)
+          end for
+        end for
+        set_tenv(c: inout c, env: {})
+      end if
       match lookup(map: c.info.enums, key: e.name)
       case Some(value: vs) then
         for vi in 0..len(e.variants) do
@@ -1647,6 +1692,36 @@ fn instantiate_fn(c: inout Checker, g: FnDecl, args: List<Ty>, pos: Pos) -> Stri
   set c = saved with (info: info2 with (tenv: saved.info.tenv), errs: c.errs, queue: queue)
   return inst
 end fn instantiate_fn
+
+fn check_generic_shape(c: inout Checker, item: Item) do
+  match item
+  case StructItem(decl: s) then
+    check_param_shape(c: inout c, ps: s.fields)
+  case EnumItem(decl: e) then
+    var names: List<String> = []
+    for v in e.variants do
+      if contains_str(xs: names, x: v.name) then
+        err(c: inout c, pos: v.pos, msg: "duplicate variant '" ++ v.name ++ "'")
+      end if
+      set names = push(list: names, item: v.name)
+      check_param_shape(c: inout c, ps: v.fields)
+    end for
+  else
+  end match
+end fn check_generic_shape
+
+fn check_param_shape(c: inout Checker, ps: List<Param>) do
+  var names: List<String> = []
+  for f in ps do
+    if f.is_inout then
+      err(c: inout c, pos: f.pos, msg: "only function parameters can be inout")
+    end if
+    if contains_str(xs: names, x: f.name) then
+      err(c: inout c, pos: f.pos, msg: "duplicate field '" ++ f.name ++ "'")
+    end if
+    set names = push(list: names, item: f.name)
+  end for
+end fn check_param_shape
 
 fn collect_fields(c: inout Checker, ps: List<Param>) -> List<FieldInfo> do
   var fields: List<FieldInfo> = []
@@ -2468,7 +2543,7 @@ fn check_match(c: inout Checker, pos: Pos, scrut: Expr, cases: List<Case>, els: 
     end if
     return
   end match
-  if (len(tried) > 0) and (find_variant(vs: variants, name: tried_variant(tried)) < 0) then
+  if (len(tried) > 0) and ((find_variant(vs: variants, name: tried_variant(tried)) < 0) or not try_type(t: st, kind: tried)) then
     err(c: inout c, pos: scrut.pos, msg: try_msg(kind: tried, got: sts))
     return
   end if
@@ -2547,6 +2622,19 @@ fn try_kind(scrut: Expr, cases: List<Case>) -> String do
     return ""
   end match
 end fn try_kind
+
+// Whether t is the kind of value 'try' works on: an Option, or a Result (the
+// prelude's, or the program's own), not any enum with variants of those names.
+fn try_type(t: Ty, kind: String) -> Bool do
+  match t
+  case TOpt(inner: x) then
+    return kind == "Option"
+  case TEnum(name: n) then
+    return (kind == "Result") and (local_name(generic_base(n)) == "Result")
+  else
+    return false
+  end match
+end fn try_type
 
 fn tried_variant(kind: String) -> String do
   if kind == "Result" then

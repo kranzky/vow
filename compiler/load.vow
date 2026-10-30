@@ -194,19 +194,22 @@ fn load_with(root: String, overrides: Map<String, String>) -> Source uses fs do
     end if
     set linked = push(list: linked, item: mods[i] with (imports: imps))
   end for
-  // The prelude, unless the program's global namespace declares Result.
+  // The prelude. When the program's global namespace declares its own type Result,
+  // that is the program's Result, and the prelude is left to the modules it imports
+  // (std/json uses it). A function named Result does not count: it is reported as
+  // having the name of a type.
   var declared = false
   for f in merge_closure(files: linked, start: 0) do
     if (f >= 0) and (f < len(linked)) then
       for item in linked[f].items do
-        if item_name(item) == "Result" then
+        if (item_name(item) == "Result") and not is_fn_item(item) then
           set declared = true
         end if
       end for
     end if
   end for
   var shared: List<Int> = []
-  if (len(errs) == 0) and not declared then
+  if len(errs) == 0 then
     var types: List<String> = []
     for mf in linked do
       for item in mf.items do
@@ -225,7 +228,7 @@ fn load_with(root: String, overrides: Map<String, String>) -> Source uses fs do
       set next_id = p.next_id
     end if
   end if
-  let res = resolve_modules(files: linked, shared: shared)
+  let res = resolve_modules(files: linked, shared: shared, shared_in_root: not declared)
   return Source(files: files, items: res.items, errs: errs ++ res.errs, next_id: next_id)
 end fn load_with
 

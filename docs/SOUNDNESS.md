@@ -85,13 +85,18 @@ ones the verifier depends on most also have must-fail tests.
   shadowing); a merged import may not declare a name twice; the built-in functions and
   types (`len`, `panic`, `exit`, `Option`, ...) cannot be redeclared, so each call to
   one is the operation the verifier models, and `panic` and `exit` are the only
-  functions that never return; a module's private declarations get names of their own.
-  The verifier's state maps each name to one term, and the verifier and the code
-  generator resolve every call to the same function.
+  functions that never return; a module's private declarations get names of their own;
+  no function has the name of a type, so a call is to a function or a constructor, not
+  to one for one part of the compiler and the other for another; an enum's variants,
+  and a struct's or variant's fields, have distinct names, in generic types as in
+  others, so each field has one type. The verifier's state maps each name to one term,
+  and the verifier and the code generator resolve every call to the same function. In
+  the C a checked build evaluates contracts in, each quantifier's variable has a name of
+  its own, so it captures nothing a contract names.
 - **Only `var`s change.** `set` and inout arguments need a `var` (an inout parameter
   is one): `let`s, parameters, loop variables and pattern binders never change. A `var`
   is not passed inout twice in one call, nor changed by another argument of a call that
-  passes it inout, nor passed inout in a `while` condition, a quantifier, a `with` or a
+  passes it inout, nor passed inout in a `while` condition, a quantifier, directly as an argument of a `with`, or a
   specification (see "Every change to a variable is seen").
 - **Effects are declared, and specifications have none.** A function's `uses` covers
   the effects of everything it calls. A specification may call only specification
@@ -102,7 +107,7 @@ ones the verifier depends on most also have must-fail tests.
   treats it, and evaluating one in a checked build changes nothing.
 - **Control flow is complete.** A `match` is exhaustive with pairwise distinct
   patterns (an `else` on `Int` and `String`, and not when an enum's variants are all
-  covered); a function with a result cannot reach the end of its body (a loop ends the
+  covered, and every enum has a variant); a function with a result cannot reach the end of its body (a loop ends the
   body only if its condition can be false or it has a `break` of its own); nothing
   follows a `return`, `break`, `continue`, `panic` or `exit` in its block; `break` and
   `continue` are in a loop.
@@ -141,7 +146,10 @@ axioms of specification functions (true of every real value, see below).
 **Every field has its own function.** A struct's field is read by an SMT function named
 from the struct's and the field's names, and a variant's from the enum's, the variant's
 and the field's, each name escaped and joined by `.`, which no escaped name contains;
-so no two fields share a function, and each is declared with its own field's sort.
+so no two fields share a function, and each is declared with its own field's sort. As
+a guard, the verifier stops with an internal error if any SMT function would be declared
+twice with different sorts: Z3 5.3.3 accepts such a pair and chooses between them, which
+turned the duplicate variants of a generic enum into a proof of `1 == 2`.
 
 A construction (`S(...)`, a variant with fields, `with`) is the exception: its fields
 are path facts, stated after its field refinements are proved, not global ones. A global
@@ -308,7 +316,10 @@ A measure calls no function of its own group *(checker)*: within the group's que
 such a function has no axioms, so it is known only through what the group's calls
 assume of it, and a measure built from it would rest on the termination it is meant to
 prove. A measure is therefore a quantity defined outside the group, by functions that
-terminate before the group is considered.
+terminate before the group is considered. A loop's measure needs no such rule: it may
+call only specification functions, and none of those is in the group of a function
+with a loop, since a specification function calls only specification functions, which
+have no loops.
 
 **Generics.** A generic function is verified once, with each type parameter an
 uninterpreted sort about which nothing is known, and its equality an undefined
@@ -444,3 +455,31 @@ unsound, but:
 - The cache key left out whether the program has structural measures, which add rank
   facts to every query. Those facts are true, so a cached proof stayed valid, but the
   key now covers them.
+
+A second independent review, of the type checker against "What the checker
+guarantees", after v0.9.6 found:
+
+- Generic enums and structs skipped the checks that their variants and fields have
+  distinct names and are not inout. With two variants `A`, a constructor took one and a
+  `case` the other, the field's SMT function was declared with two sorts, Z3 5.3.3 chose
+  the wrong one, and `assert 1 == 2` was proved (`generic_dup_variant.vow`,
+  `generic_dup_field.vow`, `generic_inout_field.vow`).
+- A function could have the name of a generic struct. The checker took `P(...)` for the
+  constructor, while the search for specification functions took it for the function,
+  so a function building a `P` became a specification function whose translation
+  treated the construction as `value_or`, proving two different values equal
+  (`fn_type_name.vow`).
+- A quantifier's variable was written into the C under its own name, so in a checked
+  build it captured the refined variable, a field, a parameter or a caller's variable
+  of the same name: checks failed on verified programs, one segfaulted, and some C did
+  not compile (`tests/run/quantifier_names.vow`). Plain builds were unaffected.
+- Fields of generic declarations skipped the check that refuses a refined recursive
+  type (`Tree<Nat>`), and one could also be inferred through generic calls; either sent
+  the verifier into unbounded recursion (`refined_recursive_generic_field.vow`,
+  `tests/run/refined_inferred_tree.vow`).
+- An enum with no variants allowed a `match` with no arms, which the verifier could not
+  translate (`enum_empty.vow`).
+- A function named `Result` removed the prelude's `Result` (`fn_named_result.vow`), and
+  a program declaring its own `Result` could not import `std/json`
+  (`tests/run/own_result.vow`); `try` accepted any enum with `Ok` and `Err` variants
+  (`try_other_enum.vow`).

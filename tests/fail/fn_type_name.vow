@@ -1,0 +1,23 @@
+// error: function 'P' has the same name as the type declared at
+// language: 0.9
+// A call P(...) meant the struct's constructor to the checker but the function to the
+// check for specification functions, which made g one and proved g(o1) == g(o2).
+struct P<T>
+  a: Option<T>,
+  b: T,
+end struct P
+
+fn P(a: Int) -> Int do
+  return a
+end fn P
+
+fn g(o: Option<String>, s: String) -> P<String> do
+  return P(a: o, b: s)
+end fn g
+
+fn main() do
+  let s = "hi"
+  let o1: Option<String> = Option.Some(value: s)
+  let o2: Option<String> = Option.None
+  assert g(o: o1, s: s) == g(o: o2, s: s)
+end fn main

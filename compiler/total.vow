@@ -367,15 +367,7 @@ fn measure_errors(items: List<Item>, r: Recursion, info: Info) -> List<Diag> do
       if has(map: r.recursive, key: f.name) then
         match f.dec
         case Some(value: d) then
-          var called: List<String> = []
-          calls_in_expr(e: d, info: info, out: inout called)
-          for g in called do
-            if scc_of(scc: r.scc, n: g) == scc_of(scc: r.scc, n: f.name) then
-              let msg = "the measure of '" ++ f.name ++ "' calls '" ++ g ++ "', which is recursive with '" ++ f.name ++ "'"
-              let dg = diag(pos: d.pos, msg: msg)
-              set out = push(list: out, item: with_note(d: dg, note: "a measure must be defined without the functions whose termination it proves"))
-            end if
-          end for
+          group_measure_errors(d: d, whose: "the measure of '" ++ f.name ++ "'", f: f.name, r: r, info: info, out: inout out)
         case None then
         end match
       end if
@@ -392,6 +384,18 @@ fn measure_errors(items: List<Item>, r: Recursion, info: Info) -> List<Diag> do
   end for
   return out
 end fn measure_errors
+
+fn group_measure_errors(d: Expr, whose: String, f: String, r: Recursion, info: Info, out: inout List<Diag>) do
+  var called: List<String> = []
+  calls_in_expr(e: d, info: info, out: inout called)
+  for g in called do
+    if scc_of(scc: r.scc, n: g) == scc_of(scc: r.scc, n: f) then
+      let msg = whose ++ " calls '" ++ g ++ "', which is recursive with '" ++ f ++ "'"
+      let dg = diag(pos: d.pos, msg: msg)
+      set out = push(list: out, item: with_note(d: dg, note: "a measure must be defined without the functions whose termination it proves"))
+    end if
+  end for
+end fn group_measure_errors
 
 // ---- totality ----
 

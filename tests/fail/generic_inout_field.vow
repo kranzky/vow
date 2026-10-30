@@ -1,0 +1,8 @@
+// error: only function parameters can be inout
+// language: 0.9
+enum E<T>
+  A(x: inout T),
+end enum E
+
+fn main() do
+end fn main

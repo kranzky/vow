@@ -1,0 +1,19 @@
+// error: a refined type argument of a recursive type cannot be checked: 'Tree' contains itself
+// language: 0.9
+// The check that refuses Tree<Nat> skipped the fields of generic declarations, and the
+// verifier then unfolded the type forever.
+type Nat = Int where it >= 0
+
+enum Tree<T>
+  Leaf,
+  Node(left: Tree<T>, value: T, right: Tree<T>),
+end enum Tree
+
+struct Holder<U>
+  t: Tree<Nat>,
+  u: U,
+end struct Holder
+
+fn main() do
+  let h: Holder<Int> = Holder(t: Tree.Leaf, u: 1)
+end fn main

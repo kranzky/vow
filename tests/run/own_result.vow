@@ -1,0 +1,24 @@
+// language: 0.9
+// A program that declares its own Result still imports modules that use the prelude's
+// (std/json): its own is the program's Result, and the prelude's stays theirs.
+import "std/json.vow" as json
+
+enum Result
+  Ok(value: Int),
+  Err(error: Int),
+end enum Result
+
+fn main() uses console do
+  match json.parse("[1, 2]")
+  case Ok(value: v) then
+    print(json.text(v) ++ "\n")
+  case Err(error: e) then
+    print(e ++ "\n")
+  end match
+  match Result.Err(error: 3)
+  case Ok(value: x) then
+    print("ok\n")
+  case Err(error: e) then
+    print("err " ++ int_to_str(e) ++ "\n")
+  end match
+end fn main

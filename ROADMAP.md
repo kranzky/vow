@@ -45,8 +45,9 @@ Must-have, language and proofs:
       functions in the SMT get unambiguous names (the shared name made Z3 reject some
       correct programs); a measure may not call a function of its own recursive group;
       the cache key covers structural measures
-- [ ] A second independent review: the type checker against "What the checker
-      guarantees" in `docs/SOUNDNESS.md`, as the verifier was reviewed against the rest
+- [x] A second independent review: the type checker against "What the checker
+      guarantees" in `docs/SOUNDNESS.md` (after v0.9.6: two unsound bugs, a code
+      generation bug in checked builds and five crashes or wrong errors, all fixed)
 - [x] Quantified specs (`forall`/`exists` over ranges) and expression functions in specs
 - [x] `old(x)` for inout postconditions and loop invariants
 - [x] Specification functions with `let`/`if`/`match` bodies, recursive ones with

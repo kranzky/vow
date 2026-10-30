@@ -1,0 +1,36 @@
+// language: 0.9
+// A refined recursive type can be inferred from declared types (mkw(n) with n a Nat
+// would be a W<Nat>, whose field is a Tree<Nat>). It is not used as a refinement passed
+// through a generic function: no formula covers every node.
+type Nat = Int where it >= 0
+
+enum Tree<T>
+  Leaf,
+  Node(left: Tree<T>, value: T, right: Tree<T>),
+end enum Tree
+
+struct W<T>
+  t: Tree<T>,
+  v: T,
+end struct W
+
+fn mkw<T>(x: T) -> W<T> do
+  return W(t: Tree.Leaf, v: x)
+end fn mkw
+
+fn leaf<T>(x: T) -> Tree<T> do
+  return Tree.Leaf
+end fn leaf
+
+fn id<U>(x: U) -> U do
+  return x
+end fn id
+
+fn main() uses console do
+  let n: Nat = 3
+  let w = mkw(n)
+  let w2 = id(w)
+  let t = leaf(n)
+  let t2 = id(t)
+  print(int_to_str(w2.v) ++ "\n")
+end fn main

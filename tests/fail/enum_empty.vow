@@ -1,0 +1,13 @@
+// error: enum 'Never' has no variants
+// language: 0.9
+// A match on an enum without variants has no arms, and so no value to denote.
+enum Never
+end enum Never
+
+fn sf(n: Never) -> Int do
+  match n
+  end match
+end fn sf
+
+fn main() do
+end fn main

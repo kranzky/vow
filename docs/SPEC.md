@@ -105,7 +105,11 @@ fn area(s: Shape) -> Nat do
 end fn area
 ```
 
-Every program has `fn main()` that takes no parameters and returns `Unit`.
+Every program has `fn main()` that takes no parameters and returns `Unit`. An enum has
+at least one variant, and no two variants of an enum, nor two fields of a struct or
+variant, share a name. Functions and types are named apart: a function may not have the
+name of a struct, enum or alias, since a call such as `Point(x: 1, y: 2)` must mean one
+thing.
 
 ### Packages
 
@@ -331,8 +335,8 @@ end fn reversed
   types is compiled to its own copy of the code (monomorphisation).
 - A generic function that calls itself must do so with the same type arguments.
 
-`Result<T, E>` is declared in every program (unless the program declares its own type
-named `Result`):
+`Result<T, E>` is declared in every program. A program may declare its own type named
+`Result` instead; the modules it imports keep the predeclared one:
 
 ```
 enum Result<T, E>

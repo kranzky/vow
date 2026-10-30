@@ -1,0 +1,9 @@
+// error: duplicate field 'x'
+// language: 0.9
+struct P<T>
+  x: T,
+  x: Int,
+end struct P
+
+fn main() do
+end fn main

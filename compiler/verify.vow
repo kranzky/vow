@@ -84,6 +84,8 @@ struct Verifier
   qdefs: List<String>,
   obs: List<Ob>,
   preamble: Map<String, Bool>,
+  // The signature each global function was declared with (see global_fn).
+  sigs: Map<String, String>,
   strs: Map<String, String>,
   loops: List<LoopCtx>,
   fname: String,
@@ -128,7 +130,7 @@ fn new_verifier(info: Info) -> Verifier do
     set pre = insert(map: pre, key: p, value: true)
   end for
   let loops: List<LoopCtx> = []
-  return Verifier(info: info, n: 0, decls: [], defs: [], qdefs: [], obs: [], preamble: pre, strs: {}, loops: loops,
+  return Verifier(info: info, n: 0, decls: [], defs: [], qdefs: [], obs: [], preamble: pre, sigs: {}, strs: {}, loops: loops,
     fname: "", ret: plain(Ty.TUnit), post: [], dec: Option.None, params: {}, hole_facts: {}, sf_done: [], eq_done: [], flits: [], floats: false, probe_line: -1, probe: [],
     hyps: true)
 end fn new_verifier
@@ -425,6 +427,17 @@ fn add_qdef(v: inout Verifier, d: String) do
 end fn add_qdef
 
 fn global_fn(v: inout Verifier, name: String, args: String, sort: String) -> String do
+  // One name, one signature: Z3 may accept a name declared twice with different sorts
+  // and pick between them, which turns ill-sorted SMT into wrong proofs.
+  let sig = "(" ++ args ++ ") " ++ sort
+  match lookup(map: v.sigs, key: name)
+  case Some(value: was) then
+    if was != sig then
+      panic("internal error: the SMT function " ++ name ++ " was declared as " ++ was ++ " and as " ++ sig)
+    end if
+  case None then
+    set v = v with (sigs: insert(map: v.sigs, key: name, value: sig))
+  end match
   if (sort == "Flt") or contains(s: args, p: "Flt") then
     use_floats(inout v)
   end if
@@ -825,6 +838,11 @@ fn sexpr(v: inout Verifier, e: Expr, sp: Spec) -> String do
       return "(= (tag " ++ a0 ++ ") 0)"
     elif (ci.name == "is_nan") or (ci.name == "int_to_float") then
       return float_builtin(v: inout v, name: ci.name, a: a0)
+    end if
+    if (ci.kind != "builtin") or (ci.name != "value_or") then
+      // The checker lets only these calls into a specification; anything else here is a
+      // compiler bug, and translating it as something else would prove false facts.
+      panic("internal error: the verifier cannot translate the call '" ++ pretty_expr(e) ++ "' in a specification")
     end if
     let f = vfield_fn(v: inout v, ename: "Option", vname: "Some", field: "value", t: type_of(info: v.info, e: e))
     return "(ite (= (tag " ++ a0 ++ ") 1) (" ++ f ++ " " ++ a0 ++ ") " ++ arg_str(p: p, i: 1) ++ ")"
@@ -1754,7 +1772,10 @@ end fn closed_rty
 // Only refinements that mention no variables (it < n says nothing of another T).
 fn collect_cands(info: Info, te: TypeExpr, r: RTy, tps: List<String>, keys: inout List<String>, out: inout Map<String, List<RTy>>) do
   if contains_str(xs: tps, x: te.name) then
-    if (not is_plain(r)) and closed_rty(info: info, r: r) then
+    // Not a refined recursive type (Tree<Nat>), which no formula covers; the checker
+    // refuses one written, but one can be inferred (leaf(n) with n a Nat).
+    let none: List<String> = []
+    if (not is_plain(r)) and closed_rty(info: info, r: r) and (len(refined_cycle(info: info, r: r, seen: none)) == 0) then
       let k = te.name ++ " " ++ rty_key(r)
       let have = value_or(opt: lookup(map: out, key: te.name), default: [])
       if (len(have) < 4) and not contains_str(xs: keys, x: k) then
