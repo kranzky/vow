@@ -243,8 +243,8 @@ end fn is_sorted
 fn search(xs: List<Int>, target: Int) -> Int requires is_sorted(xs) ...
 ```
 
-More generally, a pure function returning a value, with no `inout` parameters and no
-type parameters, whose body uses only `let`, `if`/`elif`/`else`, `match`, `assert` and
+More generally, a pure function returning a value, with no `inout` parameters, whose
+body uses only `let`, `if`/`elif`/`else`, `match`, `assert` and
 `return` over specification expressions (and calls only such functions) is a
 **specification function**, and may be called in specifications. A recursive one
 (alone or with others) needs a `decreases` measure:
@@ -327,7 +327,13 @@ end fn reversed
   list's element type. The refinement must name only `it`, and it is not assumed when
   the type parameter appears in a parameter or the result inside a `Map` or `HashMap`,
   or inside a generic type that contains itself, whose values no formula covers.
-- Generic functions cannot be used in specifications.
+- A generic function may be a specification function or an expression function, under
+  the same rules as any other, and then be called in specifications:
+  `ensures (result == -1) implies not contains(xs: xs, x: x)`. Each instance is
+  translated from its own copy of the body, with the instance's types, so
+  `contains(xs: fs, x: y)` on a `List<Float>` compares with the floats' `==`, as at
+  runtime. Within a generic declaration, an instance at its own type parameters is
+  translated with those parameters as unknown types.
 - Each generic declaration is type-checked and verified once, with its type
   parameters as unknown types (in the logic, values of the uninterpreted sort `Val`).
   A proof that holds for every interpretation of `Val` holds for every type argument,

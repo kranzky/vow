@@ -1,0 +1,22 @@
+// error: cannot prove assertion: count(xs: xs, x: 3, n: len(xs)) == 0
+// language: 0.9
+// A false claim about an instance of a recursive generic specification function.
+fn count<T>(xs: List<T>, x: T, n: Int) -> Int
+  requires (0 <= n) and (n <= len(xs))
+  ensures (0 <= result) and (result <= n)
+  decreases n
+do
+  if n == 0 then
+    return 0
+  end if
+  let rest = count(xs: xs, x: x, n: n - 1)
+  if xs[n - 1] == x then
+    return rest + 1
+  end if
+  return rest
+end fn count
+
+fn main() do
+  let xs = [1, 2, 3]
+  assert count(xs: xs, x: 3, n: len(xs)) == 0
+end fn main

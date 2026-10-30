@@ -1,0 +1,13 @@
+// error: cannot prove assertion: contains(xs: fs, x: nan)
+// language: 0.9
+// A generic specification function is translated per instance, so at Float its '=='
+// is that of floats, under which a NaN is not equal to itself, as at runtime.
+fn contains<T>(xs: List<T>, x: T) -> Bool do
+  return exists i in 0..len(xs): xs[i] == x
+end fn contains
+
+fn main() do
+  let nan = 0.0 / 0.0
+  let fs = [nan]
+  assert contains(xs: fs, x: nan)
+end fn main

@@ -1,0 +1,16 @@
+// error: cannot prove postcondition of 'holds': result == contains(xs: xs, x: x)
+// language: 0.9
+// A generic specification function used in another generic function's contract, at
+// that function's type parameter.
+fn contains<T>(xs: List<T>, x: T) -> Bool do
+  return exists i in 0..len(xs): xs[i] == x
+end fn contains
+
+fn holds<U>(xs: List<U>, x: U) -> Bool
+  ensures result == contains(xs: xs, x: x)
+do
+  return len(xs) > 0
+end fn holds
+
+fn main() do
+end fn main

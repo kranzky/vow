@@ -89,7 +89,9 @@ Check your code against this list before running the compiler.
     `fn last<T>(xs: List<T>) -> T` and call `last(xs)`; write types in full
     (`Pair<Int, String>`). Inside a generic function, a `T` can be stored, passed,
     returned, compared with `==` and put in lists and maps, but not indexed or given
-    fields, and generic functions cannot be called in specifications.
+    fields. A generic specification function (such as `contains<T>(xs: List<T>,
+    x: T) -> Bool`, whose body is `return exists i in 0..len(xs): xs[i] == x`) can be
+    called in specifications, at any types.
 13. **`Int` and `Float` never mix.** Write `1.0`, not `1`, for a Float, and convert
     with `int_to_float`. `/` and `%` on `Int` are integer division with Euclidean
     semantics: the remainder is never negative (`-7 / 2 == -4`, `-7 % 2 == 1`).

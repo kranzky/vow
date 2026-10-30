@@ -993,9 +993,13 @@ struct Checker
   refined: String,
 end struct Checker
 
+// An instance whose body is to be checked: for the code generator when its types are
+// concrete (compiled), and otherwise only for the verifier, which translates the body
+// of an instance of a specification function.
 struct Inst
   decl: FnDecl,
   env: Map<String, Ty>,
+  compiled: Bool,
 end struct Inst
 
 fn at(c: Checker, p: Pos) -> String do
@@ -1517,8 +1521,10 @@ fn check_program(items: List<Item>, files: List<String>, next_id: Int) -> Checke
       end if
     end for
     set c = c with (errs: errs)
-    let info = c.info
-    set c = c with (info: info with (instances: push(list: info.instances, item: next.decl)))
+    if next.compiled then
+      let info = c.info
+      set c = c with (info: info with (instances: push(list: info.instances, item: next.decl)))
+    end if
   end while
   check_pending(inout c)
   match get_fn(info: c.info, name: "main")
@@ -1674,8 +1680,22 @@ fn instantiate_fn(c: inout Checker, g: FnDecl, args: List<Ty>, pos: Pos) -> Stri
   let info0 = c.info
   set c = c with (info: info0 with (next_id: next, tenv: env))
   let fi = fn_signature(c: inout c, f: copy)
+  // An instance of a specification function is one too, translated from its own copy
+  // of the body, whose types are the instance's.
+  var spec = false
+  var fi2 = fi
+  match get_fn(info: c.info, name: g.name)
+  case Some(value: gi) then
+    set spec = is_some(gi.inline) or is_some(gi.spec_body)
+    if is_some(gi.inline) then
+      set fi2 = fi with (inline: return_expr(copy.body))
+    elif is_some(gi.spec_body) then
+      set fi2 = fi with (spec_body: Option.Some(value: copy.body), spec_rec: gi.spec_rec)
+    end if
+  case None then
+  end match
   let info1 = c.info
-  set c = c with (info: info1 with (fns: insert(map: info1.fns, key: inst, value: fi),
+  set c = c with (info: info1 with (fns: insert(map: info1.fns, key: inst, value: fi2),
     origins: insert(map: info1.origins, key: inst, value: g.name)))
   check_contracts(c: inout c, f: copy)
   var concrete = true
@@ -1685,8 +1705,8 @@ fn instantiate_fn(c: inout Checker, g: FnDecl, args: List<Ty>, pos: Pos) -> Stri
     end if
   end for
   var queue = c.queue
-  if concrete then
-    set queue = push(list: queue, item: Inst(decl: copy, env: env))
+  if concrete or spec then
+    set queue = push(list: queue, item: Inst(decl: copy, env: env, compiled: concrete))
   end if
   let info2 = c.info
   set c = saved with (info: info2 with (tenv: saved.info.tenv), errs: c.errs, queue: queue)
@@ -1822,12 +1842,13 @@ fn expect_measure(c: inout Checker, pos: Pos, t: Ty) do
 end fn expect_measure
 
 // The functions that may be used in specifications ("specification functions"): pure,
-// returning a value, no inout parameters, not generic, and a body built only from
+// returning a value, no inout parameters, and a body built only from
 // 'let', 'if', 'match', 'assert' and 'return' over specification expressions, so it
 // denotes a value. A recursive one needs a 'decreases' measure, so that it denotes a
 // function. A non-recursive one whose body is exactly 'return e' is inlined (inline);
 // any other is translated from its body (spec_body). Functions with other bodies are
-// considered only when a specification reaches them.
+// considered only when a specification reaches them. A generic one is translated per
+// instance (see instantiate_fn).
 fn compute_inline(c: inout Checker, items: List<Item>) do
   var bodies: Map<String, List<Stmt>> = {}
   var single: Map<String, Expr> = {}
@@ -1838,7 +1859,7 @@ fn compute_inline(c: inout Checker, items: List<Item>) do
     case FnItem(decl: f) then
       match get_fn(info: c.info, name: f.name)
       case Some(value: fi) then
-        var pure = (len(fi.effects) == 0) and (ty_show(fi.ret.ty) != "Unit") and (len(f.tparams) == 0)
+        var pure = (len(fi.effects) == 0) and (ty_show(fi.ret.ty) != "Unit")
         for b in fi.io do
           if b then
             set pure = false
@@ -3410,14 +3431,10 @@ fn check_call(c: inout Checker, e: Expr, callee: Expr, args: List<Arg>, expected
   end match
   match get_fn(info: c.info, name: name)
   case Some(value: fi) then
-    if c.spec and not (is_some(fi.inline) or is_some(fi.spec_body)) then
-      match lookup(map: c.info.spec_notes, key: name)
-      case Some(value: why) then
-        err(c: inout c, pos: e.pos, msg: "'" ++ name ++ "' cannot be used in a specification: " ++ why)
-      case None then
-        err(c: inout c, pos: e.pos, msg: "'" ++ name ++ "' cannot be used in a specification: only pure functions whose bodies use just let, if, match, assert and return over specification expressions can")
-      end match
-      return Ty.TUnknown
+    if c.spec then
+      if not spec_fn_ok(c: inout c, e: e, name: name) then
+        return Ty.TUnknown
+      end if
     end if
     for u in fi.effects do
       need_effect(c: inout c, pos: e.pos, eff: u, what: "'" ++ name ++ "'")
@@ -3578,10 +3595,42 @@ fn expect_args(c: inout Checker, args: List<Arg>, order: List<Int>, got: List<Ty
   end for
 end fn expect_args
 
+// True if the function name (a generic one by its own name) may be called in a
+// specification; otherwise reports why not.
+fn spec_fn_ok(c: inout Checker, e: Expr, name: String) -> Bool do
+  match get_fn(info: c.info, name: name)
+  case Some(value: fi) then
+    if is_some(fi.inline) or is_some(fi.spec_body) then
+      return true
+    end if
+  case None then
+  end match
+  match lookup(map: c.info.spec_notes, key: name)
+  case Some(value: why) then
+    err(c: inout c, pos: e.pos, msg: "'" ++ name ++ "' cannot be used in a specification: " ++ why)
+  case None then
+    err(c: inout c, pos: e.pos, msg: "'" ++ name ++ "' cannot be used in a specification: only pure functions whose bodies use just let, if, match, assert and return over specification expressions can")
+  end match
+  return false
+end fn spec_fn_ok
+
+// The value of a body that is exactly 'return e'.
+fn return_expr(body: List<Stmt>) -> Option<Expr> do
+  if len(body) == 1 then
+    match body[0].kind
+    case Return(value: rv) then
+      return rv
+    else
+    end match
+  end if
+  return Option.None
+end fn return_expr
+
 fn generic_call(c: inout Checker, e: Expr, g: FnDecl, args: List<Arg>, expected: Option<Ty>) -> Ty do
   if c.spec then
-    err(c: inout c, pos: e.pos, msg: "'" ++ g.name ++ "' is generic and cannot be used in a specification")
-    return Ty.TUnknown
+    if not spec_fn_ok(c: inout c, e: e, name: g.name) then
+      return Ty.TUnknown
+    end if
   end if
   for u in g.effects do
     need_effect(c: inout c, pos: e.pos, eff: u.name, what: "'" ++ g.name ++ "'")

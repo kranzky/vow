@@ -1,0 +1,12 @@
+// error: '==' does not work on maps (Map<String, Int>); compare lookups instead, in contains<Map<String, Int>>
+// language: 0.9
+// An instance made for a specification is checked like any other.
+fn contains<T>(xs: List<T>, x: T) -> Bool do
+  return exists i in 0..len(xs): xs[i] == x
+end fn contains
+
+fn main() do
+  let m: Map<String, Int> = {}
+  let ms = [m]
+  assert contains(xs: ms, x: m)
+end fn main

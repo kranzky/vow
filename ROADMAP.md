@@ -68,7 +68,9 @@ Must-have, language and proofs:
 - [x] Packages: dependencies pinned to git commits in `vow.pkg`, fetched by `vowc fetch`
 - [x] Field refinements assumed inside specifications: a goal assumes the field
       refinements of the struct values it names
-- [ ] Generic functions usable in specifications
+- [x] Generic functions usable in specifications: `contains(xs: xs, x: x)` in a
+      contract, at concrete types or another generic function's type parameters; each
+      instance is translated from its own copy of the body
 - [x] Refined type arguments (`List<Cents>`, `Option<Int where it >= 0>`,
       `Result<Cents, String>`, `Box<Nat>`): checked wherever a value is stored, assumed
       wherever it is read; only refinements that mention no variables

@@ -100,7 +100,7 @@ ones the verifier depends on most also have must-fail tests.
   specification (see "Every change to a variable is seen").
 - **Effects are declared, and specifications have none.** A function's `uses` covers
   the effects of everything it calls. A specification may call only specification
-  functions: pure (no `uses`), with no inout parameters, not generic, with a body of
+  functions: pure (no `uses`), with no inout parameters, with a body of
   `let`, `if`, `match`, `assert` and `return` over specification expressions, and, if
   recursive (directly or through others), with a `decreases` measure. So a
   specification call is a function of its arguments alone, which is how the verifier
@@ -328,6 +328,18 @@ argument, so the contract holds for every instance. Because a type argument may 
 `Float`, or a type holding one, `x == x` is not assumed for type parameters: a NaN is not
 equal to itself.
 
+A generic specification function is translated per instance: the instance's own copy of
+the body, type-checked with the instance's types (concrete, or another generic
+function's type parameters), is inlined or defined by axioms exactly as a non-generic
+specification function's body is, and its `==` is that of the type argument, as at
+runtime. That copy is the code the instance runs, so it denotes the same function. The
+axioms of a recursive one are consistent because the instance terminates: the generic
+declaration's measure was proved to decrease for every type argument, by the generic
+verification. Its postconditions, which the axioms also state, were proved there too. An
+instance belongs to its generic declaration's recursive group (calls to instances are
+edges to the declaration), so its axioms are left out of that group's queries, as for
+any other function.
+
 **Floats.** A `Float` is known only by whether it is a NaN and, if not, by its position
 in the order of doubles. Comparisons are defined through these, and the only other facts
 are those true of IEEE doubles under any rounding: the exact values of small whole
@@ -386,7 +398,8 @@ two checks with the cache on.
   programs full of contracts (refined aliases, structs and enums, recursive and mutually
   recursive specification functions, inout parameters with `old`, loops with invariants
   and measures, quantifiers, floats, refined lists and options, calls to generic
-  functions bound to refined types). Each contract the verifier rejects is removed until
+  functions bound to refined types, and generic specification functions, recursive
+  among them, called in contracts). Each contract the verifier rejects is removed until
   the program verifies; then `main` calls every function over a grid of inputs with
   contract checks on, and a failed check, or a checked build that hangs or crashes where
   the plain build runs, is a soundness bug (`tests/reduce.py` shrinks one to a small

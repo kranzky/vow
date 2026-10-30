@@ -1,8 +1,10 @@
 // error: cannot prove 'j' satisfies it < n
 // language: 0.9
-// Only refinements that mention no variables pass through a generic function.
+// Only refinements that mention no variables pass through a generic function. (Not a
+// specification function, whose calls would be transparent: id(i) would be i.)
 fn id<T>(x: T) -> T do
-  return x
+  var y = x
+  return y
 end fn id
 
 fn f(n: Int, i: Int where it < n) -> Int do

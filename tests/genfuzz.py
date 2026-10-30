@@ -514,6 +514,9 @@ class Gen:
             choices += ["rec"]
         if self.callable_specs(env):
             choices += ["spec", "spec"]
+        if spec and self.generics:
+            # Generic functions as specification functions, translated per instance.
+            choices += ["generic"]
         if self.tree and self.vars_of(env, lambda t: t == TREE):
             choices += ["tree"]
         c = self.r.choice(choices)
@@ -549,6 +552,14 @@ class Gen:
             return ("call", f.name, [(f.params[0][0], arg)])
         if c == "spec":
             return self.spec_call(self.r.choice(self.callable_specs(env)), env, spec)
+        if c == "generic":
+            if lists and self.chance(0.6):
+                xs = ("var", self.r.choice(lists))
+                if self.chance(0.5):
+                    return ("call", "g_count", [("xs", xs), ("x", self.int_expr(env, d + 1, spec)), ("n", ("len", xs))])
+                return ("call", "g_first", [("xs", xs), ("d", self.int_expr(env, d + 1, spec))])
+            return ("call", "g_pick", [("a", self.int_expr(env, d + 1, spec)), ("b", self.int_expr(env, d + 1, spec)),
+                                       ("c", self.bool_expr(env, d + 1, spec))])
         if c == "tree":
             t = self.r.choice(self.vars_of(env, lambda t: t == TREE))
             return ("call", self.r.choice(["size", "total"]), [("t", ("var", t))])
@@ -577,6 +588,9 @@ class Gen:
         opts = self.vars_of(env, lambda t: t == OPT)
         if opts and r < 0.6:
             return ("call", self.r.choice(["is_some", "is_none"]), [("", ("var", self.r.choice(opts)))])
+        lists = self.vars_of(env, lambda t: t == LIST)
+        if spec and self.generics and lists and r < 0.64:
+            return ("call", "g_has", [("xs", ("var", self.r.choice(lists))), ("x", self.int_expr(env, d + 1, spec))])
         bool_fns = [f for f in self.fns.values() if f.kind == "expr" and f.ret == BOOL]
         if bool_fns and r < 0.68:
             f = self.r.choice(bool_fns)
@@ -974,6 +988,24 @@ end fn g_get
 fn g_add<T>(xs: inout List<T>, x: T) do
   set xs = push(list: xs, item: x)
 end fn g_add
+
+fn g_has<T>(xs: List<T>, x: T) -> Bool do
+  return exists i in 0..len(xs): xs[i] == x
+end fn g_has
+
+fn g_count<T>(xs: List<T>, x: T, n: Int) -> Int
+  requires (0 <= n) and (n <= len(xs))
+  ensures (0 <= result) and (result <= n)
+  decreases n
+do
+  if n == 0 then
+    return 0
+  end if
+  if xs[n - 1] == x then
+    return g_count(xs: xs, x: x, n: n - 1) + 1
+  end if
+  return g_count(xs: xs, x: x, n: n - 1)
+end fn g_count
 
 fn g_keyed<T>(m: Map<Int, T>, d: T) -> T do
   match lookup(map: m, key: 0)

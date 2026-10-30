@@ -1,0 +1,18 @@
+// error: 'total' cannot be used in a specification: only pure functions
+// language: 0.9
+fn total<T>(xs: List<T>) -> Int do
+  var n = 0
+  for x in xs do
+    set n = n + 1
+  end for
+  return n
+end fn total
+
+fn f(xs: List<Int>) -> Int
+  ensures result == total(xs)
+do
+  return len(xs)
+end fn f
+
+fn main() do
+end fn main

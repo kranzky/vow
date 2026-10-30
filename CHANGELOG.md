@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- Generic functions can be called in specifications, when they are specification
+  functions or expression functions by the same rules as other functions: for example
+  `ensures (result == -1) implies not contains(xs: xs, x: x)` with
+  `fn contains<T>(xs: List<T>, x: T) -> Bool`. Each instance is translated from its own
+  copy of the body with the instance's types, so `==` at `Float` is that of floats, as
+  at runtime. Calls to them in code are transparent, as for other specification
+  functions.
+- Verifier version `vow-verifier-13`.
+
 ## v0.9.7
 
 - The soundness follow-ups from the review after v0.9.2 (none was unsound):

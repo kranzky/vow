@@ -1,0 +1,17 @@
+// error: cannot prove postcondition of 'f': same(x)
+// language: 0.9
+// In a generic function, x == x is not known: T may be Float, and x a NaN.
+fn same<T>(x: T) -> Bool do
+  return x == x
+end fn same
+
+fn f<T>(x: T) -> Int
+  ensures same(x)
+do
+  return 0
+end fn f
+
+fn main() do
+  let nan = 0.0 / 0.0
+  let _ = f(x: nan)
+end fn main

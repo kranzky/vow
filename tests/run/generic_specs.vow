@@ -1,0 +1,121 @@
+// language: 0.9
+// Generic functions in specifications: each instance is a specification function of
+// its own, translated from the body with the instance's types.
+
+struct Pair<A, B>
+  first: A,
+  second: B,
+end struct Pair
+
+fn fst<A, B>(p: Pair<A, B>) -> A do
+  return p.first
+end fn fst
+
+fn last<T>(xs: List<T>) -> T
+  requires len(xs) > 0
+do
+  return xs[len(xs) - 1]
+end fn last
+
+fn or_else<T>(o: Option<T>, d: T) -> T do
+  match o
+  case Some(value: x) then
+    return x
+  case None then
+    return d
+  end match
+end fn or_else
+
+fn contains<T>(xs: List<T>, x: T) -> Bool do
+  return exists i in 0..len(xs): xs[i] == x
+end fn contains
+
+fn count<T>(xs: List<T>, x: T, n: Int) -> Int
+  requires (0 <= n) and (n <= len(xs))
+  ensures (0 <= result) and (result <= n)
+  decreases n
+do
+  if n == 0 then
+    return 0
+  end if
+  let rest = count(xs: xs, x: x, n: n - 1)
+  if xs[n - 1] == x then
+    return rest + 1
+  end if
+  return rest
+end fn count
+
+fn has_key<K, V>(ps: List<Pair<K, V>>, k: K) -> Bool do
+  return exists i in 0..len(ps): fst(ps[i]) == k
+end fn has_key
+
+fn both<T>(xs: List<T>, x: T, y: T) -> Bool do
+  return contains(xs: xs, x: x) and contains(xs: xs, x: y)
+end fn both
+
+type WithZero = List<Int> where contains(xs: it, x: 0)
+
+fn zeroed(xs: List<Int>) -> WithZero do
+  return push(list: xs, item: 0)
+end fn zeroed
+
+fn push_last(xs: List<Int>, x: Int) -> List<Int>
+  ensures last(result) == x
+  ensures len(result) == (len(xs) + 1)
+do
+  return push(list: xs, item: x)
+end fn push_last
+
+// At its own type parameter, which differs from contains's.
+fn index_of<U>(xs: List<U>, x: U) -> Int
+  ensures (result == -1) or ((0 <= result) and (result < len(xs)))
+  ensures (result == -1) implies not contains(xs: xs, x: x)
+do
+  var i = 0
+  while i < len(xs)
+    invariant (0 <= i) and (i <= len(xs))
+    invariant forall j in 0..i: xs[j] != x
+    decreases len(xs) - i
+  do
+    if xs[i] == x then
+      return i
+    end if
+    set i = i + 1
+  end while
+  return -1
+end fn index_of
+
+fn swap(p: Pair<Int, String>) -> Pair<String, Int>
+  ensures fst(result) == p.second
+do
+  return Pair(first: p.second, second: p.first)
+end fn swap
+
+fn pick(o: Option<Int>) -> Int
+  ensures result == or_else(o: o, d: 7)
+do
+  return or_else(o: o, d: 7)
+end fn pick
+
+fn main() uses console do
+  let xs = push_last(xs: [1, 2], x: 3)
+  assert last(xs) == 3
+  assert count(xs: xs, x: 3, n: len(xs)) <= 3
+  assert contains(xs: xs, x: 3)
+  let ys = ["a", "b"]
+  assert contains(xs: ys, x: "b")
+  let z = zeroed(xs: [3])
+  assert contains(xs: z, x: 0)
+  let ps = [Pair(first: "a", second: 1), Pair(first: "b", second: 2)]
+  assert has_key(ps: ps, k: "b")
+  let ns = [1, 2, 3]
+  assert both(xs: ns, x: 1, y: 3)
+  let s = swap(p: Pair(first: 1, second: "x"))
+  assert fst(s) == "x"
+  let n = pick(o: Option.None)
+  assert n == 7
+  let fs = [1.5, 2.5]
+  assert contains(xs: fs, x: 2.5)
+  print(int_to_str(index_of(xs: xs, x: 2)) ++ " " ++ int_to_str(count(xs: xs, x: 2, n: 3)) ++ "\n")
+  print(int_to_str(n) ++ " " ++ s.first ++ "\n")
+end fn main
