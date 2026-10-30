@@ -313,6 +313,13 @@ end fn reversed
   use of `==` on `T` is checked again for each type argument, so a generic function
   that compares its `T` values cannot be used with a map type. A type
   parameter may be a map key; each use checks that its key type is `Int` or `String`.
+- A function's type parameter may have the bound `Eq`: `fn index_of<T: Eq>(xs:
+  List<T>, x: T) -> Int`. Its type arguments must hold no `Float` and no map (through
+  lists, options and the fields of structs and enums), and a type parameter given as one
+  must itself be declared `Eq`; each call is checked ("'index_of' needs T: Eq, but Float
+  can hold a NaN, which is not equal to itself"). In return, `==` on `T` is an
+  equivalence for the verifier: `x == x`, and it is symmetric and transitive. Structs and
+  enums cannot have bounds; `Eq` is the only bound.
 - Type parameters may not have the name of a type. The type arguments of a generic
   type may be refined (`Box<Nat>`, see Refinements); those of a generic function call
   are inferred without refinements, for type checking. For the verifier, a refinement
@@ -560,7 +567,9 @@ therefore be proved equal however they were built, and equal values have equal p
 For a type parameter, `eq_T` is left undefined, so a generic function proves only what
 holds for every type's equality. Since a type parameter may stand for `Float`, and a type
 that can hold a float is not equal to itself when it holds a NaN, `x == x` is not
-assumed for such types.
+assumed for such types. A type parameter declared `Eq` holds no float, so for it (and
+the types built from it) `a == b` is again `a = b` or `eq_T(a, b)`, and `eq_T` is
+stated to be symmetric and transitive.
 
 ## Effects
 

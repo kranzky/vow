@@ -1,0 +1,84 @@
+// language: 0.9
+// The bound Eq: '==' on T is an equivalence (reflexive, symmetric, transitive), so
+// generic code can prove what holds of every type without floats or maps.
+
+enum Tree<T>
+  Leaf,
+  Node(left: Tree<T>, value: T, right: Tree<T>),
+end enum Tree
+
+struct P
+  x: Int,
+  name: String,
+end struct P
+
+fn contains<T: Eq>(xs: List<T>, x: T) -> Bool do
+  return exists i in 0..len(xs): xs[i] == x
+end fn contains
+
+fn added<T: Eq>(xs: List<T>, x: T) -> List<T>
+  ensures contains(xs: result, x: x)
+  ensures len(result) == (len(xs) + 1)
+  ensures forall i in 0..len(xs): result[i] == xs[i]
+do
+  return push(list: xs, item: x)
+end fn added
+
+fn index_of<T: Eq>(xs: List<T>, x: T) -> Int
+  ensures (result == -1) or ((0 <= result) and (result < len(xs)))
+  ensures (result >= 0) implies (x == xs[result])
+  ensures (result == -1) == not contains(xs: xs, x: x)
+do
+  var i = 0
+  while i < len(xs)
+    invariant (0 <= i) and (i <= len(xs))
+    invariant forall j in 0..i: xs[j] != x
+    decreases len(xs) - i
+  do
+    if xs[i] == x then
+      return i
+    end if
+    set i = i + 1
+  end while
+  return -1
+end fn index_of
+
+// Through another Eq function, at this one's parameter.
+fn dedupe<U: Eq>(xs: List<U>) -> List<U>
+  ensures forall i in 0..len(xs): contains(xs: result, x: xs[i])
+do
+  var out: List<U> = []
+  for k in 0..len(xs)
+    invariant forall i in 0..k: contains(xs: out, x: xs[i])
+  do
+    if index_of(xs: out, x: xs[k]) == -1 then
+      set out = added(xs: out, x: xs[k])
+    end if
+  end for
+  return out
+end fn dedupe
+
+fn same3<T: Eq>(a: T, b: T, c: T) -> Bool
+  requires (a == b) and (b == c)
+  ensures result
+do
+  return c == a
+end fn same3
+
+fn same_tree<T: Eq>(t: Tree<T>) -> Bool
+  ensures result
+do
+  return t == t
+end fn same_tree
+
+fn main() uses console do
+  let xs = added(xs: [1, 2], x: 3)
+  assert contains(xs: xs, x: 3)
+  let ps = added(xs: [P(x: 1, name: "a")], x: P(x: 2, name: "b"))
+  print(int_to_str(index_of(xs: ps, x: P(x: 2, name: "b"))) ++ "\n")
+  print(int_to_str(index_of(xs: ["a", "b"], x: "c")) ++ "\n")
+  print(int_to_str(len(dedupe(["a", "b", "a", "c", "b"]))) ++ "\n")
+  let t: Tree<Int> = Tree.Node(left: Tree.Leaf, value: 1, right: Tree.Leaf)
+  assert same_tree(t)
+  assert same3(a: "x", b: "x", c: "x")
+end fn main

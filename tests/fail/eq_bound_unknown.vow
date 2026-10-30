@@ -1,0 +1,8 @@
+// error: unknown bound 'Ord' (the only bound is Eq)
+// language: 0.9
+fn f<T: Ord>(x: T) -> T do
+  return x
+end fn f
+
+fn main() do
+end fn main

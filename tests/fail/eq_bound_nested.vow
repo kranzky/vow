@@ -1,0 +1,15 @@
+// error: 'contains' needs T: Eq, but Option<W> can hold a NaN, which is not equal to itself
+// language: 0.9
+// The bound looks inside lists, options, structs and enums.
+fn contains<T: Eq>(xs: List<T>, x: T) -> Bool do
+  return exists i in 0..len(xs): xs[i] == x
+end fn contains
+
+struct W
+  f: Float,
+end struct W
+
+fn main() do
+  let w: Option<W> = Option.None
+  let _ = contains(xs: [w], x: w)
+end fn main

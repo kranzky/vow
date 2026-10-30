@@ -1,0 +1,8 @@
+// error: only a function's type parameters can have bounds
+// language: 0.9
+struct S<T: Eq>
+  x: T,
+end struct S
+
+fn main() do
+end fn main

@@ -1,0 +1,10 @@
+// error: 'contains' needs T: Eq, but Map<Int, Int> holds a map, which '==' does not compare
+// language: 0.9
+fn contains<T: Eq>(xs: List<T>, x: T) -> Bool do
+  return exists i in 0..len(xs): xs[i] == x
+end fn contains
+
+fn main() do
+  let m: Map<Int, Int> = {}
+  let _ = contains(xs: [m], x: m)
+end fn main

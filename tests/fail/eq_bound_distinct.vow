@@ -1,0 +1,18 @@
+// error: cannot prove postcondition of 'f': a == b
+// language: 0.9
+// Eq makes '==' an equivalence, not equality of the logic: two values of T are not
+// known to be equal, or different.
+fn f<T: Eq>(a: T, b: T) -> Bool
+  ensures a == b
+do
+  return true
+end fn f
+
+fn g<T: Eq>(a: T, b: T) -> Bool
+  ensures a != b
+do
+  return true
+end fn g
+
+fn main() do
+end fn main

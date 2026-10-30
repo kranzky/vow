@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- The bound `Eq` on a function's type parameters: `fn index_of<T: Eq>(xs: List<T>,
+  x: T) -> Int`. Each call checks that the type argument holds no `Float` and no map
+  ("'index_of' needs T: Eq, but Float can hold a NaN, which is not equal to itself"),
+  and the verifier knows `==` on `T` is reflexive, symmetric and transitive, which an
+  unbounded `T` cannot assume. Generic code can now prove, for example, that
+  `push(list: xs, item: x)` contains `x`.
 - Generic functions can be called in specifications, when they are specification
   functions or expression functions by the same rules as other functions: for example
   `ensures (result == -1) implies not contains(xs: xs, x: x)` with

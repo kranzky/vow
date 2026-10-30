@@ -989,11 +989,11 @@ fn g_add<T>(xs: inout List<T>, x: T) do
   set xs = push(list: xs, item: x)
 end fn g_add
 
-fn g_has<T>(xs: List<T>, x: T) -> Bool do
+fn g_has<T: Eq>(xs: List<T>, x: T) -> Bool do
   return exists i in 0..len(xs): xs[i] == x
 end fn g_has
 
-fn g_count<T>(xs: List<T>, x: T, n: Int) -> Int
+fn g_count<T: Eq>(xs: List<T>, x: T, n: Int) -> Int
   requires (0 <= n) and (n <= len(xs))
   ensures (0 <= result) and (result <= n)
   decreases n

@@ -80,11 +80,9 @@ Must-have, language and proofs:
 - [ ] Lexicographic measures (`decreases (a, b)`), for recursion that one Int or
       structural measure cannot order: a rose tree walked through a helper over its
       children, or mutual recursion mixing a list index and a tree
-- [ ] An `Eq` bound on type parameters (`fn index_of<T: Eq>(...)`) for types that hold
-      no float and no map. Today a generic function that uses `==` on `T` is rejected
-      only at a use with a map type, and its proofs cannot assume `x == x` in case `T`
-      is a float (a NaN is not equal to itself); the bound would state the requirement
-      in the signature and give back reflexive equality
+- [x] An `Eq` bound on type parameters (`fn index_of<T: Eq>(...)`) for types that hold
+      no float and no map: checked at each call, and `==` on `T` is an equivalence for
+      the verifier (reflexive, symmetric, transitive)
 - [ ] Decide how diagnostics name a module's declarations: by the file's name, as now
       (`money.Amount` even when imported `as cash`), or by the alias the importing file
       chose

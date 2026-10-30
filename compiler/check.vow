@@ -153,6 +153,9 @@ struct Info
   genums: Map<String, EnumDecl>,
   // The type parameters in scope while resolving types.
   tenv: Map<String, Ty>,
+  // The type parameters in scope declared with the bound Eq: their values are equal to
+  // themselves (they hold no float), and they can be compared (they hold no map).
+  eq_tparams: List<String>,
   // The type arguments of each instance of a generic type.
   inst_args: Map<String, List<Ty>>,
   // The generic function each function instance was made from.
@@ -432,12 +435,67 @@ fn has_float(info: Info, t: Ty, seen: inout List<String>) -> Bool do
     end match
     return false
   case TParam(name: n) then
-    // A type parameter may stand for Float.
-    return true
+    // A type parameter may stand for Float, unless it is bounded by Eq.
+    return not contains_str(xs: info.eq_tparams, x: n)
   else
     return false
   end match
 end fn has_float
+
+// Why a value of type t may not be equal to itself, or cannot be compared, as a type
+// argument for a parameter bounded by Eq ("can hold a NaN, ..."); "" if it can stand
+// for one.
+fn eq_problem(info: Info, t: Ty, seen: inout List<String>) -> String do
+  match t
+  case TFloat then
+    return "can hold a NaN, which is not equal to itself"
+  case TMap(key: k, val: x) then
+    return "holds a map, which '==' does not compare"
+  case THashMap(key: k, val: x) then
+    return "holds a map, which '==' does not compare"
+  case TList(elem: x) then
+    return eq_problem(info: info, t: x, seen: inout seen)
+  case TOpt(inner: x) then
+    return eq_problem(info: info, t: x, seen: inout seen)
+  case TParam(name: n) then
+    if contains_str(xs: info.eq_tparams, x: n) then
+      return ""
+    end if
+    return "holds the type parameter '" ++ n ++ "', which is not declared '" ++ n ++ ": Eq'"
+  case TStruct(name: n) then
+    if contains_str(xs: seen, x: n) then
+      return ""
+    end if
+    set seen = push(list: seen, item: n)
+    for f in struct_fields(info: info, name: n) do
+      let why = eq_problem(info: info, t: f.rty.ty, seen: inout seen)
+      if why != "" then
+        return why
+      end if
+    end for
+    return ""
+  case TEnum(name: n) then
+    if contains_str(xs: seen, x: n) then
+      return ""
+    end if
+    set seen = push(list: seen, item: n)
+    match lookup(map: info.enums, key: n)
+    case Some(value: vs) then
+      for vi in vs do
+        for f in vi.fields do
+          let why = eq_problem(info: info, t: f.rty.ty, seen: inout seen)
+          if why != "" then
+            return why
+          end if
+        end for
+      end for
+    case None then
+    end match
+    return ""
+  else
+    return ""
+  end match
+end fn eq_problem
 
 // Int, Bool, Unit and String are compared directly; other types structurally.
 fn simple_eq(t: Ty) -> Bool do
@@ -1232,7 +1290,7 @@ fn new_info() -> Info do
   set structs = insert(map: structs, key: "Output",
     value: [FieldInfo(name: "code", rty: plain(Ty.TInt)), FieldInfo(name: "out", rty: plain(Ty.TStr))])
   return Info(structs: structs, enums: {}, aliases: {}, fns: {}, types: {}, calls: {}, holes: [],
-    gfns: {}, gstructs: {}, genums: {}, tenv: {}, inst_args: {}, origins: {}, pending: [], instances: [],
+    gfns: {}, gstructs: {}, genums: {}, tenv: {}, eq_tparams: [], inst_args: {}, origins: {}, pending: [], instances: [],
     next_id: 0, scc: {}, recursive: {}, structural: false, spec_notes: {})
 end fn new_info
 
@@ -1402,10 +1460,12 @@ fn check_program(items: List<Item>, files: List<String>, next_id: Int) -> Checke
     match item
     case FnItem(decl: f) then
       set_tenv(c: inout c, env: identity_env(f.tparams))
+      set_eq(c: inout c, eq: f.eq)
       let fi = fn_signature(c: inout c, f: f)
       let info = c.info
       set c = c with (info: info with (fns: insert(map: info.fns, key: f.name, value: fi)))
       set_tenv(c: inout c, env: {})
+      set_eq(c: inout c, eq: [])
     else
     end match
   end for
@@ -1478,8 +1538,10 @@ fn check_program(items: List<Item>, files: List<String>, next_id: Int) -> Checke
       end match
     case FnItem(decl: f) then
       set_tenv(c: inout c, env: identity_env(f.tparams))
+      set_eq(c: inout c, eq: f.eq)
       check_contracts(c: inout c, f: f)
       set_tenv(c: inout c, env: {})
+      set_eq(c: inout c, eq: [])
     end match
   end for
   // Phase 4: bodies. A generic function's body is checked once, with its type
@@ -1489,8 +1551,10 @@ fn check_program(items: List<Item>, files: List<String>, next_id: Int) -> Checke
     match item
     case FnItem(decl: f) then
       set_tenv(c: inout c, env: identity_env(f.tparams))
+      set_eq(c: inout c, eq: f.eq)
       check_fn(c: inout c, f: f)
       set_tenv(c: inout c, env: {})
+      set_eq(c: inout c, eq: [])
     else
     end match
   end for
@@ -1498,9 +1562,11 @@ fn check_program(items: List<Item>, files: List<String>, next_id: Int) -> Checke
     let next = c.queue[0]
     set c = c with (queue: slice(of: c.queue, from: 1, to: len(c.queue)))
     set_tenv(c: inout c, env: next.env)
+    set_eq(c: inout c, eq: inst_eq(f: next.decl, env: next.env))
     let before = len(c.errs)
     check_fn(c: inout c, f: next.decl)
     set_tenv(c: inout c, env: {})
+    set_eq(c: inout c, eq: [])
     // An error that only this instance has (such as '==' on a map type) names it; one
     // the generic declaration already has is dropped.
     var old = c.errs
@@ -1566,6 +1632,30 @@ fn set_tenv(c: inout Checker, env: Map<String, Ty>) do
   let info = c.info
   set c = c with (info: info with (tenv: env))
 end fn set_tenv
+
+fn set_eq(c: inout Checker, eq: List<String>) do
+  let info = c.info
+  set c = c with (info: info with (eq_tparams: eq))
+end fn set_eq
+
+// The type parameters bounded by Eq inside an instance of f made with env: those an
+// Eq parameter of f stands for. (A type argument for an Eq parameter was checked to be
+// Eq where the instance was made, so only type parameters need carrying over.)
+fn inst_eq(f: FnDecl, env: Map<String, Ty>) -> List<String> do
+  var out: List<String> = []
+  for t in f.eq do
+    match lookup(map: env, key: t)
+    case Some(value: a) then
+      match a
+      case TParam(name: n) then
+        set out = push(list: out, item: n)
+      else
+      end match
+    case None then
+    end match
+  end for
+  return out
+end fn inst_eq
 
 fn fn_signature(c: inout Checker, f: FnDecl) -> FnInfo do
   var params: List<FieldInfo> = []
@@ -1678,7 +1768,7 @@ fn instantiate_fn(c: inout Checker, g: FnDecl, args: List<Ty>, pos: Pos) -> Stri
   let env = tparam_env(tps: g.tparams, args: args)
   let saved = c
   let info0 = c.info
-  set c = c with (info: info0 with (next_id: next, tenv: env))
+  set c = c with (info: info0 with (next_id: next, tenv: env, eq_tparams: inst_eq(f: g, env: env)))
   let fi = fn_signature(c: inout c, f: copy)
   // An instance of a specification function is one too, translated from its own copy
   // of the body, whose types are the instance's.
@@ -1709,7 +1799,7 @@ fn instantiate_fn(c: inout Checker, g: FnDecl, args: List<Ty>, pos: Pos) -> Stri
     set queue = push(list: queue, item: Inst(decl: copy, env: env, compiled: concrete))
   end if
   let info2 = c.info
-  set c = saved with (info: info2 with (tenv: saved.info.tenv), errs: c.errs, queue: queue)
+  set c = saved with (info: info2 with (tenv: saved.info.tenv, eq_tparams: saved.info.eq_tparams), errs: c.errs, queue: queue)
   return inst
 end fn instantiate_fn
 
@@ -3659,6 +3749,22 @@ fn generic_call(c: inout Checker, e: Expr, g: FnDecl, args: List<Arg>, expected:
     case None then
       return Ty.TUnknown
     case Some(value: targs) then
+      for i in 0..len(targs) do
+        if (i < len(g.tparams)) and contains_str(xs: g.eq, x: g.tparams[i]) then
+          var seen: List<String> = []
+          let why = eq_problem(info: c.info, t: targs[i], seen: inout seen)
+          if why != "" then
+            var what = ty_show(targs[i]) ++ " " ++ why
+            match targs[i]
+            case TParam(name: n) then
+              set what = n ++ " is a type parameter not declared '" ++ n ++ ": Eq'"
+            else
+            end match
+            err(c: inout c, pos: e.pos, msg: "'" ++ g.name ++ "' needs " ++ g.tparams[i] ++ ": Eq, but " ++ what)
+            return Ty.TUnknown
+          end if
+        end if
+      end for
       let inst = instantiate_fn(c: inout c, g: g, args: targs, pos: e.pos)
       match get_fn(info: c.info, name: inst)
       case Some(value: fi) then

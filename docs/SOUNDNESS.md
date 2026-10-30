@@ -326,7 +326,12 @@ uninterpreted sort about which nothing is known, and its equality an undefined
 predicate. A proof that holds for every interpretation of the sort holds for every type
 argument, so the contract holds for every instance. Because a type argument may be
 `Float`, or a type holding one, `x == x` is not assumed for type parameters: a NaN is not
-equal to itself.
+equal to itself. A type parameter declared `T: Eq` is an exception: every type argument
+for it holds no float and no map, and a type parameter given for it is itself declared
+`Eq` *(checker, at each call)*. Runtime `==` on such types is structural equality over
+integers, booleans, strings and tags, which is an equivalence relation; so the
+verifier's assumptions about `T`'s equality (reflexive, symmetric, transitive) hold of
+every instance, and interpreting `T`'s equality as the runtime one satisfies them.
 
 A generic specification function is translated per instance: the instance's own copy of
 the body, type-checked with the instance's types (concrete, or another generic

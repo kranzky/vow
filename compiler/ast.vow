@@ -58,10 +58,12 @@ struct Effect
   pos: Pos,
 end struct Effect
 
-// tparams lists a generic declaration's type parameters; it is empty otherwise.
+// tparams lists a generic declaration's type parameters; it is empty otherwise. eq
+// lists those declared with the bound Eq (<T: Eq>).
 struct FnDecl
   name: String,
   tparams: List<String>,
+  eq: List<String>,
   params: List<Param>,
   ret: Option<TypeExpr>,
   effects: List<Effect>,

@@ -235,7 +235,19 @@ end fn val_eq
 fn eq_fn(v: inout Verifier, t: Ty) -> String do
   match t
   case TParam(name: n) then
-    return global_fn(v: inout v, name: "peq_" ++ n, args: "Val Val", sort: "Bool")
+    let pf = global_fn(v: inout v, name: "peq_" ++ n, args: "Val Val", sort: "Bool")
+    // Every type an Eq parameter stands for holds no float and no map, so its '==' is
+    // an equivalence: reflexive (val_eq), symmetric and transitive.
+    if contains_str(xs: v.info.eq_tparams, x: n) and not contains_str(xs: v.eq_done, x: pf) then
+      set v = v with (eq_done: push(list: v.eq_done, item: pf))
+      let ab = "(" ++ pf ++ " ea eb)"
+      let ba = "(" ++ pf ++ " eb ea)"
+      let bc = "(" ++ pf ++ " eb ec)"
+      let ac = "(" ++ pf ++ " ea ec)"
+      add_qdef(v: inout v, d: "(assert (forall ((ea Val) (eb Val)) (! (=> " ++ ab ++ " " ++ ba ++ ") :pattern (" ++ ab ++ "))))")
+      add_qdef(v: inout v, d: "(assert (forall ((ea Val) (eb Val) (ec Val)) (! (=> (and " ++ ab ++ " " ++ bc ++ ") " ++ ac ++ ") :pattern (" ++ ab ++ " " ++ bc ++ "))))")
+    end if
+    return pf
   else
   end match
   let name = "eq_" ++ mangle(ty_show(t))
@@ -549,7 +561,7 @@ fn verify_fn(v: inout Verifier, f: FnDecl) -> FnVc do
   // (values of the uninterpreted sort Val), which covers every instance.
   let info = v.info
   set v = v with (n: 0, decls: [], defs: [], qdefs: [], obs: [], strs: {}, loops: empty_loops, fname: f.name, params: {}, sf_done: [], eq_done: [], flits: [], floats: false,
-    info: info with (tenv: identity_env(f.tparams)))
+    info: info with (tenv: identity_env(f.tparams), eq_tparams: f.eq))
   var fi = FnInfo(name: f.name, params: [], io: [], ret: plain(Ty.TUnit), effects: [], pre: [], post: [],
     dec: Option.None, inline: Option.None, spec_body: Option.None, spec_rec: false, pos: f.pos)
   match get_fn(info: v.info, name: f.name)

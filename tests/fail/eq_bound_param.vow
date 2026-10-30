@@ -1,0 +1,12 @@
+// error: 'contains' needs T: Eq, but U is a type parameter not declared 'U: Eq'
+// language: 0.9
+fn contains<T: Eq>(xs: List<T>, x: T) -> Bool do
+  return exists i in 0..len(xs): xs[i] == x
+end fn contains
+
+fn holds<U>(xs: List<U>, x: U) -> Bool do
+  return contains(xs: xs, x: x)
+end fn holds
+
+fn main() do
+end fn main

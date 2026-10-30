@@ -89,7 +89,8 @@ Check your code against this list before running the compiler.
     `fn last<T>(xs: List<T>) -> T` and call `last(xs)`; write types in full
     (`Pair<Int, String>`). Inside a generic function, a `T` can be stored, passed,
     returned, compared with `==` and put in lists and maps, but not indexed or given
-    fields. A generic specification function (such as `contains<T>(xs: List<T>,
+    fields. To prove anything about `==` on `T` (even `x == x`), declare `T: Eq`
+    (`fn index_of<T: Eq>(...)`); it then cannot be used with `Float` or maps. A generic specification function (such as `contains<T>(xs: List<T>,
     x: T) -> Bool`, whose body is `return exists i in 0..len(xs): xs[i] == x`) can be
     called in specifications, at any types.
 13. **`Int` and `Float` never mix.** Write `1.0`, not `1`, for a Float, and convert
@@ -590,7 +591,21 @@ end fn last_or
 ```
 
 A generic function is verified once, for all types, and compiled separately for each
-type it is used with, so it costs nothing at runtime.
+type it is used with, so it costs nothing at runtime. Since `T` might be `Float` (and a
+NaN is not equal to itself), nothing is known about `==` on `T` unless you declare
+`T: Eq`, which rules out floats and maps:
+
+```
+fn contains<T: Eq>(xs: List<T>, x: T) -> Bool do
+  return exists i in 0..len(xs): xs[i] == x
+end fn contains
+
+fn added<T: Eq>(xs: List<T>, x: T) -> List<T>
+  ensures contains(xs: result, x: x)
+do
+  return push(list: xs, item: x)
+end fn added
+```
 
 **Building strings.** Collect parts in a `List<String>` and `join` once at the end.
 Repeated `++` copies the whole string every time.
