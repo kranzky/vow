@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.9.7
 
 - The soundness follow-ups from the review after v0.9.2 (none was unsound):
   - Fields have SMT functions of their own: struct `A_b`'s field `c` and struct `A`'s

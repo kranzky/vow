@@ -178,7 +178,8 @@ Emacs (Eglot):
 
 ## Status
 
-The current release is **v0.9.6**, which adds refined type arguments (`List<Nat>`,
+The current release is **v0.9.7**, which fixes the findings of a review of the type
+checker. v0.9.6 added refined type arguments (`List<Nat>`,
 `Option<Nat>`, `Result<Nat, String>`, refinements through generic functions) to v0.9.0,
 which added modules
 (`import "m.vow" as m`, `private`) and packages pinned to git commits
