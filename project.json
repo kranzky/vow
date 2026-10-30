@@ -4,7 +4,7 @@
   "slug": "vow",
   "tagline": "A programming language for LLM authors, with every contract proved by Z3",
   "status": "launched",
-  "category": "labs",
+  "category": "developer-tools",
   "target": "Coding agents writing software whose contracts, refinements and termination are machine-checked, and the people who review their work by reading contracts instead of bodies",
   "stack": ["Vow", "C", "Z3", "Rust"],
   "links": {
