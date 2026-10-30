@@ -109,7 +109,8 @@ ones the verifier depends on most also have must-fail tests.
 - **Specification forms are where they mean something.** `result` is only in
   `ensures`, `it` only in a refinement, `old(x)` only of an inout parameter (in
   `ensures` and invariants), and a measure is an `Int` or a list, struct, enum or
-  option value (whose rank is defined).
+  option value (whose rank is defined) and calls no function of its own function's
+  recursive group (see Termination).
 - **Literals mean what the verifier says.** An integer literal must fit in 64 bits, so
   its runtime value is the number the verifier reasons with. String and character
   literals have a fixed set of escapes, and the code generator writes every byte back
@@ -136,6 +137,11 @@ The other quantified facts are true of every value: the prelude's (a length is a
 0, a byte is below 256), the float facts (see Floats), the definitions of the structural
 equality predicates (a least fixpoint, built one level at a time, see Equality) and the
 axioms of specification functions (true of every real value, see below).
+
+**Every field has its own function.** A struct's field is read by an SMT function named
+from the struct's and the field's names, and a variant's from the enum's, the variant's
+and the field's, each name escaped and joined by `.`, which no escaped name contains;
+so no two fields share a function, and each is declared with its own field's sort.
 
 A construction (`S(...)`, a variant with fields, `with`) is the exception: its fields
 are path facts, stated after its field refinements are proved, not global ones. A global
@@ -298,6 +304,11 @@ value's rank, which the verifier relates only as a value's real height is relate
 a variant's fields and a list's elements are smaller than the value, and a struct's
 fields no larger. These facts are stated for the parts the code reads, so every rank
 fact is true of heights, and a rank proved smaller is a height that is smaller.
+A measure calls no function of its own group *(checker)*: within the group's queries
+such a function has no axioms, so it is known only through what the group's calls
+assume of it, and a measure built from it would rest on the termination it is meant to
+prove. A measure is therefore a quantity defined outside the group, by functions that
+terminate before the group is considered.
 
 **Generics.** A generic function is verified once, with each type parameter an
 uninterpreted sort about which nothing is known, and its equality an undefined
@@ -326,9 +337,10 @@ A function is not verified again when its verification key is in the program's c
 file. The key is a hash of everything the proof depended on: the verifier version; the
 function's own text; every type declaration and every specification function's whole
 text (refinements and specifications may use them, however indirectly); the contracts
-of the functions it calls, measures included; and the members of its recursive group,
+of the functions it calls, measures included; the members of its recursive group,
 since a call into the group carries a measure obligation that a call outside it does
-not. The verifier version changes whenever the SMT the verifier emits does
+not; and whether the program has structural measures, which add the rank facts to every
+function's queries. The verifier version changes whenever the SMT the verifier emits does
 (`tests/fingerprint.sh` enforces this), so a result proved by an older verifier, which
 may have had a bug since fixed, is proved again. `tests/cache/` edits programs between
 two checks with the cache on.
@@ -417,3 +429,18 @@ The program generator found one more after v0.9.3:
   postconditions were proved vacuously, the axioms contradicted each other, and any
   specification naming the function (a loop measure) proved anything
   (`empty_struct_axiom.vow`).
+
+The follow-ups left open by the review after v0.9.2 were closed after v0.9.6. None was
+unsound, but:
+
+- A field's SMT function was named by joining names with `_`, so struct `A_b`'s field
+  `c` and struct `A`'s field `b_c` shared one; with different sorts Z3 rejected the
+  query, so a correct program could not be verified (`tests/run/field_names.vow`).
+  With the same sort the sharing was harmless, since no value has both types.
+- A measure could call a function of its own recursive group, whose axioms the group's
+  queries leave out. No circular proof was found (the measure's value on entry is then
+  unknown, so the obligations fail), but the argument was fragile, and such a measure is
+  now an error (`measure_own_group.vow`, `measure_self.vow`).
+- The cache key left out whether the program has structural measures, which add rank
+  facts to every query. Those facts are true, so a cached proof stayed valid, but the
+  key now covers them.

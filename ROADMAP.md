@@ -41,13 +41,10 @@ Must-have, language and proofs:
       measures included), mutation fuzzing (`tests/fuzz.py`), an independent review of
       the verifier against `SOUNDNESS.md` (after v0.9.2: six bugs found and fixed), and
       a random program generator (`tests/genfuzz.py`: one more bug found and fixed)
-- [ ] Soundness follow-ups, open from the review after v0.9.2 (none reproduced as a
-      bug): field functions in the SMT are not mangled, so struct `A_b`'s field `c` and
-      struct `A`'s field `b_c` share one name; a function's measure may call a
-      specification function of its own recursive group, whose axioms that group's
-      queries leave out (check that this cannot be circular); and the cache key leaves
-      out whether the program has structural measures, which changes the SMT a function
-      gets
+- [x] Soundness follow-ups from the review after v0.9.2 (none was unsound): field
+      functions in the SMT get unambiguous names (the shared name made Z3 reject some
+      correct programs); a measure may not call a function of its own recursive group;
+      the cache key covers structural measures
 - [ ] A second independent review: the type checker against "What the checker
       guarantees" in `docs/SOUNDNESS.md`, as the verifier was reviewed against the rest
 - [x] Quantified specs (`forall`/`exists` over ranges) and expression functions in specs

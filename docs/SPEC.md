@@ -498,7 +498,8 @@ obligations to Z3 in SMT-LIB 2.
   recursive group (calls in contracts count). When one member of a group has
   `decreases M`, every member must have a measure, and every call within the group
   must make the callee's measure, on the arguments as passed, smaller than the
-  caller's `M`, which must be non-negative. `for` loops always terminate. Functions
+  caller's `M`, which must be non-negative. A measure may not call a function of its
+  own recursive group (it would rest on the termination it proves). `for` loops always terminate. Functions
   without measures get partial-correctness proofs: their contracts hold if they return.
 - A measure is an `Int`, or a value of a list, struct, enum or option type, which must
   get structurally smaller: a variant's fields and a list's elements are smaller than

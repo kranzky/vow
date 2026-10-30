@@ -1,0 +1,26 @@
+// error: the measure of 'down' calls 'height', which is recursive with 'down'
+// language: 0.9
+// A measure may not be made of a function whose termination it is meant to prove:
+// within the group's proofs, height is known only through what the group assumes.
+fn height(n: Int) -> Int
+  ensures result >= 0
+  decreases n
+do
+  if n <= 0 then
+    return 0
+  end if
+  return down(n - 1) + 1
+end fn height
+
+fn down(n: Int) -> Int
+  ensures result >= 0
+  decreases height(n)
+do
+  if n <= 0 then
+    return 0
+  end if
+  return height(n - 1)
+end fn down
+
+fn main() do
+end fn main

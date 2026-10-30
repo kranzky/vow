@@ -57,7 +57,7 @@ fn check_source(src: Source, test_mode: Bool) -> Checked do
   end if
   let rec = recursion(items: src.items, info: c.info)
   if len(errs) == 0 then
-    set errs = measure_errors(items: src.items, r: rec)
+    set errs = measure_errors(items: src.items, r: rec, info: c.info)
   end if
   let info0 = c.info
   set c = c with (info: info0 with (scc: rec.scc, recursive: rec.recursive))

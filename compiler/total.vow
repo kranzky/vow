@@ -345,8 +345,11 @@ fn scc_of(scc: Map<String, Int>, n: String) -> Int do
   return value_or(opt: lookup(map: scc, key: n), default: -1)
 end fn scc_of
 
-// When one function of a recursive group has a measure, every member needs one.
-fn measure_errors(items: List<Item>, r: Recursion) -> List<Diag> do
+// When one function of a recursive group has a measure, every member needs one. A
+// measure may not call a function of its own group: within the group's proofs such a
+// function is known only through what the group assumes of its calls, so a measure made
+// of it would be justified by the termination it is meant to prove.
+fn measure_errors(items: List<Item>, r: Recursion, info: Info) -> List<Diag> do
   var measured: Map<Int, String> = {}
   for item in items do
     match item
@@ -361,6 +364,21 @@ fn measure_errors(items: List<Item>, r: Recursion) -> List<Diag> do
   for item in items do
     match item
     case FnItem(decl: f) then
+      if has(map: r.recursive, key: f.name) then
+        match f.dec
+        case Some(value: d) then
+          var called: List<String> = []
+          calls_in_expr(e: d, info: info, out: inout called)
+          for g in called do
+            if scc_of(scc: r.scc, n: g) == scc_of(scc: r.scc, n: f.name) then
+              let msg = "the measure of '" ++ f.name ++ "' calls '" ++ g ++ "', which is recursive with '" ++ f.name ++ "'"
+              let dg = diag(pos: d.pos, msg: msg)
+              set out = push(list: out, item: with_note(d: dg, note: "a measure must be defined without the functions whose termination it proves"))
+            end if
+          end for
+        case None then
+        end match
+      end if
       if has(map: r.recursive, key: f.name) and not is_some(f.dec) then
         match lookup(map: measured, key: scc_of(scc: r.scc, n: f.name))
         case Some(value: g) then

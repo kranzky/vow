@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- The soundness follow-ups from the review after v0.9.2 (none was unsound):
+  - Fields have SMT functions of their own: struct `A_b`'s field `c` and struct `A`'s
+    field `b_c` shared one, so when their types differed Z3 rejected the query and a
+    correct program could not be verified.
+  - A function's `decreases` measure may not call a function of its own recursive
+    group: "the measure of 'down' calls 'height', which is recursive with 'down'".
+    Such a measure could never be proved, and would rest on the termination it proves.
+  - The verification cache key includes whether the program has structural measures,
+    which add facts to every function's queries.
+- Verifier version `vow-verifier-12`.
+
 ## v0.9.6
 
 - Refined type arguments: `List<Nat>`, `Option<Int where it >= 0>`, `List<List<Nat>>`,

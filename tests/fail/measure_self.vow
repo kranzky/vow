@@ -1,0 +1,14 @@
+// error: the measure of 'f' calls 'f', which is recursive with 'f'
+// language: 0.9
+fn f(n: Int) -> Int
+  ensures result >= 0
+  decreases f(n)
+do
+  if n <= 0 then
+    return 0
+  end if
+  return f(n - 1)
+end fn f
+
+fn main() do
+end fn main

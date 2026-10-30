@@ -9,7 +9,7 @@ import "pretty.vow"
 // changes (tests/fingerprint.sh enforces this), so that results proved by an earlier
 // verifier, which might have had a soundness bug since fixed, are not reused.
 fn verifier_version() -> String do
-  return "vow-verifier-11"
+  return "vow-verifier-12"
 end fn verifier_version
 
 fn calls_in_expr(e: Expr, info: Info, out: inout List<String>) do
@@ -214,6 +214,11 @@ fn hash_program(items: List<Item>, info: Info) -> List<FnHash> do
         end match
       end for
       var material = verifier_version() ++ "\n" ++ body ++ "\n" ++ types_hash ++ "\n"
+      // A program with structural measures gives every function the facts about ranks
+      // (see rank_part in verify.vow), so the SMT a function gets depends on it.
+      if info.structural then
+        set material = material ++ "structural\n"
+      end if
       // The function's group of mutually recursive functions: a call into the group
       // must decrease the measure, so the proof changes when the group does (say, when
       // a callee's body starts calling back), even if this function does not.

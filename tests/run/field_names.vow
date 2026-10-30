@@ -1,0 +1,45 @@
+// language: 0.9
+// Fields whose names joined with '_' coincide (A_b.c and A.b_c, E_x.V.f and E.x_V.f)
+// are different functions in the SMT. They once shared one, which Z3 rejected when
+// their sorts differed.
+struct A_b
+  c: Int where it >= 0,
+end struct A_b
+
+struct A
+  b_c: Bool,
+end struct A
+
+enum E_x
+  V(f: Bool),
+end enum E_x
+
+enum E
+  x_V(f: Int where it > 2),
+end enum E
+
+fn pick(x: A_b, y: A) -> Int ensures result >= 0 do
+  if y.b_c then
+    return x.c
+  end if
+  return 1
+end fn pick
+
+fn both(p: E_x, q: E) -> Int ensures result > 2 do
+  match p
+  case V(f: b) then
+    match q
+    case x_V(f: n) then
+      if b then
+        return n
+      end if
+      return n + 1
+    end match
+  end match
+end fn both
+
+fn main() uses console do
+  let r = pick(x: A_b(c: 5), y: A(b_c: true))
+  let s = both(p: E_x.V(f: false), q: E.x_V(f: 3))
+  print(int_to_str(r) ++ " " ++ int_to_str(s) ++ "\n")
+end fn main

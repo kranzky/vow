@@ -432,21 +432,33 @@ fn global_fn(v: inout Verifier, name: String, args: String, sort: String) -> Str
   return name
 end fn global_fn
 
+// The SMT functions reading fields are named from the type, variant and field names,
+// each mangled (which leaves no '.') and joined by '.', so no two fields share one:
+// joined by '_', struct A_b's field c and struct A's field b_c did, and if their sorts
+// differed Z3 rejected the query. VOW_SMT_V03 (hyps off) keeps the names the frozen
+// bootstrap verifier writes.
 fn field_fn(v: inout Verifier, sname: String, field: String, t: Ty) -> String do
-  if is_instance_name(sname) then
-    return global_fn(v: inout v, name: "gfld_" ++ mangle(sname) ++ "_" ++ field, args: "Val", sort: sort_of(t))
+  if not v.hyps then
+    if is_instance_name(sname) then
+      return global_fn(v: inout v, name: "gfld_" ++ mangle(sname) ++ "_" ++ field, args: "Val", sort: sort_of(t))
+    end if
+    return global_fn(v: inout v, name: "fld_" ++ sname ++ "_" ++ field, args: "Val", sort: sort_of(t))
   end if
-  return global_fn(v: inout v, name: "fld_" ++ sname ++ "_" ++ field, args: "Val", sort: sort_of(t))
+  return global_fn(v: inout v, name: "fld." ++ mangle(sname) ++ "." ++ mangle(field), args: "Val", sort: sort_of(t))
 end fn field_fn
 
 fn vfield_fn(v: inout Verifier, ename: String, vname: String, field: String, t: Ty) -> String do
   if ename == "Option" then
     return global_fn(v: inout v, name: "opt_value_" ++ sort_of(t), args: "Val", sort: sort_of(t))
   end if
-  if is_instance_name(ename) then
-    return global_fn(v: inout v, name: "gvf_" ++ mangle(ename) ++ "_" ++ vname ++ "_" ++ field, args: "Val", sort: sort_of(t))
+  if not v.hyps then
+    if is_instance_name(ename) then
+      return global_fn(v: inout v, name: "gvf_" ++ mangle(ename) ++ "_" ++ vname ++ "_" ++ field, args: "Val", sort: sort_of(t))
+    end if
+    return global_fn(v: inout v, name: "vf_" ++ ename ++ "_" ++ vname ++ "_" ++ field, args: "Val", sort: sort_of(t))
   end if
-  return global_fn(v: inout v, name: "vf_" ++ ename ++ "_" ++ vname ++ "_" ++ field, args: "Val", sort: sort_of(t))
+  return global_fn(v: inout v, name: "vf." ++ mangle(ename) ++ "." ++ mangle(vname) ++ "." ++ mangle(field), args: "Val",
+    sort: sort_of(t))
 end fn vfield_fn
 
 fn add_fact(st: inout St, f: String) do
