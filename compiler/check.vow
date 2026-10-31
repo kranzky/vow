@@ -156,6 +156,9 @@ struct Info
   // The type parameters in scope declared with the bound Eq: their values are equal to
   // themselves (they hold no float), and they can be compared (they hold no map).
   eq_tparams: List<String>,
+  // Whether an instance of a generic function is being checked: its type parameters
+  // were checked against the bounds where it was made.
+  in_instance: Bool,
   // The type arguments of each instance of a generic type.
   inst_args: Map<String, List<Ty>>,
   // The generic function each function instance was made from.
@@ -391,6 +394,54 @@ fn eq_blocker(info: Info, t: Ty, seen: inout List<String>) -> String do
     return ""
   end match
 end fn eq_blocker
+
+// The first type parameter in t that is not bounded by Eq, or "": '==' on t needs every
+// type parameter it holds to be declared 'T: Eq'.
+fn unbounded_tparam(info: Info, t: Ty, seen: inout List<String>) -> String do
+  match t
+  case TParam(name: n) then
+    if contains_str(xs: info.eq_tparams, x: n) then
+      return ""
+    end if
+    return n
+  case TList(elem: x) then
+    return unbounded_tparam(info: info, t: x, seen: inout seen)
+  case TOpt(inner: x) then
+    return unbounded_tparam(info: info, t: x, seen: inout seen)
+  case TStruct(name: n) then
+    if contains_str(xs: seen, x: n) then
+      return ""
+    end if
+    set seen = push(list: seen, item: n)
+    for f in struct_fields(info: info, name: n) do
+      let p = unbounded_tparam(info: info, t: f.rty.ty, seen: inout seen)
+      if p != "" then
+        return p
+      end if
+    end for
+    return ""
+  case TEnum(name: n) then
+    if contains_str(xs: seen, x: n) then
+      return ""
+    end if
+    set seen = push(list: seen, item: n)
+    match lookup(map: info.enums, key: n)
+    case Some(value: vs) then
+      for vi in vs do
+        for f in vi.fields do
+          let p = unbounded_tparam(info: info, t: f.rty.ty, seen: inout seen)
+          if p != "" then
+            return p
+          end if
+        end for
+      end for
+    case None then
+    end match
+    return ""
+  else
+    return ""
+  end match
+end fn unbounded_tparam
 
 // Whether values of t can hold a Float (and so a NaN, which is not equal to itself).
 fn contains_float(info: Info, t: Ty) -> Bool do
@@ -1290,7 +1341,7 @@ fn new_info() -> Info do
   set structs = insert(map: structs, key: "Output",
     value: [FieldInfo(name: "code", rty: plain(Ty.TInt)), FieldInfo(name: "out", rty: plain(Ty.TStr))])
   return Info(structs: structs, enums: {}, aliases: {}, fns: {}, types: {}, calls: {}, holes: [],
-    gfns: {}, gstructs: {}, genums: {}, tenv: {}, eq_tparams: [], inst_args: {}, origins: {}, pending: [], instances: [],
+    gfns: {}, gstructs: {}, genums: {}, tenv: {}, eq_tparams: [], in_instance: false, inst_args: {}, origins: {}, pending: [], instances: [],
     next_id: 0, scc: {}, recursive: {}, structural: false, spec_notes: {})
 end fn new_info
 
@@ -1563,11 +1614,15 @@ fn check_program(items: List<Item>, files: List<String>, next_id: Int) -> Checke
     set c = c with (queue: slice(of: c.queue, from: 1, to: len(c.queue)))
     set_tenv(c: inout c, env: next.env)
     set_eq(c: inout c, eq: inst_eq(f: next.decl, env: next.env))
+    let info1 = c.info
+    set c = c with (info: info1 with (in_instance: true))
     let before = len(c.errs)
     check_fn(c: inout c, f: next.decl)
     set_tenv(c: inout c, env: {})
     set_eq(c: inout c, eq: [])
-    // An error that only this instance has (such as '==' on a map type) names it; one
+    let info2 = c.info
+    set c = c with (info: info2 with (in_instance: false))
+    // An error that only this instance has (such as a map keyed by a Float) names it; one
     // the generic declaration already has is dropped.
     var old = c.errs
     if before <= len(c.errs) then
@@ -1768,7 +1823,7 @@ fn instantiate_fn(c: inout Checker, g: FnDecl, args: List<Ty>, pos: Pos) -> Stri
   let env = tparam_env(tps: g.tparams, args: args)
   let saved = c
   let info0 = c.info
-  set c = c with (info: info0 with (next_id: next, tenv: env, eq_tparams: inst_eq(f: g, env: env)))
+  set c = c with (info: info0 with (next_id: next, tenv: env, eq_tparams: inst_eq(f: g, env: env), in_instance: true))
   let fi = fn_signature(c: inout c, f: copy)
   // An instance of a specification function is one too, translated from its own copy
   // of the body, whose types are the instance's.
@@ -1799,7 +1854,8 @@ fn instantiate_fn(c: inout Checker, g: FnDecl, args: List<Ty>, pos: Pos) -> Stri
     set queue = push(list: queue, item: Inst(decl: copy, env: env, compiled: concrete))
   end if
   let info2 = c.info
-  set c = saved with (info: info2 with (tenv: saved.info.tenv, eq_tparams: saved.info.eq_tparams), errs: c.errs, queue: queue)
+  set c = saved with (info: info2 with (tenv: saved.info.tenv, eq_tparams: saved.info.eq_tparams,
+    in_instance: saved.info.in_instance), errs: c.errs, queue: queue)
   return inst
 end fn instantiate_fn
 
@@ -3315,7 +3371,10 @@ fn check_binary(c: inout Checker, e: Expr, op: String, l: Expr, r: Expr) -> Ty d
     let b = check_expr(c: inout c, e: r, expected: Option.Some(value: a))
     let sa = ty_show(a)
     let sb = ty_show(b)
-    if (sa != "?") and (sb != "?") then
+    // An instance's comparisons were checked in the generic declaration: a map can reach
+    // one only through a type parameter, which is then either not bounded by Eq (an
+    // error there) or bounded (an error at the call).
+    if (sa != "?") and (sb != "?") and not c.info.in_instance then
       var seen: List<String> = []
       let blocker = eq_blocker(info: c.info, t: a, seen: inout seen)
       if sa != sb then
@@ -3324,6 +3383,12 @@ fn check_binary(c: inout Checker, e: Expr, op: String, l: Expr, r: Expr) -> Ty d
         err(c: inout c, pos: e.pos, msg: "'" ++ op ++ "' does not work on maps (" ++ sa ++ "); compare lookups instead")
       elif len(blocker) > 0 then
         err(c: inout c, pos: e.pos, msg: "'" ++ op ++ "' does not work on " ++ sa ++ ", because it contains " ++ blocker)
+      else
+        var seen2: List<String> = []
+        let tp = unbounded_tparam(info: c.info, t: a, seen: inout seen2)
+        if tp != "" then
+          err(c: inout c, pos: e.pos, msg: "'" ++ op ++ "' on " ++ sa ++ " needs the bound Eq: declare '" ++ tp ++ ": Eq' in the function's type parameters")
+        end if
       end if
     end if
     return Ty.TBool

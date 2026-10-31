@@ -28,7 +28,7 @@ struct Pair<A, B>
   second: B,
 end struct Pair
 
-fn index_of<T>(xs: List<T>, x: T) -> Int
+fn index_of<T: Eq>(xs: List<T>, x: T) -> Int
   ensures result >= -1
   ensures result < len(xs)
   ensures (result >= 0) implies (xs[result] == x)
@@ -41,7 +41,7 @@ do
   return -1
 end fn index_of
 
-fn dedupe<T>(xs: List<T>) -> List<T>
+fn dedupe<T: Eq>(xs: List<T>) -> List<T>
   ensures len(result) <= len(xs)
 do
   var out: List<T> = []

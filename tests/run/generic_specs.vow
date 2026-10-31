@@ -26,11 +26,11 @@ fn or_else<T>(o: Option<T>, d: T) -> T do
   end match
 end fn or_else
 
-fn contains<T>(xs: List<T>, x: T) -> Bool do
+fn contains<T: Eq>(xs: List<T>, x: T) -> Bool do
   return exists i in 0..len(xs): xs[i] == x
 end fn contains
 
-fn count<T>(xs: List<T>, x: T, n: Int) -> Int
+fn count<T: Eq>(xs: List<T>, x: T, n: Int) -> Int
   requires (0 <= n) and (n <= len(xs))
   ensures (0 <= result) and (result <= n)
   decreases n
@@ -45,11 +45,11 @@ do
   return rest
 end fn count
 
-fn has_key<K, V>(ps: List<Pair<K, V>>, k: K) -> Bool do
+fn has_key<K: Eq, V>(ps: List<Pair<K, V>>, k: K) -> Bool do
   return exists i in 0..len(ps): fst(ps[i]) == k
 end fn has_key
 
-fn both<T>(xs: List<T>, x: T, y: T) -> Bool do
+fn both<T: Eq>(xs: List<T>, x: T, y: T) -> Bool do
   return contains(xs: xs, x: x) and contains(xs: xs, x: y)
 end fn both
 
@@ -67,7 +67,7 @@ do
 end fn push_last
 
 // At its own type parameter, which differs from contains's.
-fn index_of<U>(xs: List<U>, x: U) -> Int
+fn index_of<U: Eq>(xs: List<U>, x: U) -> Int
   ensures (result == -1) or ((0 <= result) and (result < len(xs)))
   ensures (result == -1) implies not contains(xs: xs, x: x)
 do
@@ -114,8 +114,6 @@ fn main() uses console do
   assert fst(s) == "x"
   let n = pick(o: Option.None)
   assert n == 7
-  let fs = [1.5, 2.5]
-  assert contains(xs: fs, x: 2.5)
   print(int_to_str(index_of(xs: xs, x: 2)) ++ " " ++ int_to_str(count(xs: xs, x: 2, n: 3)) ++ "\n")
   print(int_to_str(n) ++ " " ++ s.first ++ "\n")
 end fn main

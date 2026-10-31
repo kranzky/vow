@@ -3,17 +3,19 @@
 ## Unreleased
 
 - The bound `Eq` on a function's type parameters: `fn index_of<T: Eq>(xs: List<T>,
-  x: T) -> Int`. Each call checks that the type argument holds no `Float` and no map
-  ("'index_of' needs T: Eq, but Float can hold a NaN, which is not equal to itself"),
-  and the verifier knows `==` on `T` is reflexive, symmetric and transitive, which an
-  unbounded `T` cannot assume. Generic code can now prove, for example, that
-  `push(list: xs, item: x)` contains `x`.
+  x: T) -> Int`. `==` on `T` (or `List<T>`, `Box<T>`, ...) now needs it: "'==' on T
+  needs the bound Eq: declare 'T: Eq' in the function's type parameters". Each call
+  checks that the type argument holds no `Float` and no map ("'index_of' needs T: Eq,
+  but Float can hold a NaN, which is not equal to itself"), and the verifier knows `==`
+  on `T` is reflexive, symmetric and transitive. Generic code can now prove, for
+  example, that `push(list: xs, item: x)` contains `x`, and a generic function that
+  compares values can no longer fail at a map type argument after it was accepted.
+  Breaking: add `: Eq` to type parameters compared with `==`.
 - Generic functions can be called in specifications, when they are specification
   functions or expression functions by the same rules as other functions: for example
   `ensures (result == -1) implies not contains(xs: xs, x: x)` with
-  `fn contains<T>(xs: List<T>, x: T) -> Bool`. Each instance is translated from its own
-  copy of the body with the instance's types, so `==` at `Float` is that of floats, as
-  at runtime. Calls to them in code are transparent, as for other specification
+  `fn contains<T: Eq>(xs: List<T>, x: T) -> Bool`. Each instance is translated from its
+  own copy of the body with the instance's types. Calls to them in code are transparent, as for other specification
   functions.
 - Verifier version `vow-verifier-13`.
 

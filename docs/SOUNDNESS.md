@@ -59,7 +59,7 @@ ones the verifier depends on most also have must-fail tests.
 - **Every expression has one type, and every operation gets the types it is defined
   on.** Arithmetic is on `Int` or on `Float`, never mixed and never converted
   implicitly; order comparisons are on `Int` and `Float` only; `==` compares values of
-  one type, never maps; indexing is of a `List` or `String`; a field is read from a
+  one type, never maps, and on a type parameter only one declared `Eq`; indexing is of a `List` or `String`; a field is read from a
   struct that has it; a pattern matches the scrutinee's type; an argument has its
   parameter's type, with each type parameter inferred to one type for the whole call;
   `try` passes on an error of exactly the enclosing function's error type. A program
@@ -324,11 +324,10 @@ have no loops.
 **Generics.** A generic function is verified once, with each type parameter an
 uninterpreted sort about which nothing is known, and its equality an undefined
 predicate. A proof that holds for every interpretation of the sort holds for every type
-argument, so the contract holds for every instance. Because a type argument may be
-`Float`, or a type holding one, `x == x` is not assumed for type parameters: a NaN is not
-equal to itself. A type parameter declared `T: Eq` is an exception: every type argument
-for it holds no float and no map, and a type parameter given for it is itself declared
-`Eq` *(checker, at each call)*. Runtime `==` on such types is structural equality over
+argument, so the contract holds for every instance. `==` on a type that holds a type
+parameter needs the parameter to be declared `T: Eq` *(checker)*, and every type
+argument for such a parameter holds no float and no map, and a type parameter given for
+it is itself declared `Eq` *(checker, at each call)*. Runtime `==` on such types is structural equality over
 integers, booleans, strings and tags, which is an equivalence relation; so the
 verifier's assumptions about `T`'s equality (reflexive, symmetric, transitive) hold of
 every instance, and interpreting `T`'s equality as the runtime one satisfies them.

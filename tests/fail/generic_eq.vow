@@ -1,11 +1,18 @@
-// error: '==' does not work on maps (Map<String, Int>); compare lookups instead, in same<Map<String, Int>>
-// language: 0.4
+// error: '!=' on Pair<Int, T> needs the bound Eq: declare 'T: Eq' in the function's type parameters
+// language: 0.9
 
-fn same<T>(a: T, b: T) -> Bool do
-  return a == b
-end fn same
+struct Pair<A, B>
+  first: A,
+  second: B,
+end struct Pair
+
+// T may hold a map, which '==' does not compare: the error is at the comparison, not
+// at a call.
+fn differ<T>(a: Pair<Int, T>, b: Pair<Int, T>) -> Bool do
+  return a != b
+end fn differ
 
 fn main() do
   var m: Map<String, Int> = {}
-  let _ = same(a: m, b: m)
+  let _ = differ(a: Pair(first: 1, second: m), b: Pair(first: 1, second: m))
 end fn main

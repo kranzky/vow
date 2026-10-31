@@ -6,8 +6,8 @@ struct Pair<A, B>
   second: B,
 end struct Pair
 
-// Nothing is known about equality on T, so equal second fields prove nothing.
-fn same<T>(a: Pair<T, Int>, b: Pair<T, Int>) requires a.second == b.second do
+// Equal second fields say nothing about the first ones.
+fn same<T: Eq>(a: Pair<T, Int>, b: Pair<T, Int>) requires a.second == b.second do
   assert a == b
 end fn same
 

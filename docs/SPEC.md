@@ -308,18 +308,21 @@ end fn reversed
   `Result.Err(error: e)` need an expected type. When a parameter cannot be inferred,
   the error asks for an annotation.
 - Inside the declaration, a type parameter is a type about which nothing is known:
-  values of type `T` can be stored, passed, returned, compared with `==` and put in
-  lists, options, maps and other generic types, but not indexed or given fields. A
-  use of `==` on `T` is checked again for each type argument, so a generic function
-  that compares its `T` values cannot be used with a map type. A type
-  parameter may be a map key; each use checks that its key type is `Int` or `String`.
+  values of type `T` can be stored, passed, returned and put in lists, options, maps and
+  other generic types, but not compared (unless `T: Eq`, below), indexed or given
+  fields. A type parameter may be a map key; each use checks that its key type is `Int`
+  or `String`.
 - A function's type parameter may have the bound `Eq`: `fn index_of<T: Eq>(xs:
-  List<T>, x: T) -> Int`. Its type arguments must hold no `Float` and no map (through
-  lists, options and the fields of structs and enums), and a type parameter given as one
-  must itself be declared `Eq`; each call is checked ("'index_of' needs T: Eq, but Float
-  can hold a NaN, which is not equal to itself"). In return, `==` on `T` is an
-  equivalence for the verifier: `x == x`, and it is symmetric and transitive. Structs and
-  enums cannot have bounds; `Eq` is the only bound.
+  List<T>, x: T) -> Int`. `==` and `!=` on a type that holds a type parameter (`T`,
+  `List<T>`, `Box<T>`) need it to be declared `Eq` ("'==' on T needs the bound Eq:
+  declare 'T: Eq' in the function's type parameters"). The type arguments of an `Eq`
+  parameter must hold no `Float` and no map (through lists, options and the fields of
+  structs and enums), and a type parameter given as one must itself be declared `Eq`;
+  each call is checked ("'index_of' needs T: Eq, but Float can hold a NaN, which is not
+  equal to itself"). In return, `==` on `T` is an equivalence for the verifier: `x == x`,
+  and it is symmetric and transitive. So a generic function that compares values says so
+  in its signature, works for every type it accepts, and proves what holds of every
+  equality. Structs and enums cannot have bounds; `Eq` is the only bound.
 - Type parameters may not have the name of a type. The type arguments of a generic
   type may be refined (`Box<Nat>`, see Refinements); those of a generic function call
   are inferred without refinements, for type checking. For the verifier, a refinement
@@ -564,12 +567,11 @@ On other types `a == b` is `a = b` or `eq_T(a, b)`, where `eq_T` is a predicate
 defined by an axiom that unfolds it one level: the fields, the tag and the variant's
 fields, or the length and every element, compared the same way. Equal values can
 therefore be proved equal however they were built, and equal values have equal parts.
-For a type parameter, `eq_T` is left undefined, so a generic function proves only what
-holds for every type's equality. Since a type parameter may stand for `Float`, and a type
-that can hold a float is not equal to itself when it holds a NaN, `x == x` is not
-assumed for such types. A type parameter declared `Eq` holds no float, so for it (and
-the types built from it) `a == b` is again `a = b` or `eq_T(a, b)`, and `eq_T` is
-stated to be symmetric and transitive.
+A type that can hold a float is not equal to itself when it holds a NaN, so for such
+types `x == x` is not assumed. `==` on a type parameter needs the bound `Eq`, whose type
+arguments hold no float: for `T` (and the types built from it) `a == b` is `a = b` or
+`eq_T(a, b)`, where `eq_T` is left undefined except that it is stated to be symmetric
+and transitive, so a generic function proves only what holds for every such equality.
 
 ## Effects
 

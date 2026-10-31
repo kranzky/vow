@@ -88,11 +88,13 @@ Check your code against this list before running the compiler.
 12. **Generic type arguments are inferred, never written at calls.** Declare
     `fn last<T>(xs: List<T>) -> T` and call `last(xs)`; write types in full
     (`Pair<Int, String>`). Inside a generic function, a `T` can be stored, passed,
-    returned, compared with `==` and put in lists and maps, but not indexed or given
-    fields. To prove anything about `==` on `T` (even `x == x`), declare `T: Eq`
-    (`fn index_of<T: Eq>(...)`); it then cannot be used with `Float` or maps. A generic specification function (such as `contains<T>(xs: List<T>,
-    x: T) -> Bool`, whose body is `return exists i in 0..len(xs): xs[i] == x`) can be
-    called in specifications, at any types.
+    returned and put in lists and maps, but not indexed or given fields. To compare
+    `T` values with `==` (or `List<T>`, `Box<T>`, ...), declare `T: Eq`
+    (`fn index_of<T: Eq>(...)`); such a function cannot be called with `Float` or map
+    types, so for those write a function for the concrete type. A generic
+    specification function (such as `contains<T: Eq>(xs: List<T>, x: T) -> Bool`, whose
+    body is `return exists i in 0..len(xs): xs[i] == x`) can be called in
+    specifications.
 13. **`Int` and `Float` never mix.** Write `1.0`, not `1`, for a Float, and convert
     with `int_to_float`. `/` and `%` on `Int` are integer division with Euclidean
     semantics: the remainder is never negative (`-7 / 2 == -4`, `-7 % 2 == 1`).
@@ -591,9 +593,9 @@ end fn last_or
 ```
 
 A generic function is verified once, for all types, and compiled separately for each
-type it is used with, so it costs nothing at runtime. Since `T` might be `Float` (and a
-NaN is not equal to itself), nothing is known about `==` on `T` unless you declare
-`T: Eq`, which rules out floats and maps:
+type it is used with, so it costs nothing at runtime. Comparing `T` values needs
+`T: Eq`, which rules out floats (a NaN is not equal to itself) and maps; in return `==`
+on `T` is known to be reflexive, symmetric and transitive:
 
 ```
 fn contains<T: Eq>(xs: List<T>, x: T) -> Bool do

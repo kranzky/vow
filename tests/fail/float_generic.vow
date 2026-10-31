@@ -1,7 +1,7 @@
-// error: cannot prove postcondition of 'keep': result == x
-// language: 0.8
+// error: '==' on T needs the bound Eq: declare 'T: Eq' in the function's type parameters
+// language: 0.9
 
-// T may be Float, and a NaN is not equal to itself.
+// T may be Float, and a NaN is not equal to itself, so '==' on T needs the bound.
 fn keep<T>(x: T) -> T ensures result == x do
   return x
 end fn keep
