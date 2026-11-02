@@ -83,6 +83,12 @@ Must-have, language and proofs:
 - [x] An `Eq` bound on type parameters (`fn index_of<T: Eq>(...)`) for types that hold
       no float and no map, required for `==` on `T`: checked at each call, and `==` on
       `T` is an equivalence for the verifier (reflexive, symmetric, transitive)
+- [x] An `Ord` bound (`fn sort<T: Ord>(...)`) for `Int`, `String` and type parameters
+      declared `Ord`: `<` on `T` is a strict total order for the verifier, and a
+      function's type parameter used as a map key needs it; `<` on strings
+- [ ] Bounds on generic structs and enums (`struct Index<K: Ord>`), so their map key
+      types are checked where the type is written rather than per instance; and
+      lexicographic `Ord` on lists, options and structs
 - [ ] Decide how diagnostics name a module's declarations: by the file's name, as now
       (`money.Amount` even when imported `as cash`), or by the alias the importing file
       chose

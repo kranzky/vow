@@ -309,9 +309,8 @@ end fn reversed
   the error asks for an annotation.
 - Inside the declaration, a type parameter is a type about which nothing is known:
   values of type `T` can be stored, passed, returned and put in lists, options, maps and
-  other generic types, but not compared (unless `T: Eq`, below), indexed or given
-  fields. A type parameter may be a map key; each use checks that its key type is `Int`
-  or `String`.
+  other generic types, but not compared (unless `T: Eq` or `T: Ord`, below), indexed or
+  given fields.
 - A function's type parameter may have the bound `Eq`: `fn index_of<T: Eq>(xs:
   List<T>, x: T) -> Int`. `==` and `!=` on a type that holds a type parameter (`T`,
   `List<T>`, `Box<T>`) need it to be declared `Eq` ("'==' on T needs the bound Eq:
@@ -322,7 +321,17 @@ end fn reversed
   equal to itself"). In return, `==` on `T` is an equivalence for the verifier: `x == x`,
   and it is symmetric and transitive. So a generic function that compares values says so
   in its signature, works for every type it accepts, and proves what holds of every
-  equality. Structs and enums cannot have bounds; `Eq` is the only bound.
+  equality.
+- The bound `Ord` (`fn sort<T: Ord>(xs: List<T>) -> List<T>`) allows `<`, `<=`, `>` and
+  `>=` on `T` ("'<' on T needs the bound Ord: ..."), and includes `Eq`. Its type
+  arguments must be `Int`, `String` or a type parameter declared `Ord` ("'sort' needs
+  T: Ord, but Float can hold a NaN, which is not ordered"). For the verifier `<` on `T`
+  is a strict total order consistent with `==`: `not (a < a)`, `a < b` or `a == b` or
+  `b < a`, `a <= b` is `not (b < a)`, and it is transitive. A function's type parameter
+  used as a map key must be declared `Ord` (`fn counts<K: Ord>(ks: List<K>) ->
+  Map<K, Int>`); a generic struct's or enum's map key type is checked for each instance
+  (`Int` or `String`).
+- Structs and enums cannot have bounds; `Eq` and `Ord` are the only bounds.
 - Type parameters may not have the name of a type. The type arguments of a generic
   type may be refined (`Box<Nat>`, see Refinements); those of a generic function call
   are inferred without refinements, for type checking. For the verifier, a refinement
@@ -420,7 +429,9 @@ shorthand for the `match` it expands to, and the verifier sees that `match`.
   They are proved symbolically in specifications and run as loops at runtime.
 - Binary: `+ - * / %` (Int), `+ - * /` (Float), `++` (String or List concatenation),
   `== !=` (any two values of the same type without maps; see Equality), `< <= > >=`
-  (Int or Float). `Int` and `Float` never mix: convert with `int_to_float`.
+  (Int, Float, String, or a type parameter declared `Ord`; strings are ordered byte by
+  byte, so `"B" < "a"` and `"a" < "aa"`). `Int` and `Float` never mix: convert with
+  `int_to_float`.
   `and or implies` (Bool, short-circuit).
 
 **Equality.** `==` is structural: strings are equal when their bytes are; lists when
@@ -572,6 +583,14 @@ types `x == x` is not assumed. `==` on a type parameter needs the bound `Eq`, wh
 arguments hold no float: for `T` (and the types built from it) `a == b` is `a = b` or
 `eq_T(a, b)`, where `eq_T` is left undefined except that it is stated to be symmetric
 and transitive, so a generic function proves only what holds for every such equality.
+
+**Order.** Strings, and the values of a type parameter declared `Ord`, are ordered
+through a key: a real number for each value, different for different values (for `T`,
+values with equal keys are `==`), with `a < b` exactly when `a`'s key is below `b`'s.
+Every countable total order (byte strings, integers) has such keys, so this is true of
+the runtime's order, and totality and transitivity come for free. Two string literals
+are ordered as their bytes are; nothing else relates a string's order to its bytes or
+length.
 
 ## Effects
 

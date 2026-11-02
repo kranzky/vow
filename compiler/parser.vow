@@ -286,7 +286,7 @@ end fn parse_fields
 
 // A declaration's type parameters. A function's may have the bound Eq (<T: Eq>),
 // collected in eq; bounded is false for a struct or enum, which cannot have bounds.
-fn parse_tparams(p: inout Parser, eq: inout List<String>, bounded: Bool) -> List<String> do
+fn parse_tparams(p: inout Parser, eq: inout List<String>, ord: inout List<String>, bounded: Bool) -> List<String> do
   var out: List<String> = []
   if accept(p: inout p, text: "<") then
     var more = true
@@ -298,12 +298,16 @@ fn parse_tparams(p: inout Parser, eq: inout List<String>, bounded: Bool) -> List
       set out = push(list: out, item: t.text)
       if accept(p: inout p, text: ":") then
         let b = ident(p: inout p, ctx: "for the bound of '" ++ t.text ++ "'")
-        if b.text != "Eq" then
-          fail(p: inout p, d: diag(pos: b.pos, msg: "unknown bound '" ++ b.text ++ "' (the only bound is Eq)"))
+        if (b.text != "Eq") and (b.text != "Ord") then
+          fail(p: inout p, d: diag(pos: b.pos, msg: "unknown bound '" ++ b.text ++ "' (the bounds are Eq and Ord)"))
         elif not bounded then
           fail(p: inout p, d: diag(pos: b.pos, msg: "only a function's type parameters can have bounds"))
         end if
+        // Ord includes Eq: ordered values can be compared with '==' too.
         set eq = push(list: eq, item: t.text)
+        if b.text == "Ord" then
+          set ord = push(list: ord, item: t.text)
+        end if
       end if
       set more = accept(p: inout p, text: ",")
     end while
@@ -316,7 +320,8 @@ fn parse_fn(p: inout Parser) -> FnDecl do
   let start = expect(p: inout p, text: "fn", ctx: "").pos
   let name = ident(p: inout p, ctx: "for the function")
   var eq: List<String> = []
-  let tparams = parse_tparams(p: inout p, eq: inout eq, bounded: true)
+  var ord: List<String> = []
+  let tparams = parse_tparams(p: inout p, eq: inout eq, ord: inout ord, bounded: true)
   let _ = expect(p: inout p, text: "(", ctx: "to open the parameter list")
   let params = parse_fields(p: inout p, closer: ")", labels: false)
   let _ = expect(p: inout p, text: ")", ctx: "to close the parameter list")
@@ -362,7 +367,7 @@ fn parse_fn(p: inout Parser) -> FnDecl do
   set p = p with (ret_kind: ret_kind)
   let body = parse_block(inout p)
   close_block(p: inout p, what: "fn", name: name.text, opened: start)
-  return FnDecl(name: name.text, tparams: tparams, eq: eq, params: params, ret: ret, effects: effs, pre: pre,
+  return FnDecl(name: name.text, tparams: tparams, eq: eq, ord: ord, params: params, ret: ret, effects: effs, pre: pre,
     post: post, dec: dec, body: body, pos: start)
 end fn parse_fn
 
@@ -370,7 +375,8 @@ fn parse_struct(p: inout Parser) -> StructDecl do
   let start = expect(p: inout p, text: "struct", ctx: "").pos
   let name = ident(p: inout p, ctx: "for the struct")
   var no_eq: List<String> = []
-  let tparams = parse_tparams(p: inout p, eq: inout no_eq, bounded: false)
+  var no_ord: List<String> = []
+  let tparams = parse_tparams(p: inout p, eq: inout no_eq, ord: inout no_ord, bounded: false)
   let fields = parse_fields(p: inout p, closer: "end", labels: true)
   close_block(p: inout p, what: "struct", name: name.text, opened: start)
   return StructDecl(name: name.text, tparams: tparams, fields: fields, pos: start)
@@ -380,7 +386,8 @@ fn parse_enum(p: inout Parser) -> EnumDecl do
   let start = expect(p: inout p, text: "enum", ctx: "").pos
   let name = ident(p: inout p, ctx: "for the enum")
   var no_eq: List<String> = []
-  let tparams = parse_tparams(p: inout p, eq: inout no_eq, bounded: false)
+  var no_ord: List<String> = []
+  let tparams = parse_tparams(p: inout p, eq: inout no_eq, ord: inout no_ord, bounded: false)
   var variants: List<VariantDecl> = []
   while not is_tok(p: p, text: "end") do
     let v = ident(p: inout p, ctx: "for a variant")

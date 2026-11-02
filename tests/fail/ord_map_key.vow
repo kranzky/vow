@@ -1,0 +1,9 @@
+// error: a map keyed by K needs the bound Ord: declare 'K: Ord' in the function's type parameters
+// language: 0.9
+// A function's type parameter used as a map key needs Ord.
+fn keys_of<K, V>(m: Map<K, V>) -> List<K> do
+  return keys(m)
+end fn keys_of
+
+fn main() do
+end fn main

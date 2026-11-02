@@ -236,6 +236,13 @@ fn eq_fn(v: inout Verifier, t: Ty) -> String do
   match t
   case TParam(name: n) then
     let pf = global_fn(v: inout v, name: "peq_" ++ n, args: "Val Val", sort: "Bool")
+    // An Ord parameter's values are equal when their order keys are (see order_term).
+    if contains_str(xs: v.info.ord_tparams, x: n) and not contains_str(xs: v.eq_done, x: pf) then
+      set v = v with (eq_done: push(list: v.eq_done, item: pf))
+      let key = ord_key(v: inout v, n: n)
+      let app = "(" ++ pf ++ " ea eb)"
+      add_qdef(v: inout v, d: "(assert (forall ((ea Val) (eb Val)) (! (= " ++ app ++ " (= (" ++ key ++ " ea) (" ++ key ++ " eb))) :pattern (" ++ app ++ "))))")
+    end if
     // Every type an Eq parameter stands for holds no float and no map, so its '==' is
     // an equivalence: reflexive (val_eq), symmetric and transitive.
     if contains_str(xs: v.info.eq_tparams, x: n) and not contains_str(xs: v.eq_done, x: pf) then
@@ -265,6 +272,87 @@ fn eq_fn(v: inout Verifier, t: Ty) -> String do
   add_qdef(v: inout v, d: "(assert (forall ((ea Val) (eb Val)) (! (= " ++ app ++ " " ++ body ++ ") :pattern (" ++ app ++ "))))")
   return name
 end fn eq_fn
+
+// a < b (or <=, >, >=) on String, or on a type parameter declared Ord; "" for other
+// types. Each is ordered through a key in the reals that preserves the order and tells
+// different values apart (strings, and the values of each ordered type, form a
+// countable total order, which has such an embedding), so totality and transitivity
+// follow by arithmetic.
+fn order_term(v: inout Verifier, op: String, t: Ty, a: String, b: String) -> String do
+  var key = ""
+  match t
+  case TStr then
+    set key = str_key(inout v)
+  case TParam(name: n) then
+    set key = ord_key(v: inout v, n: n)
+  else
+    return ""
+  end match
+  return "(" ++ op ++ " (" ++ key ++ " " ++ a ++ ") (" ++ key ++ " " ++ b ++ "))"
+end fn order_term
+
+// The order key of strings. Different strings have different keys (skey_inv undoes
+// skey), and the keys of the literals are ordered as the literals are.
+fn str_key(v: inout Verifier) -> String do
+  let key = global_fn(v: inout v, name: "skey", args: "Val", sort: "Real")
+  if not contains_str(xs: v.eq_done, x: key) then
+    set v = v with (eq_done: push(list: v.eq_done, item: key))
+    let inv = global_fn(v: inout v, name: "skey_inv", args: "Real", sort: "Val")
+    add_qdef(v: inout v, d: "(assert (forall ((sa Val)) (! (= (" ++ inv ++ " (" ++ key ++ " sa)) sa) :pattern ((" ++ key ++ " sa)))))")
+    let lits = keys(v.strs)
+    for i in 0..len(lits) do
+      for j in 0..i do
+        str_order_fact(v: inout v, x: lits[i], y: lits[j])
+      end for
+    end for
+  end if
+  return key
+end fn str_key
+
+// The order of the keys of string literals x and y, if strings are ordered here.
+fn str_order_fact(v: inout Verifier, x: String, y: String) do
+  let r = bytes_cmp(a: x, b: y)
+  match lookup(map: v.strs, key: x)
+  case Some(value: cx) then
+    match lookup(map: v.strs, key: y)
+    case Some(value: cy) then
+      if r < 0 then
+        add_def(v: inout v, d: "(assert (< (skey " ++ cx ++ ") (skey " ++ cy ++ ")))")
+      elif r > 0 then
+        add_def(v: inout v, d: "(assert (< (skey " ++ cy ++ ") (skey " ++ cx ++ ")))")
+      end if
+    case None then
+    end match
+  case None then
+  end match
+end fn str_order_fact
+
+// Byte-wise lexicographic order, as the runtime's: -1, 0 or 1.
+fn bytes_cmp(a: String, b: String) -> Int do
+  var n = len(a)
+  if len(b) < n then
+    set n = len(b)
+  end if
+  for i in 0..n do
+    if a[i] < b[i] then
+      return -1
+    elif a[i] > b[i] then
+      return 1
+    end if
+  end for
+  if len(a) < len(b) then
+    return -1
+  elif len(a) > len(b) then
+    return 1
+  end if
+  return 0
+end fn bytes_cmp
+
+// The order key of type parameter n, declared Ord; its '==' is equality of keys
+// (eq_fn).
+fn ord_key(v: inout Verifier, n: String) -> String do
+  return global_fn(v: inout v, name: "okey_" ++ n, args: "Val", sort: "Real")
+end fn ord_key
 
 // Structural equality of ea and eb, values of type t.
 fn eq_body(v: inout Verifier, t: Ty) -> String do
@@ -550,6 +638,13 @@ fn str_const(v: inout Verifier, s: String) -> String do
     end if
   end for
   set v = v with (strs: insert(map: v.strs, key: s, value: c))
+  if contains_str(xs: v.eq_done, x: "skey") then
+    for o in keys(v.strs) do
+      if o != s then
+        str_order_fact(v: inout v, x: s, y: o)
+      end if
+    end for
+  end if
   return c
 end fn str_const
 
@@ -561,7 +656,7 @@ fn verify_fn(v: inout Verifier, f: FnDecl) -> FnVc do
   // (values of the uninterpreted sort Val), which covers every instance.
   let info = v.info
   set v = v with (n: 0, decls: [], defs: [], qdefs: [], obs: [], strs: {}, loops: empty_loops, fname: f.name, params: {}, sf_done: [], eq_done: [], flits: [], floats: false,
-    info: info with (tenv: identity_env(f.tparams), eq_tparams: f.eq))
+    info: info with (tenv: identity_env(f.tparams), eq_tparams: f.eq, ord_tparams: f.ord))
   var fi = FnInfo(name: f.name, params: [], io: [], ret: plain(Ty.TUnit), effects: [], pre: [], post: [],
     dec: Option.None, inline: Option.None, spec_body: Option.None, spec_rec: false, pos: f.pos)
   match get_fn(info: v.info, name: f.name)
@@ -915,6 +1010,12 @@ fn sexpr(v: inout Verifier, e: Expr, sp: Spec) -> String do
     end if
     if (op == "==") or (op == "!=") then
       return eq_term(v: inout v, op: op, t: type_of(info: v.info, e: l), a: a, b: b)
+    end if
+    if contains_str(xs: ["<", "<=", ">", ">="], x: op) then
+      let ot = order_term(v: inout v, op: op, t: type_of(info: v.info, e: l), a: a, b: b)
+      if ot != "" then
+        return ot
+      end if
     end if
     return binop_term(op: op, a: a, b: b)
   else
@@ -2972,6 +3073,10 @@ fn vexpr(v: inout Verifier, e: Expr, st: inout St) -> String do
       return define(v: inout v, sort: "Bool", term: eq)
     end if
     if contains_str(xs: ["<", "<=", ">", ">="], x: op) then
+      let ot = order_term(v: inout v, op: op, t: type_of(info: v.info, e: l), a: a, b: b)
+      if ot != "" then
+        return define(v: inout v, sort: "Bool", term: ot)
+      end if
       return define(v: inout v, sort: "Bool", term: binop_term(op: op, a: a, b: b))
     end if
     return define(v: inout v, sort: "Int", term: binop_term(op: op, a: a, b: b))

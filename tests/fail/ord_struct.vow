@@ -1,0 +1,13 @@
+// error: '<' compares Int, Float, String and type parameters declared Ord, not S
+// language: 0.9
+// Structs are not ordered.
+struct S
+  x: Int,
+end struct S
+
+fn f(a: S, b: S) -> Bool do
+  return a < b
+end fn f
+
+fn main() do
+end fn main

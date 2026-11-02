@@ -156,6 +156,12 @@ struct Info
   // The type parameters in scope declared with the bound Eq: their values are equal to
   // themselves (they hold no float), and they can be compared (they hold no map).
   eq_tparams: List<String>,
+  // Those declared with the bound Ord (also in eq_tparams): their values are ordered by
+  // '<', and they can be map keys.
+  ord_tparams: List<String>,
+  // Whether a function's declaration is being checked, where a type parameter used as a
+  // map key must be declared Ord (a generic struct's map keys are checked per instance).
+  in_fn: Bool,
   // Whether an instance of a generic function is being checked: its type parameters
   // were checked against the bounds where it was made.
   in_instance: Bool,
@@ -493,6 +499,27 @@ fn has_float(info: Info, t: Ty, seen: inout List<String>) -> Bool do
   end match
 end fn has_float
 
+// Why t cannot stand for a type parameter bounded by Ord, or "": the ordered types are
+// Int, String and the type parameters declared Ord.
+fn ord_problem(info: Info, t: Ty) -> String do
+  let st = ty_show(t)
+  match t
+  case TInt then
+    return ""
+  case TStr then
+    return ""
+  case TFloat then
+    return "Float can hold a NaN, which is not ordered"
+  case TParam(name: n) then
+    if contains_str(xs: info.ord_tparams, x: n) then
+      return ""
+    end if
+    return n ++ " is a type parameter not declared '" ++ n ++ ": Ord'"
+  else
+    return st ++ " is not ordered (the ordered types are Int, String and type parameters declared Ord)"
+  end match
+end fn ord_problem
+
 // Why a value of type t may not be equal to itself, or cannot be compared, as a type
 // argument for a parameter bounded by Eq ("can hold a NaN, ..."); "" if it can stand
 // for one.
@@ -651,9 +678,12 @@ fn resolve_type(info: inout Info, te: TypeExpr, errs: inout List<Diag>) -> RTy d
       let k = resolve_arg(info: inout info, te: te.args[0], errs: inout errs)
       let v = resolve_arg(info: inout info, te: te.args[1], errs: inout errs)
       let ks = ty_show(k)
-      // A type parameter may be a key; each instance checks its own key type.
+      // A function's type parameter may be a key if it is declared Ord, which admits only
+      // Int and String; a generic struct's or enum's is checked for each instance.
       if (ks != "Int") and (ks != "String") and (ks != "?") and not is_tparam(k) then
         set errs = push(list: errs, item: diag(pos: te.args[0].pos, msg: "map keys must be Int or String"))
+      elif is_tparam(k) and info.in_fn and not contains_str(xs: info.ord_tparams, x: ks) then
+        set errs = push(list: errs, item: diag(pos: te.args[0].pos, msg: "a map keyed by " ++ ks ++ " needs the bound Ord: declare '" ++ ks ++ ": Ord' in the function's type parameters"))
       end if
       if te.name == "Map" then
         set base = plain(Ty.TMap(key: k, val: v))
@@ -1341,7 +1371,7 @@ fn new_info() -> Info do
   set structs = insert(map: structs, key: "Output",
     value: [FieldInfo(name: "code", rty: plain(Ty.TInt)), FieldInfo(name: "out", rty: plain(Ty.TStr))])
   return Info(structs: structs, enums: {}, aliases: {}, fns: {}, types: {}, calls: {}, holes: [],
-    gfns: {}, gstructs: {}, genums: {}, tenv: {}, eq_tparams: [], in_instance: false, inst_args: {}, origins: {}, pending: [], instances: [],
+    gfns: {}, gstructs: {}, genums: {}, tenv: {}, eq_tparams: [], ord_tparams: [], in_fn: false, in_instance: false, inst_args: {}, origins: {}, pending: [], instances: [],
     next_id: 0, scc: {}, recursive: {}, structural: false, spec_notes: {})
 end fn new_info
 
@@ -1511,12 +1541,12 @@ fn check_program(items: List<Item>, files: List<String>, next_id: Int) -> Checke
     match item
     case FnItem(decl: f) then
       set_tenv(c: inout c, env: identity_env(f.tparams))
-      set_eq(c: inout c, eq: f.eq)
+      set_bounds(c: inout c, eq: f.eq, ord: f.ord, in_fn: true)
       let fi = fn_signature(c: inout c, f: f)
       let info = c.info
       set c = c with (info: info with (fns: insert(map: info.fns, key: f.name, value: fi)))
       set_tenv(c: inout c, env: {})
-      set_eq(c: inout c, eq: [])
+      set_bounds(c: inout c, eq: [], ord: [], in_fn: false)
     else
     end match
   end for
@@ -1589,10 +1619,10 @@ fn check_program(items: List<Item>, files: List<String>, next_id: Int) -> Checke
       end match
     case FnItem(decl: f) then
       set_tenv(c: inout c, env: identity_env(f.tparams))
-      set_eq(c: inout c, eq: f.eq)
+      set_bounds(c: inout c, eq: f.eq, ord: f.ord, in_fn: true)
       check_contracts(c: inout c, f: f)
       set_tenv(c: inout c, env: {})
-      set_eq(c: inout c, eq: [])
+      set_bounds(c: inout c, eq: [], ord: [], in_fn: false)
     end match
   end for
   // Phase 4: bodies. A generic function's body is checked once, with its type
@@ -1602,10 +1632,10 @@ fn check_program(items: List<Item>, files: List<String>, next_id: Int) -> Checke
     match item
     case FnItem(decl: f) then
       set_tenv(c: inout c, env: identity_env(f.tparams))
-      set_eq(c: inout c, eq: f.eq)
+      set_bounds(c: inout c, eq: f.eq, ord: f.ord, in_fn: true)
       check_fn(c: inout c, f: f)
       set_tenv(c: inout c, env: {})
-      set_eq(c: inout c, eq: [])
+      set_bounds(c: inout c, eq: [], ord: [], in_fn: false)
     else
     end match
   end for
@@ -1613,13 +1643,14 @@ fn check_program(items: List<Item>, files: List<String>, next_id: Int) -> Checke
     let next = c.queue[0]
     set c = c with (queue: slice(of: c.queue, from: 1, to: len(c.queue)))
     set_tenv(c: inout c, env: next.env)
-    set_eq(c: inout c, eq: inst_eq(f: next.decl, env: next.env))
+    set_bounds(c: inout c, eq: inst_bound(names: next.decl.eq, env: next.env),
+      ord: inst_bound(names: next.decl.ord, env: next.env), in_fn: true)
     let info1 = c.info
     set c = c with (info: info1 with (in_instance: true))
     let before = len(c.errs)
     check_fn(c: inout c, f: next.decl)
     set_tenv(c: inout c, env: {})
-    set_eq(c: inout c, eq: [])
+    set_bounds(c: inout c, eq: [], ord: [], in_fn: false)
     let info2 = c.info
     set c = c with (info: info2 with (in_instance: false))
     // An error that only this instance has (such as a map keyed by a Float) names it; one
@@ -1688,17 +1719,17 @@ fn set_tenv(c: inout Checker, env: Map<String, Ty>) do
   set c = c with (info: info with (tenv: env))
 end fn set_tenv
 
-fn set_eq(c: inout Checker, eq: List<String>) do
+fn set_bounds(c: inout Checker, eq: List<String>, ord: List<String>, in_fn: Bool) do
   let info = c.info
-  set c = c with (info: info with (eq_tparams: eq))
-end fn set_eq
+  set c = c with (info: info with (eq_tparams: eq, ord_tparams: ord, in_fn: in_fn))
+end fn set_bounds
 
 // The type parameters bounded by Eq inside an instance of f made with env: those an
 // Eq parameter of f stands for. (A type argument for an Eq parameter was checked to be
 // Eq where the instance was made, so only type parameters need carrying over.)
-fn inst_eq(f: FnDecl, env: Map<String, Ty>) -> List<String> do
+fn inst_bound(names: List<String>, env: Map<String, Ty>) -> List<String> do
   var out: List<String> = []
-  for t in f.eq do
+  for t in names do
     match lookup(map: env, key: t)
     case Some(value: a) then
       match a
@@ -1710,7 +1741,7 @@ fn inst_eq(f: FnDecl, env: Map<String, Ty>) -> List<String> do
     end match
   end for
   return out
-end fn inst_eq
+end fn inst_bound
 
 fn fn_signature(c: inout Checker, f: FnDecl) -> FnInfo do
   var params: List<FieldInfo> = []
@@ -1823,7 +1854,8 @@ fn instantiate_fn(c: inout Checker, g: FnDecl, args: List<Ty>, pos: Pos) -> Stri
   let env = tparam_env(tps: g.tparams, args: args)
   let saved = c
   let info0 = c.info
-  set c = c with (info: info0 with (next_id: next, tenv: env, eq_tparams: inst_eq(f: g, env: env), in_instance: true))
+  set c = c with (info: info0 with (next_id: next, tenv: env, eq_tparams: inst_bound(names: g.eq, env: env),
+    ord_tparams: inst_bound(names: g.ord, env: env), in_fn: true, in_instance: true))
   let fi = fn_signature(c: inout c, f: copy)
   // An instance of a specification function is one too, translated from its own copy
   // of the body, whose types are the instance's.
@@ -1855,7 +1887,7 @@ fn instantiate_fn(c: inout Checker, g: FnDecl, args: List<Ty>, pos: Pos) -> Stri
   end if
   let info2 = c.info
   set c = saved with (info: info2 with (tenv: saved.info.tenv, eq_tparams: saved.info.eq_tparams,
-    in_instance: saved.info.in_instance), errs: c.errs, queue: queue)
+    ord_tparams: saved.info.ord_tparams, in_fn: saved.info.in_fn, in_instance: saved.info.in_instance), errs: c.errs, queue: queue)
   return inst
 end fn instantiate_fn
 
@@ -3351,6 +3383,21 @@ fn check_binary(c: inout Checker, e: Expr, op: String, l: Expr, r: Expr) -> Ty d
       end if
       return Ty.TBool
     end if
+    // Strings are ordered byte by byte; a type parameter is ordered if declared Ord.
+    if contains_str(xs: ["<", "<=", ">", ">="], x: op) and ((ty_show(a) == "String") or is_tparam(a)) then
+      let ob = check_expr(c: inout c, e: r, expected: Option.Some(value: a))
+      expect_ty(c: inout c, pos: r.pos, got: ob, want: a, what: what)
+      let sa = ty_show(a)
+      if is_tparam(a) and not contains_str(xs: c.info.ord_tparams, x: sa) and not c.info.in_instance then
+        err(c: inout c, pos: e.pos, msg: "'" ++ op ++ "' on " ++ sa ++ " needs the bound Ord: declare '" ++ sa ++ ": Ord' in the function's type parameters")
+      end if
+      return Ty.TBool
+    end if
+    if contains_str(xs: ["<", "<=", ">", ">="], x: op) and (ty_show(a) != "Int") and (ty_show(a) != "?") then
+      let _ = check_expr(c: inout c, e: r, expected: Option.Some(value: a))
+      err(c: inout c, pos: e.pos, msg: "'" ++ op ++ "' compares Int, Float, String and type parameters declared Ord, not " ++ ty_show(a))
+      return Ty.TBool
+    end if
     let b = check_expr(c: inout c, e: r, expected: Option.Some(value: Ty.TInt))
     expect_ty(c: inout c, pos: l.pos, got: a, want: Ty.TInt, what: what)
     expect_ty(c: inout c, pos: r.pos, got: b, want: Ty.TInt, what: what)
@@ -3815,7 +3862,8 @@ fn generic_call(c: inout Checker, e: Expr, g: FnDecl, args: List<Arg>, expected:
       return Ty.TUnknown
     case Some(value: targs) then
       for i in 0..len(targs) do
-        if (i < len(g.tparams)) and contains_str(xs: g.eq, x: g.tparams[i]) then
+        // An Ord parameter is checked against Ord alone, which implies Eq.
+        if (i < len(g.tparams)) and contains_str(xs: g.eq, x: g.tparams[i]) and not contains_str(xs: g.ord, x: g.tparams[i]) then
           var seen: List<String> = []
           let why = eq_problem(info: c.info, t: targs[i], seen: inout seen)
           if why != "" then
@@ -3826,6 +3874,13 @@ fn generic_call(c: inout Checker, e: Expr, g: FnDecl, args: List<Arg>, expected:
             else
             end match
             err(c: inout c, pos: e.pos, msg: "'" ++ g.name ++ "' needs " ++ g.tparams[i] ++ ": Eq, but " ++ what)
+            return Ty.TUnknown
+          end if
+        end if
+        if (i < len(g.tparams)) and contains_str(xs: g.ord, x: g.tparams[i]) then
+          let why_ord = ord_problem(info: c.info, t: targs[i])
+          if why_ord != "" then
+            err(c: inout c, pos: e.pos, msg: "'" ++ g.name ++ "' needs " ++ g.tparams[i] ++ ": Ord, but " ++ why_ord)
             return Ty.TUnknown
           end if
         end if

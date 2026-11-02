@@ -1,0 +1,11 @@
+// error: cannot prove assertion: a < c
+// language: 0.9
+// a <= b <= c gives a <= c, not a < c.
+fn f<T: Ord>(a: T, b: T, c: T) do
+  if (a <= b) and (b <= c) then
+    assert a < c
+  end if
+end fn f
+
+fn main() do
+end fn main

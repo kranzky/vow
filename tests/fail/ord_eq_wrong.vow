@@ -1,0 +1,11 @@
+// error: cannot prove postcondition of 'f': result == (a == b)
+// language: 0.9
+// a <= b is not a == b.
+fn f<T: Ord>(a: T, b: T) -> Bool
+  ensures result == (a == b)
+do
+  return a <= b
+end fn f
+
+fn main() do
+end fn main

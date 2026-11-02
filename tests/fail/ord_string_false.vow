@@ -1,0 +1,6 @@
+// error: cannot prove assertion: "b" < "a"
+// language: 0.9
+// String literals are ordered as the runtime orders them.
+fn main() do
+  assert "b" < "a"
+end fn main

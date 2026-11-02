@@ -88,10 +88,12 @@ Check your code against this list before running the compiler.
 12. **Generic type arguments are inferred, never written at calls.** Declare
     `fn last<T>(xs: List<T>) -> T` and call `last(xs)`; write types in full
     (`Pair<Int, String>`). Inside a generic function, a `T` can be stored, passed,
-    returned and put in lists and maps, but not indexed or given fields. To compare
-    `T` values with `==` (or `List<T>`, `Box<T>`, ...), declare `T: Eq`
+    returned and put in lists, but not indexed or given fields. To compare `T` values
+    with `==` (or `List<T>`, `Box<T>`, ...), declare `T: Eq`
     (`fn index_of<T: Eq>(...)`); such a function cannot be called with `Float` or map
-    types, so for those write a function for the concrete type. A generic
+    types, so for those write a function for the concrete type. To order them with `<`
+    (sort, min, binary search) or use them as map keys, declare `T: Ord`, which
+    includes `Eq` and admits `Int` and `String`. A generic
     specification function (such as `contains<T: Eq>(xs: List<T>, x: T) -> Bool`, whose
     body is `return exists i in 0..len(xs): xs[i] == x`) can be called in
     specifications.
@@ -192,7 +194,7 @@ your own string helpers:
 | `replace(s: s, old: o, new: n)`, `repeat(s: s, n: k)` | proved to terminate |
 | `to_lower(s)`, `to_upper(s)` | same length; no upper (lower) case letters |
 
-| `compare(a: x, b: y) -> Int` | byte-wise order: -1, 0 or 1 (strings have no `<`) |
+| `compare(a: x, b: y) -> Int` | byte-wise order: -1, 0 or 1 (the same order as `<` on strings) |
 
 Import what you use, as in `import "std/text.vow" (split, trim)`, or the whole module
 with `import "std/text.vow" as text` (then `text.split(...)`). A plain
@@ -595,7 +597,9 @@ end fn last_or
 A generic function is verified once, for all types, and compiled separately for each
 type it is used with, so it costs nothing at runtime. Comparing `T` values needs
 `T: Eq`, which rules out floats (a NaN is not equal to itself) and maps; in return `==`
-on `T` is known to be reflexive, symmetric and transitive:
+on `T` is known to be reflexive, symmetric and transitive. `T: Ord` adds `<`, `<=`,
+`>` and `>=`, a total order the verifier knows the laws of; strings are ordered byte
+by byte:
 
 ```
 fn contains<T: Eq>(xs: List<T>, x: T) -> Bool do
@@ -607,6 +611,26 @@ fn added<T: Eq>(xs: List<T>, x: T) -> List<T>
 do
   return push(list: xs, item: x)
 end fn added
+
+fn is_sorted<T: Ord>(xs: List<T>) -> Bool do
+  return forall i in 1..len(xs): xs[i - 1] <= xs[i]
+end fn is_sorted
+
+fn least<T: Ord>(xs: List<T>) -> T
+  requires len(xs) > 0
+  ensures forall i in 0..len(xs): result <= xs[i]
+  ensures is_sorted(xs) implies (result == xs[0])
+do
+  var m = xs[0]
+  for i in 1..len(xs)
+    invariant (forall j in 0..i: m <= xs[j]) and (is_sorted(xs) implies (m == xs[0]))
+  do
+    if xs[i] < m then
+      set m = xs[i]
+    end if
+  end for
+  return m
+end fn least
 ```
 
 **Building strings.** Collect parts in a `List<String>` and `join` once at the end.

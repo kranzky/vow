@@ -1630,6 +1630,9 @@ fn gen_binary(g: inout Gen, op: String, l: Expr, r: Expr) -> Val do
       return plain_val(bind(g: inout g, rhs: "(V)(VD(" ++ a.c ++ ") " ++ op ++ " VD(" ++ b.c ++ "))"))
     end match
   end if
+  if is_str and contains_str(xs: ["<", "<=", ">", ">="], x: op) then
+    return plain_val(bind(g: inout g, rhs: "(V)(vstr_cmp(" ++ a.c ++ ", " ++ b.c ++ ") " ++ op ++ " 0)"))
+  end if
   match op
   case "++" then
     if is_str then

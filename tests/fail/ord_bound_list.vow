@@ -1,0 +1,10 @@
+// error: 'lt' needs T: Ord, but List<Int> is not ordered (the ordered types are Int, String and type parameters declared Ord)
+// language: 0.9
+// Lists are not ordered (no lexicographic order on lists yet).
+fn lt<T: Ord>(a: T, b: T) -> Bool do
+  return a < b
+end fn lt
+
+fn main() do
+  let _ = lt(a: [1], b: [2])
+end fn main

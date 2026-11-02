@@ -1,6 +1,6 @@
-// error: unknown bound 'Ord' (the only bound is Eq)
+// error: unknown bound 'Hash' (the bounds are Eq and Ord)
 // language: 0.9
-fn f<T: Ord>(x: T) -> T do
+fn f<T: Hash>(x: T) -> T do
   return x
 end fn f
 

@@ -1,0 +1,142 @@
+// language: 0.9
+// The bound Ord: '<' on T is a strict total order (and '==' on T an equivalence), so
+// generic code can sort and search; strings are ordered byte by byte.
+
+fn max_of<T: Ord>(a: T, b: T) -> T
+  ensures (result >= a) and (result >= b)
+  ensures (result == a) or (result == b)
+do
+  if a < b then
+    return b
+  end if
+  return a
+end fn max_of
+
+fn is_sorted<T: Ord>(xs: List<T>) -> Bool do
+  return forall i in 1..len(xs): xs[i - 1] <= xs[i]
+end fn is_sorted
+
+// Insert x into a sorted list, keeping it sorted.
+fn insert_sorted<T: Ord>(xs: List<T>, x: T) -> List<T>
+  requires is_sorted(xs)
+  ensures is_sorted(result)
+  ensures len(result) == (len(xs) + 1)
+do
+  var out: List<T> = []
+  var i = 0
+  while (i < len(xs)) and (xs[i] < x)
+    invariant (0 <= i) and (i <= len(xs))
+    invariant len(out) == i
+    invariant forall j in 0..i: out[j] == xs[j]
+    invariant forall j in 0..i: xs[j] < x
+    decreases len(xs) - i
+  do
+    set out = push(list: out, item: xs[i])
+    set i = i + 1
+  end while
+  let k = i
+  set out = push(list: out, item: x)
+  while i < len(xs)
+    invariant (k <= i) and (i <= len(xs))
+    invariant len(out) == (i + 1)
+    invariant forall j in 0..k: out[j] == xs[j]
+    invariant out[k] == x
+    invariant forall j in (k + 1)..(i + 1): out[j] == xs[j - 1]
+    decreases len(xs) - i
+  do
+    set out = push(list: out, item: xs[i])
+    set i = i + 1
+  end while
+  return out
+end fn insert_sorted
+
+fn sort<T: Ord>(xs: List<T>) -> List<T>
+  ensures is_sorted(result)
+  ensures len(result) == len(xs)
+do
+  var out: List<T> = []
+  var i = 0
+  while i < len(xs)
+    invariant (0 <= i) and (i <= len(xs))
+    invariant is_sorted(out)
+    invariant len(out) == i
+    decreases len(xs) - i
+  do
+    set out = insert_sorted(xs: out, x: xs[i])
+    set i = i + 1
+  end while
+  return out
+end fn sort
+
+fn bsearch<T: Ord>(xs: List<T>, x: T) -> Int
+  requires is_sorted(xs)
+  ensures (result == -1) or ((0 <= result) and (result < len(xs)))
+  ensures (result >= 0) implies (xs[result] == x)
+do
+  var lo = 0
+  var hi = len(xs)
+  while lo < hi
+    invariant (0 <= lo) and (lo <= hi) and (hi <= len(xs))
+    decreases hi - lo
+  do
+    let mid = lo + ((hi - lo) / 2)
+    if xs[mid] == x then
+      return mid
+    elif xs[mid] < x then
+      set lo = mid + 1
+    else
+      set hi = mid
+    end if
+  end while
+  return -1
+end fn bsearch
+
+fn count_keys<K: Ord>(ks: List<K>) -> Map<K, Int> do
+  var m: Map<K, Int> = {}
+  for k in ks do
+    set m = insert(map: m, key: k, value: value_or(opt: lookup(map: m, key: k), default: 0) + 1)
+  end for
+  return m
+end fn count_keys
+
+// The laws of a total order, for any T: Ord and for String.
+fn laws<T: Ord>(a: T, b: T, c: T) do
+  assert not (a < a)
+  assert (a < b) or (a == b) or (b < a)
+  assert (a <= b) == not (b < a)
+  if (a <= b) and (b <= a) then
+    assert a == b
+  end if
+  if (a < b) and (b <= c) then
+    assert a < c
+  end if
+  assert (a > b) == (b < a)
+  assert (a >= b) == (b <= a)
+end fn laws
+
+fn string_laws(s: String, t: String) do
+  laws(a: s, b: t, c: "m")
+  assert not (s < s)
+  if s == t then
+    assert not (s < t)
+  end if
+  if (s < "b") and ("a" < s) then
+    assert s != "a"
+  end if
+  assert ("" < "a") and ("a" < "aa") and ("aa" < "b") and ("B" < "a")
+end fn string_laws
+
+fn main() uses console do
+  assert "apple" < "banana"
+  assert "app" < "apple"
+  assert not ("b" <= "a")
+  let ws = sort(xs: ["pear", "apple", "fig"])
+  print(join(parts: ws, sep: " ") ++ "\n")
+  let ns = sort(xs: [3, 1, 2])
+  print(int_to_str(ns[0]) ++ int_to_str(ns[1]) ++ int_to_str(ns[2]) ++ "\n")
+  print(int_to_str(bsearch(xs: ns, x: 3)) ++ " " ++ max_of(a: "x", b: "y") ++ "\n")
+  laws(a: 1, b: 2, c: 3)
+  string_laws(s: "x", t: "y")
+  let m = count_keys(ks: ["a", "b", "a"])
+  print(int_to_str(value_or(opt: lookup(map: m, key: "a"), default: 0)) ++ "\n")
+end fn main

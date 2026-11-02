@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+- The bound `Ord` on a function's type parameters: `fn sort<T: Ord>(xs: List<T>) ->
+  List<T>`. It allows `<`, `<=`, `>` and `>=` on `T` and includes `Eq`; its type
+  arguments are `Int`, `String` or type parameters declared `Ord` ("'sort' needs T: Ord,
+  but Float can hold a NaN, which is not ordered"). The verifier knows `<` on `T` is a
+  strict total order consistent with `==`, so a generic insertion sort, binary search or
+  minimum proves its contract with no further help.
+- `<`, `<=`, `>` and `>=` on `String`: byte-wise lexicographic order, the order of
+  `Map` keys and of `compare` in `std/text.vow`. The verifier knows it is a total order
+  and orders literals.
+- A function's type parameter used as a map key must be declared `Ord` ("a map keyed by
+  K needs the bound Ord"), so a bad key type is reported at the call instead of in an
+  instance. Breaking: add `: Ord` to such parameters.
+- `<` on a type that is not ordered says which types are: "'<' compares Int, Float,
+  String and type parameters declared Ord, not S".
+
 ## v0.9.8
 
 - The bound `Eq` on a function's type parameters: `fn index_of<T: Eq>(xs: List<T>,

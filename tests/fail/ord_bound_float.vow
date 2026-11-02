@@ -1,0 +1,10 @@
+// error: 'lt' needs T: Ord, but Float can hold a NaN, which is not ordered
+// language: 0.9
+// Float is not ordered: a NaN is neither below nor above anything.
+fn lt<T: Ord>(a: T, b: T) -> Bool do
+  return a < b
+end fn lt
+
+fn main() do
+  let _ = lt(a: 1.5, b: 2.5)
+end fn main

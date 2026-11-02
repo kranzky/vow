@@ -58,8 +58,9 @@ ones the verifier depends on most also have must-fail tests.
 
 - **Every expression has one type, and every operation gets the types it is defined
   on.** Arithmetic is on `Int` or on `Float`, never mixed and never converted
-  implicitly; order comparisons are on `Int` and `Float` only; `==` compares values of
-  one type, never maps, and on a type parameter only one declared `Eq`; indexing is of a `List` or `String`; a field is read from a
+  implicitly; order comparisons are on `Int`, `Float`, `String` and type parameters
+  declared `Ord` only; `==` compares values of one type, never maps, and on a type
+  parameter only one declared `Eq` (or `Ord`); indexing is of a `List` or `String`; a field is read from a
   struct that has it; a pattern matches the scrutinee's type; an argument has its
   parameter's type, with each type parameter inferred to one type for the whole call;
   `try` passes on an error of exactly the enclosing function's error type. A program
@@ -331,6 +332,15 @@ it is itself declared `Eq` *(checker, at each call)*. Runtime `==` on such types
 integers, booleans, strings and tags, which is an equivalence relation; so the
 verifier's assumptions about `T`'s equality (reflexive, symmetric, transitive) hold of
 every instance, and interpreting `T`'s equality as the runtime one satisfies them.
+Likewise `<`, `<=`, `>` and `>=` on a type parameter need it declared `T: Ord`
+*(checker)*, whose type arguments are `Int`, `String` or a type parameter declared `Ord`
+*(checker, at each call)*. The verifier orders `T` through an uninterpreted key in the
+reals, with `a == b` exactly when the keys are equal. Each instance's runtime order is a
+strict total order on a countable set whose equality is identity (integers, or byte
+strings in lexicographic order), and every countable total order embeds in the
+rationals, so interpreting the key as such an embedding satisfies everything the
+verifier assumes. A function's type parameter used as a map key must be declared `Ord`
+*(checker)*.
 
 A generic specification function is translated per instance: the instance's own copy of
 the body, type-checked with the instance's types (concrete, or another generic
@@ -357,6 +367,14 @@ double computed is the one the program describes.
 one level at a time. Every fact used is true of the runtime's equality: equal terms
 denote the same value, and equal values have equal parts. Nothing is asserted that would
 make two terms unequal unless their contents differ.
+
+**String order.** `<` on strings is translated through `skey`, an uninterpreted function
+from strings to the reals, and `skey_inv`, stated to undo it (so different strings have
+different keys), with the keys of each pair of literals the query uses ordered as their
+bytes are. The runtime compares strings byte by byte, lexicographically (`vstr_cmp`),
+a strict total order on a countable set, so an order embedding into the rationals
+exists; interpreting `skey` as one (and every other value's key as a distinct
+irrational) satisfies these facts.
 
 ## The cache
 

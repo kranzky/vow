@@ -1,0 +1,9 @@
+// error: cannot prove assertion: (a < b) or (b < a)
+// language: 0.9
+// Two values of an ordered type may be equal.
+fn f<T: Ord>(a: T, b: T) do
+  assert (a < b) or (b < a)
+end fn f
+
+fn main() do
+end fn main

@@ -55,7 +55,7 @@ fn head<T>(s: Shape<T>) -> Option<T> do
   end match
 end fn head
 
-fn counts<K>(keys: List<K>, m: HashMap<K, Int>) -> HashMap<K, Int> do
+fn counts<K: Ord>(keys: List<K>, m: HashMap<K, Int>) -> HashMap<K, Int> do
   var out = m
   for k in keys do
     set out = insert(map: out, key: k, value: value_or(opt: lookup(map: out, key: k), default: 0) + 1)

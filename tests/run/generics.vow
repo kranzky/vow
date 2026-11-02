@@ -76,7 +76,7 @@ fn push_item<T>(s: Stack<T>, x: T) -> Option<Stack<T>> do
   return Option.Some(value: s with (items: push(list: s.items, item: x)))
 end fn push_item
 
-fn lookup_all<K, V>(m: Map<K, V>, ks: List<K>) -> List<Option<V>> do
+fn lookup_all<K: Ord, V>(m: Map<K, V>, ks: List<K>) -> List<Option<V>> do
   var out: List<Option<V>> = []
   for k in ks do
     set out = push(list: out, item: lookup(map: m, key: k))

@@ -1,0 +1,13 @@
+// error: 'lt' needs T: Ord, but U is a type parameter not declared 'U: Ord'
+// language: 0.9
+// A type parameter given for an Ord one must be declared Ord too; Eq is not enough.
+fn lt<T: Ord>(a: T, b: T) -> Bool do
+  return a < b
+end fn lt
+
+fn f<U: Eq>(a: U, b: U) -> Bool do
+  return lt(a: a, b: b)
+end fn f
+
+fn main() do
+end fn main

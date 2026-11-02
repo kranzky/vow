@@ -63,7 +63,9 @@ end struct Effect
 struct FnDecl
   name: String,
   tparams: List<String>,
+  // The type parameters bounded by Eq, and those bounded by Ord (which are in eq too).
   eq: List<String>,
+  ord: List<String>,
   params: List<Param>,
   ret: Option<TypeExpr>,
   effects: List<Effect>,

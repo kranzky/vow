@@ -1,0 +1,9 @@
+// error: '<' on T needs the bound Ord: declare 'T: Ord' in the function's type parameters
+// language: 0.9
+// '<' on an unbounded type parameter.
+fn lt<T>(a: T, b: T) -> Bool do
+  return a < b
+end fn lt
+
+fn main() do
+end fn main

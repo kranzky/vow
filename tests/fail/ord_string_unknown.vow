@@ -1,0 +1,9 @@
+// error: cannot prove assertion: s < "zzz"
+// language: 0.9
+// Nothing is known of an arbitrary string's place in the order.
+fn f(s: String) do
+  assert s < "zzz"
+end fn f
+
+fn main() do
+end fn main

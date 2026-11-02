@@ -555,9 +555,13 @@ class Gen:
         if c == "generic":
             if lists and self.chance(0.6):
                 xs = ("var", self.r.choice(lists))
-                if self.chance(0.5):
+                if self.chance(0.4):
                     return ("call", "g_count", [("xs", xs), ("x", self.int_expr(env, d + 1, spec)), ("n", ("len", xs))])
+                if self.chance(0.4):
+                    return ("call", "g_least", [("xs", xs), ("d", self.int_expr(env, d + 1, spec))])
                 return ("call", "g_first", [("xs", xs), ("d", self.int_expr(env, d + 1, spec))])
+            if self.chance(0.3):
+                return ("call", "g_max", [("a", self.int_expr(env, d + 1, spec)), ("b", self.int_expr(env, d + 1, spec))])
             return ("call", "g_pick", [("a", self.int_expr(env, d + 1, spec)), ("b", self.int_expr(env, d + 1, spec)),
                                        ("c", self.bool_expr(env, d + 1, spec))])
         if c == "tree":
@@ -590,6 +594,8 @@ class Gen:
             return ("call", self.r.choice(["is_some", "is_none"]), [("", ("var", self.r.choice(opts)))])
         lists = self.vars_of(env, lambda t: t == LIST)
         if spec and self.generics and lists and r < 0.64:
+            if self.chance(0.3):
+                return ("call", "g_sorted", [("xs", ("var", self.r.choice(lists)))])
             return ("call", "g_has", [("xs", ("var", self.r.choice(lists))), ("x", self.int_expr(env, d + 1, spec))])
         bool_fns = [f for f in self.fns.values() if f.kind == "expr" and f.ret == BOOL]
         if bool_fns and r < 0.68:
@@ -1006,6 +1012,40 @@ do
   end if
   return g_count(xs: xs, x: x, n: n - 1)
 end fn g_count
+
+fn g_max<T: Ord>(a: T, b: T) -> T
+  ensures (result >= a) and (result >= b)
+  ensures (result == a) or (result == b)
+do
+  if a < b then
+    return b
+  end if
+  return a
+end fn g_max
+
+fn g_sorted<T: Ord>(xs: List<T>) -> Bool do
+  return forall i in 1..len(xs): xs[i - 1] <= xs[i]
+end fn g_sorted
+
+fn g_least<T: Ord>(xs: List<T>, d: T) -> T
+  ensures (result <= d) and (forall i in 0..len(xs): result <= xs[i])
+  ensures (result == d) or (exists i in 0..len(xs): result == xs[i])
+do
+  var m = d
+  var i = 0
+  while i < len(xs)
+    invariant (0 <= i) and (i <= len(xs))
+    invariant (m <= d) and (forall j in 0..i: m <= xs[j])
+    invariant (m == d) or (exists j in 0..i: m == xs[j])
+    decreases len(xs) - i
+  do
+    if xs[i] < m then
+      set m = xs[i]
+    end if
+    set i = i + 1
+  end while
+  return m
+end fn g_least
 
 fn g_keyed<T>(m: Map<Int, T>, d: T) -> T do
   match lookup(map: m, key: 0)
