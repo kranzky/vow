@@ -89,9 +89,9 @@ Must-have, language and proofs:
 - [ ] Bounds on generic structs and enums (`struct Index<K: Ord>`), so their map key
       types are checked where the type is written rather than per instance; and
       lexicographic `Ord` on lists, options and structs
-- [ ] Decide how diagnostics name a module's declarations: by the file's name, as now
-      (`money.Amount` even when imported `as cash`), or by the alias the importing file
-      chose
+- [x] Diagnostics name a module's declarations by the alias the importing file chose
+      (`cash.Amount` for money.vow imported `as cash`), or unqualified where the file
+      merges or selects them
 - [x] Field refinements of list elements in specifications (`xs[i].count` inside a
       `forall`)
 - [x] The verifier version (part of every cache key) changes whenever the SMT it

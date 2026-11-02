@@ -73,8 +73,10 @@ A declaration marked `private` (`private fn`, `private struct`, `private enum`,
 files may each have a private declaration of the same name. Every other declaration
 is public, and a public declaration may not name a private type in its signature,
 fields or variants, since a file that imports it could not name that type.
-Diagnostics name a module's declarations by their qualified names (`json.Value`),
-using the file's name for the module.
+Diagnostics name a module's declarations as the file they are reported in names them:
+`j.Value` in a file that imports std/json.vow `as j`, `Value` in one that merges or
+selects it (and in json.vow itself). A declaration the file cannot name keeps the name
+of its own file (`json.Value`).
 
 ```
 import "util.vow"

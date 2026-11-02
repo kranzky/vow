@@ -261,6 +261,7 @@ fn diagnose(s: inout Server, path: String, prove: Bool) uses console, fs, proc d
       end if
     end if
   end if
+  set diags = shown(src: src, diags: diags)
   var files: List<String> = []
   for f in src.files do
     if not starts_with(s: f, p: "<std>/") then
@@ -403,14 +404,19 @@ fn hover(s: Server, path: String, line: Int, col: Int) -> json.Value uses fs do
   let src = load_with(root: path, overrides: s.docs)
   let ck = check_source(src: src, test_mode: true)
   let info = ck.c.info
+  // Module declarations, named as this document names them.
+  var names: Map<String, String> = {}
+  if len(src.names) > 0 then
+    set names = src.names[0]
+  end if
   // A declaration with this name.
   match find_item(items: src.items, name: w.text)
   case Some(value: item) then
     match item
     case FnItem(decl: f) then
-      return markdown(fn_contract(f))
+      return markdown(show_names(text: fn_contract(f), names: names))
     else
-      return markdown(pretty_item(item))
+      return markdown(show_names(text: pretty_item(item), names: names))
     end match
   case None then
   end match
@@ -420,7 +426,7 @@ fn hover(s: Server, path: String, line: Int, col: Int) -> json.Value uses fs do
     case EnumItem(decl: e) then
       for vd in e.variants do
         if vd.name == w.text then
-          return markdown(pretty_item(item))
+          return markdown(show_names(text: pretty_item(item), names: names))
         end if
       end for
     else
@@ -433,7 +439,7 @@ fn hover(s: Server, path: String, line: Int, col: Int) -> json.Value uses fs do
     case FnItem(decl: f) then
       for p in f.params do
         if (p.pos.file == 0) and (p.pos.line == line) and (p.name == w.text) then
-          return markdown(p.name ++ ": " ++ pretty_type(p.ty))
+          return markdown(p.name ++ ": " ++ show_names(text: pretty_type(p.ty), names: names))
         end if
       end for
       find_in_block(stmts: f.body, line: line, name: w.text, out: inout found)
@@ -456,7 +462,7 @@ fn hover(s: Server, path: String, line: Int, col: Int) -> json.Value uses fs do
   if len(ty) == 0 then
     return json.Value.Null
   end if
-  var text = w.text ++ ": " ++ ty
+  var text = w.text ++ ": " ++ show_names(text: ty, names: names)
   let facts = facts_about(src: src, ck: ck, line: line, name: w.text)
   if len(facts) > 0 then
     set text = text ++ "\n// known here:\n" ++ join(parts: facts, sep: "\n")

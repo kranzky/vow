@@ -16,6 +16,9 @@
   instance. Breaking: add `: Ord` to such parameters.
 - `<` on a type that is not ordered says which types are: "'<' compares Int, Float,
   String and type parameters declared Ord, not S".
+- Diagnostics (and the language server's hovers) name a module's declarations as the
+  file they are in names them: "argument 'a' must be g.Point" in a file that imports
+  geo.vow `as g`, where it said "geo.Point".
 
 ## v0.9.8
 

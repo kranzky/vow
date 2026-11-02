@@ -1,0 +1,10 @@
+// error: cannot prove field 'hi' of g.Shape.Box satisfies (it.x >= lo.x) and (it.y >= lo.y)
+// language: 0.9
+import "../modules/geo.vow" as g
+
+fn boxed(x: Int) -> g.Shape do
+  return g.Shape.Box(lo: g.origin(), hi: g.Point(x: x, y: 0))
+end fn boxed
+
+fn main() do
+end fn main

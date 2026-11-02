@@ -367,7 +367,7 @@ fn main() uses console, fs, proc do
   end if
   let src = load(file)
   if len(src.errs) > 0 then
-    report(diags: src.errs, files: src.files, json: json)
+    report(diags: shown(src: src, diags: src.errs), files: src.files, json: json)
     exit(1)
   end if
   if cmd == "pretty" then
@@ -378,7 +378,7 @@ fn main() uses console, fs, proc do
   end if
   let ck = check_source(src: src, test_mode: cmd == "test")
   if len(ck.errs) > 0 then
-    report(diags: ck.errs, files: src.files, json: json)
+    report(diags: shown(src: src, diags: ck.errs), files: src.files, json: json)
     exit(1)
   end if
   let c = ck.c
@@ -399,7 +399,7 @@ fn main() uses console, fs, proc do
       exit(1)
     end if
     if len(vr.diags) > 0 then
-      report(diags: vr.diags, files: src.files, json: json)
+      report(diags: shown(src: src, diags: vr.diags), files: src.files, json: json)
       if vr.undecided and not json then
         let z = z3_version()
         if z != tested_z3_version() then

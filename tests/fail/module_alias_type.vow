@@ -1,0 +1,10 @@
+// error: argument 'a' must be g.Point, but this is g.Shape
+// language: 0.9
+import "../modules/geo.vow" as g
+
+fn far(s: g.Shape) -> Int do
+  return g.dist2(a: s, b: g.origin())
+end fn far
+
+fn main() do
+end fn main

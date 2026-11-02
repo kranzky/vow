@@ -61,6 +61,8 @@ end struct Resolver
 struct Resolved
   items: List<Item>,
   errs: List<Diag>,
+  // For each file, how it names the declarations it can see (see display_names).
+  names: List<Map<String, String>>,
 end struct Resolved
 
 fn is_fn_item(item: Item) -> Bool do
@@ -250,8 +252,10 @@ fn resolve_modules(files: List<ModFile>, shared: List<Int>, shared_in_root: Bool
   end for
   var r = Resolver(files: files, efns: efns, etypes: etypes, known: known, scope: empty_scope(), file: 0, locals: [], tparams: [], errs: [])
   var out: List<Item> = []
+  var names: List<Map<String, String>> = []
   for f in 0..len(files) do
     let sc = file_scope(r: inout r, f: f, root: root, shared: shared, canons: canons)
+    set names = push(list: names, item: display_names(r: r, sc: sc))
     set r = r with (scope: sc, file: f)
     let mf = files[f]
     let cs = canon_list(cs: canons, f: f)
@@ -263,7 +267,7 @@ fn resolve_modules(files: List<ModFile>, shared: List<Int>, shared_in_root: Bool
       set out = push(list: out, item: resolve_item(r: inout r, item: mf.items[k], canon: string_at(xs: cs, i: k)))
     end for
   end for
-  return Resolved(items: out, errs: r.errs)
+  return Resolved(items: out, errs: r.errs, names: names)
 end fn resolve_modules
 
 // Whether file f was loaded; names missing from a file that was not are not reported.
@@ -366,6 +370,77 @@ fn file_scope(r: inout Resolver, f: Int, root: List<Int>, shared: List<Int>, can
   end for
   return Scope(fns: fns, types: types, ambiguous: amb, aliases: aliases)
 end fn file_scope
+
+// How a file names each declaration it can see that has a qualified canonical name:
+// "g.Point" for geo.vow's Point when the file imports geo.vow `as g`, and "Point" when
+// it merges or selects it, or declares it itself. Diagnostics use the names of the file
+// they are in; a declaration the file cannot see keeps its canonical name.
+fn display_names(r: Resolver, sc: Scope) -> Map<String, String> do
+  var out: Map<String, String> = {}
+  for a in keys(sc.aliases) do
+    let t = value_or(opt: lookup(map: sc.aliases, key: a), default: -1)
+    if (t >= 0) and (t < len(r.efns)) and (t < len(r.etypes)) then
+      add_display(out: inout out, m: r.efns[t], prefix: a ++ ".", amb: [])
+      add_display(out: inout out, m: r.etypes[t], prefix: a ++ ".", amb: [])
+    end if
+  end for
+  add_display(out: inout out, m: sc.fns, prefix: "", amb: sc.ambiguous)
+  add_display(out: inout out, m: sc.types, prefix: "", amb: sc.ambiguous)
+  return out
+end fn display_names
+
+fn add_display(out: inout Map<String, String>, m: Map<String, String>, prefix: String, amb: List<String>) do
+  for n in keys(m) do
+    let canon = value_or(opt: lookup(map: m, key: n), default: n)
+    if (find_byte(s: canon, c: '.', from: 0) >= 0) and not contains_str(xs: amb, x: n) then
+      set out = insert(map: out, key: canon, value: prefix ++ n)
+    end if
+  end for
+end fn add_display
+
+// Rewrites the canonical names in a message (geo.Point, geo.Shape.Box) into those of
+// names, a file's display names.
+fn show_names(text: String, names: Map<String, String>) -> String do
+  if len(names) == 0 then
+    return text
+  end if
+  var parts: List<String> = []
+  var i = 0
+  while i < len(text) invariant i >= 0 do
+    let ch = text[i]
+    var starts = is_alpha(ch) or (ch == '_')
+    if starts and (i > 0) then
+      let before = text[i - 1]
+      set starts = not (is_alnum(before) or (before == '_') or (before == '.'))
+    end if
+    if not starts then
+      set parts = push(list: parts, item: char(ch))
+      set i = i + 1
+      continue
+    end if
+    // A word, a dot and a word: a canonical name if names has it.
+    var j = i
+    while (j < len(text)) and (is_alnum(text[j]) or (text[j] == '_')) invariant i <= j invariant j <= len(text) do
+      set j = j + 1
+    end while
+    var k = j
+    if (j < len(text)) and (text[j] == '.') then
+      set k = j + 1
+      while (k < len(text)) and (is_alnum(text[k]) or (text[k] == '_')) invariant j < k invariant k <= len(text) do
+        set k = k + 1
+      end while
+    end if
+    let word = slice(of: text, from: i, to: k)
+    match lookup(map: names, key: word)
+    case Some(value: shown) then
+      set parts = push(list: parts, item: shown)
+    case None then
+      set parts = push(list: parts, item: word)
+    end match
+    set i = k
+  end while
+  return join(parts: parts, sep: "")
+end fn show_names
 
 // Why name is not one of the public declarations of file f.
 fn not_public(r: Resolver, f: Int, name: String) -> String do

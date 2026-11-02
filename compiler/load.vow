@@ -71,6 +71,8 @@ struct Source
   errs: List<Diag>,
   // The first expression id not used by any loaded file.
   next_id: Int,
+  // For each file, how it names the declarations of other modules.
+  names: List<Map<String, String>>,
 end struct Source
 
 // Declarations every program gets, unless it declares a type of the same name. Type
@@ -229,8 +231,25 @@ fn load_with(root: String, overrides: Map<String, String>) -> Source uses fs do
     end if
   end if
   let res = resolve_modules(files: linked, shared: shared, shared_in_root: not declared)
-  return Source(files: files, items: res.items, errs: errs ++ res.errs, next_id: next_id)
+  return Source(files: files, items: res.items, errs: errs ++ res.errs, next_id: next_id, names: res.names)
 end fn load_with
+
+// The diagnostics with each module declaration named as the file it is in names it.
+fn shown(src: Source, diags: List<Diag>) -> List<Diag> do
+  var out: List<Diag> = []
+  for d in diags do
+    var names: Map<String, String> = {}
+    if (d.pos.file >= 0) and (d.pos.file < len(src.names)) then
+      set names = src.names[d.pos.file]
+    end if
+    var notes: List<String> = []
+    for n in d.notes do
+      set notes = push(list: notes, item: show_names(text: n, names: names))
+    end for
+    set out = push(list: out, item: d with (msg: show_names(text: d.msg, names: names), notes: notes))
+  end for
+  return out
+end fn shown
 
 fn render_diag(d: Diag, files: List<String>) -> String do
   var file = "?"
