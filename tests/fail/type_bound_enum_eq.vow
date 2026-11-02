@@ -1,0 +1,9 @@
+// error: '!=' on T needs the bound Eq: declare 'T: Eq' in the enum's type parameters
+// language: 0.9
+enum Change<T>
+  Same(value: T),
+  Moved(from: T, to: T where it != from),
+end enum Change
+
+fn main() do
+end fn main

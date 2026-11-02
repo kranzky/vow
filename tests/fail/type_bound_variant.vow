@@ -1,0 +1,11 @@
+// error: 'Change' needs T: Eq, but Map<Int, Int> holds a map, which '==' does not compare
+// language: 0.9
+enum Change<T: Eq>
+  Same(value: T),
+  Moved(from: T, to: T where it != from),
+end enum Change
+
+fn main() do
+  let m: Map<Int, Int> = {}
+  let c = Change.Same(value: m)
+end fn main

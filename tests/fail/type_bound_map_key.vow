@@ -1,0 +1,8 @@
+// error: a map keyed by K needs the bound Ord: declare 'K: Ord' in the struct's type parameters
+// language: 0.9
+struct Index<K, V>
+  entries: Map<K, V>,
+end struct Index
+
+fn main() do
+end fn main

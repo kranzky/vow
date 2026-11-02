@@ -1,0 +1,9 @@
+// error: '>=' on T needs the bound Ord: declare 'T: Ord' in the struct's type parameters
+// language: 0.9
+struct Range<T>
+  lo: T,
+  hi: T where it >= lo,
+end struct Range
+
+fn main() do
+end fn main

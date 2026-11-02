@@ -339,8 +339,15 @@ reals, with `a == b` exactly when the keys are equal. Each instance's runtime or
 strict total order on a countable set whose equality is identity (integers, or byte
 strings in lexicographic order), and every countable total order embeds in the
 rationals, so interpreting the key as such an embedding satisfies everything the
-verifier assumes. A function's type parameter used as a map key must be declared `Ord`
-*(checker)*.
+verifier assumes. A type parameter used as a map key must be declared `Ord`
+*(checker)*. A generic struct's or enum's type parameters may have the same bounds,
+and every type argument written or inferred for them is checked as a call's is
+*(checker)*; inside the declaration, comparisons and map keys need the bounds as in a
+function *(checker, once, for the declaration's own parameters)*. So a field refinement
+that compares values of a bounded parameter is translated, in any function, with the
+order or equality of what the parameter stands for there: a type argument, or a type
+parameter of that function with the same bound, whose order and equality are those
+described above.
 
 A generic specification function is translated per instance: the instance's own copy of
 the body, type-checked with the instance's types (concrete, or another generic

@@ -1,0 +1,10 @@
+// error: 'Range' needs T: Ord, but Float can hold a NaN, which is not ordered
+// language: 0.9
+struct Range<T: Ord>
+  lo: T,
+  hi: T where it >= lo,
+end struct Range
+
+fn main() do
+  let r = Range(lo: 1.0, hi: 2.0)
+end fn main

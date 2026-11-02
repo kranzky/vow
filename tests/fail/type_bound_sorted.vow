@@ -1,0 +1,9 @@
+// error: cannot prove field 'items' of Sorted<String> satisfies
+// language: 0.9
+struct Sorted<T: Ord>
+  items: List<T> where forall i in 0..len(it): forall j in i..len(it): it[i] <= it[j],
+end struct Sorted
+
+fn main() do
+  let s = Sorted(items: ["fig", "apple"])
+end fn main

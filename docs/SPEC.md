@@ -331,9 +331,16 @@ end fn reversed
   is a strict total order consistent with `==`: `not (a < a)`, `a < b` or `a == b` or
   `b < a`, `a <= b` is `not (b < a)`, and it is transitive. A function's type parameter
   used as a map key must be declared `Ord` (`fn counts<K: Ord>(ks: List<K>) ->
-  Map<K, Int>`); a generic struct's or enum's map key type is checked for each instance
-  (`Int` or `String`).
-- Structs and enums cannot have bounds; `Eq` and `Ord` are the only bounds.
+  Map<K, Int>`).
+- A generic struct's or enum's type parameters may have the same bounds, with the same
+  meaning inside the declaration: a field refinement may compare values of a bounded
+  parameter, and a parameter used as a map key must be declared `Ord` ("a map keyed by
+  K needs the bound Ord: declare 'K: Ord' in the struct's type parameters"). Every use
+  of the type, written (`Range<Float>`) or made by a constructor, is checked against
+  them ("'Range' needs T: Ord, but Float can hold a NaN, which is not ordered"); a
+  generic function that uses `Range<T>` declares `T: Ord` itself. For example,
+  `struct Range<T: Ord>` with the fields `lo: T` and `hi: T where it >= lo`.
+- `Eq` and `Ord` are the only bounds.
 - Type parameters may not have the name of a type. The type arguments of a generic
   type may be refined (`Box<Nat>`, see Refinements); those of a generic function call
   are inferred without refinements, for type checking. For the verifier, a refinement

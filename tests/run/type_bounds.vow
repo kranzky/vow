@@ -1,0 +1,121 @@
+// language: 0.9
+// Bounds on generic structs and enums: a field refinement may compare values of a
+// bounded type parameter, a map may be keyed by one declared Ord, and every use of the
+// type is checked against the bounds.
+
+// A range whose ends are in order.
+struct Range<T: Ord>
+  lo: T,
+  hi: T where it >= lo,
+end struct Range
+
+fn within<T: Ord>(r: Range<T>, x: T) -> Bool do
+  return (r.lo <= x) and (x <= r.hi)
+end fn within
+
+// The smallest range that holds r and x.
+fn widen<T: Ord>(r: Range<T>, x: T) -> Range<T>
+  ensures within(r: result, x: x)
+  ensures (result.lo <= r.lo) and (result.hi >= r.hi)
+do
+  if x < r.lo then
+    return Range(lo: x, hi: r.hi)
+  elif x > r.hi then
+    return Range(lo: r.lo, hi: x)
+  end if
+  return r
+end fn widen
+
+// A list in order: its first item is its least.
+struct Sorted<T: Ord>
+  items: List<T> where forall i in 0..len(it): forall j in i..len(it): it[i] <= it[j],
+end struct Sorted
+
+fn least<T: Ord>(s: Sorted<T>) -> T
+  requires len(s.items) > 0
+  ensures forall i in 0..len(s.items): result <= s.items[i]
+do
+  return s.items[0]
+end fn least
+
+// Two different values.
+struct Distinct<T: Eq>
+  a: T,
+  b: T where it != a,
+end struct Distinct
+
+fn other<T: Eq>(d: Distinct<T>, x: T) -> T
+  ensures (result != x) or (d.a == d.b)
+do
+  if x == d.a then
+    return d.b
+  end if
+  return d.a
+end fn other
+
+// A map keyed by a type parameter, which must be declared Ord.
+struct Tally<K: Ord>
+  counts: Map<K, Int>,
+  total: Int where it >= 0,
+end struct Tally
+
+fn count<K: Ord>(t: Tally<K>, k: K) -> Tally<K>
+  ensures result.total == (t.total + 1)
+do
+  let n = value_or(opt: lookup(map: t.counts, key: k), default: 0)
+  return Tally(counts: insert(map: t.counts, key: k, value: n + 1), total: t.total + 1)
+end fn count
+
+// A binary search tree.
+enum Tree<T: Ord>
+  Leaf,
+  Node(left: Tree<T>, val: T, right: Tree<T>),
+end enum Tree
+
+fn add<T: Ord>(t: Tree<T>, x: T) -> Tree<T> do
+  match t
+  case Leaf then
+    return Tree.Node(left: Tree.Leaf, val: x, right: Tree.Leaf)
+  case Node(left: l, val: v, right: r) then
+    if x < v then
+      return Tree.Node(left: add(t: l, x: x), val: v, right: r)
+    elif x > v then
+      return Tree.Node(left: l, val: v, right: add(t: r, x: x))
+    end if
+    return t
+  end match
+end fn add
+
+fn in_order<T: Ord>(t: Tree<T>) -> List<T> do
+  match t
+  case Leaf then
+    return []
+  case Node(left: l, val: v, right: r) then
+    return in_order(l) ++ [v] ++ in_order(r)
+  end match
+end fn in_order
+
+fn main() uses console do
+  let r = widen(r: widen(r: Range(lo: 3, hi: 5), x: 9), x: 1)
+  print(int_to_str(r.lo) ++ ".." ++ int_to_str(r.hi) ++ "\n")
+  let w = widen(r: Range(lo: "kiwi", hi: "pear"), x: "fig")
+  print(w.lo ++ ".." ++ w.hi ++ "\n")
+  let s = Sorted(items: ["apple", "fig", "pear"])
+  print(least(s) ++ "\n")
+  let d = Distinct(a: "yes", b: "no")
+  print(other(d: d, x: "yes") ++ "\n")
+  var t: Tally<String> = Tally(counts: {}, total: 0)
+  for w2 in ["b", "a", "b"] do
+    set t = count(t: t, k: w2)
+  end for
+  print(int_to_str(value_or(opt: lookup(map: t.counts, key: "b"), default: 0)) ++ " of " ++ int_to_str(t.total) ++ "\n")
+  var tree: Tree<Int> = Tree.Leaf
+  for x in [5, 2, 8, 2, 1] do
+    set tree = add(t: tree, x: x)
+  end for
+  var shown: List<String> = []
+  for x in in_order(tree) do
+    set shown = push(list: shown, item: int_to_str(x))
+  end for
+  print(join(parts: shown, sep: " ") ++ "\n")
+end fn main

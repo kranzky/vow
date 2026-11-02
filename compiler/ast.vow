@@ -79,6 +79,9 @@ end struct FnDecl
 struct StructDecl
   name: String,
   tparams: List<String>,
+  // Bounded type parameters, as in FnDecl.
+  eq: List<String>,
+  ord: List<String>,
   fields: List<Param>,
   pos: Pos,
 end struct StructDecl
@@ -92,6 +95,8 @@ end struct VariantDecl
 struct EnumDecl
   name: String,
   tparams: List<String>,
+  eq: List<String>,
+  ord: List<String>,
   variants: List<VariantDecl>,
   pos: Pos,
 end struct EnumDecl

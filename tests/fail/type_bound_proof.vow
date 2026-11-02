@@ -1,0 +1,14 @@
+// error: cannot prove field 'hi' of Range<T> satisfies it >= lo
+// language: 0.9
+struct Range<T: Ord>
+  lo: T,
+  hi: T where it >= lo,
+end struct Range
+
+// Wrong: a and b may be in either order.
+fn span<T: Ord>(a: T, b: T) -> Range<T> do
+  return Range(lo: a, hi: b)
+end fn span
+
+fn main() do
+end fn main

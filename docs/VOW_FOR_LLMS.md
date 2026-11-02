@@ -599,7 +599,9 @@ type it is used with, so it costs nothing at runtime. Comparing `T` values needs
 `T: Eq`, which rules out floats (a NaN is not equal to itself) and maps; in return `==`
 on `T` is known to be reflexive, symmetric and transitive. `T: Ord` adds `<`, `<=`,
 `>` and `>=`, a total order the verifier knows the laws of; strings are ordered byte
-by byte:
+by byte. Generic structs and enums take the same bounds, so a field refinement can
+compare (`struct Range<T: Ord>` with `hi: T where it >= lo`); a function that takes a
+`Range<T>` declares `T: Ord` too:
 
 ```
 fn contains<T: Eq>(xs: List<T>, x: T) -> Bool do

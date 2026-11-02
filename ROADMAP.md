@@ -86,9 +86,12 @@ Must-have, language and proofs:
 - [x] An `Ord` bound (`fn sort<T: Ord>(...)`) for `Int`, `String` and type parameters
       declared `Ord`: `<` on `T` is a strict total order for the verifier, and a
       function's type parameter used as a map key needs it; `<` on strings
-- [ ] Bounds on generic structs and enums (`struct Index<K: Ord>`), so their map key
-      types are checked where the type is written rather than per instance; and
-      lexicographic `Ord` on lists, options and structs
+- [x] Bounds on generic structs and enums (`struct Range<T: Ord>`): field refinements
+      may compare bounded parameters, map keys are checked in the declaration, and every
+      use of the type is checked against the bounds
+- [ ] Lexicographic `Ord` on lists, options and structs (wait for a program that needs
+      it: the verifier would need quantified axioms relating a list's order to its
+      elements)
 - [x] Diagnostics name a module's declarations by the alias the importing file chose
       (`cash.Amount` for money.vow imported `as cash`), or unqualified where the file
       merges or selects them

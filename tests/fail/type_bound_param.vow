@@ -1,0 +1,13 @@
+// error: 'Range' needs T: Ord, but U is a type parameter not declared 'U: Ord'
+// language: 0.9
+struct Range<T: Ord>
+  lo: T,
+  hi: T where it >= lo,
+end struct Range
+
+fn first<U>(r: Range<U>) -> U do
+  return r.lo
+end fn first
+
+fn main() do
+end fn main

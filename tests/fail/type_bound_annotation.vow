@@ -1,0 +1,13 @@
+// error: 'Range' needs T: Ord, but List<Int> is not ordered (the ordered types are Int, String and type parameters declared Ord)
+// language: 0.9
+struct Range<T: Ord>
+  lo: T,
+  hi: T,
+end struct Range
+
+fn width(r: Range<List<Int>>) -> Int do
+  return len(r.hi) - len(r.lo)
+end fn width
+
+fn main() do
+end fn main

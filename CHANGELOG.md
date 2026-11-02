@@ -16,6 +16,15 @@
   instance. Breaking: add `: Ord` to such parameters.
 - `<` on a type that is not ordered says which types are: "'<' compares Int, Float,
   String and type parameters declared Ord, not S".
+- Bounds on generic structs and enums: `struct Range<T: Ord>` with `hi: T where it >=
+  lo`, `enum Tree<T: Ord>`, `struct Tally<K: Ord>` with a `Map<K, Int>` field. A field
+  refinement may compare values of a bounded parameter, and the verifier knows the order
+  or equality, as in a function. Every use of the type, written or made by a
+  constructor, is checked against the bounds ("'Range' needs T: Ord, but Float can hold
+  a NaN, which is not ordered"), so a generic function that takes a `Range<T>` declares
+  `T: Ord`. Breaking: a generic struct's or enum's type parameter used as a map key must
+  now be declared `Ord` ("a map keyed by K needs the bound Ord: declare 'K: Ord' in the
+  struct's type parameters"), where it was checked per instance.
 - Diagnostics (and the language server's hovers) name a module's declarations as the
   file they are in names them: "argument 'a' must be g.Point" in a file that imports
   geo.vow `as g`, where it said "geo.Point".

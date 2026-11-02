@@ -1,8 +1,10 @@
-// error: only a function's type parameters can have bounds
+// error: 'Pair' needs T: Eq, but Float can hold a NaN, which is not equal to itself
 // language: 0.9
-struct S<T: Eq>
-  x: T,
-end struct S
+struct Pair<T: Eq>
+  a: T,
+  b: T where it != a,
+end struct Pair
 
 fn main() do
+  let p: Pair<Float> = Pair(a: 1.0, b: 2.0)
 end fn main

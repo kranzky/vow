@@ -284,9 +284,9 @@ fn parse_fields(p: inout Parser, closer: String, labels: Bool) -> List<Param> do
   return fields
 end fn parse_fields
 
-// A declaration's type parameters. A function's may have the bound Eq (<T: Eq>),
-// collected in eq; bounded is false for a struct or enum, which cannot have bounds.
-fn parse_tparams(p: inout Parser, eq: inout List<String>, ord: inout List<String>, bounded: Bool) -> List<String> do
+// A declaration's type parameters, each with an optional bound: Eq (<T: Eq>), collected
+// in eq, or Ord, collected in both eq and ord.
+fn parse_tparams(p: inout Parser, eq: inout List<String>, ord: inout List<String>) -> List<String> do
   var out: List<String> = []
   if accept(p: inout p, text: "<") then
     var more = true
@@ -300,8 +300,6 @@ fn parse_tparams(p: inout Parser, eq: inout List<String>, ord: inout List<String
         let b = ident(p: inout p, ctx: "for the bound of '" ++ t.text ++ "'")
         if (b.text != "Eq") and (b.text != "Ord") then
           fail(p: inout p, d: diag(pos: b.pos, msg: "unknown bound '" ++ b.text ++ "' (the bounds are Eq and Ord)"))
-        elif not bounded then
-          fail(p: inout p, d: diag(pos: b.pos, msg: "only a function's type parameters can have bounds"))
         end if
         // Ord includes Eq: ordered values can be compared with '==' too.
         set eq = push(list: eq, item: t.text)
@@ -321,7 +319,7 @@ fn parse_fn(p: inout Parser) -> FnDecl do
   let name = ident(p: inout p, ctx: "for the function")
   var eq: List<String> = []
   var ord: List<String> = []
-  let tparams = parse_tparams(p: inout p, eq: inout eq, ord: inout ord, bounded: true)
+  let tparams = parse_tparams(p: inout p, eq: inout eq, ord: inout ord)
   let _ = expect(p: inout p, text: "(", ctx: "to open the parameter list")
   let params = parse_fields(p: inout p, closer: ")", labels: false)
   let _ = expect(p: inout p, text: ")", ctx: "to close the parameter list")
@@ -374,20 +372,20 @@ end fn parse_fn
 fn parse_struct(p: inout Parser) -> StructDecl do
   let start = expect(p: inout p, text: "struct", ctx: "").pos
   let name = ident(p: inout p, ctx: "for the struct")
-  var no_eq: List<String> = []
-  var no_ord: List<String> = []
-  let tparams = parse_tparams(p: inout p, eq: inout no_eq, ord: inout no_ord, bounded: false)
+  var eq: List<String> = []
+  var ord: List<String> = []
+  let tparams = parse_tparams(p: inout p, eq: inout eq, ord: inout ord)
   let fields = parse_fields(p: inout p, closer: "end", labels: true)
   close_block(p: inout p, what: "struct", name: name.text, opened: start)
-  return StructDecl(name: name.text, tparams: tparams, fields: fields, pos: start)
+  return StructDecl(name: name.text, tparams: tparams, eq: eq, ord: ord, fields: fields, pos: start)
 end fn parse_struct
 
 fn parse_enum(p: inout Parser) -> EnumDecl do
   let start = expect(p: inout p, text: "enum", ctx: "").pos
   let name = ident(p: inout p, ctx: "for the enum")
-  var no_eq: List<String> = []
-  var no_ord: List<String> = []
-  let tparams = parse_tparams(p: inout p, eq: inout no_eq, ord: inout no_ord, bounded: false)
+  var eq: List<String> = []
+  var ord: List<String> = []
+  let tparams = parse_tparams(p: inout p, eq: inout eq, ord: inout ord)
   var variants: List<VariantDecl> = []
   while not is_tok(p: p, text: "end") do
     let v = ident(p: inout p, ctx: "for a variant")
@@ -402,7 +400,7 @@ fn parse_enum(p: inout Parser) -> EnumDecl do
     end if
   end while
   close_block(p: inout p, what: "enum", name: name.text, opened: start)
-  return EnumDecl(name: name.text, tparams: tparams, variants: variants, pos: start)
+  return EnumDecl(name: name.text, tparams: tparams, eq: eq, ord: ord, variants: variants, pos: start)
 end fn parse_enum
 
 fn at_block_end(p: Parser) -> Bool do
