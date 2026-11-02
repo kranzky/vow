@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.9.8
 
 - The bound `Eq` on a function's type parameters: `fn index_of<T: Eq>(xs: List<T>,
   x: T) -> Int`. `==` on `T` (or `List<T>`, `Box<T>`, ...) now needs it: "'==' on T
