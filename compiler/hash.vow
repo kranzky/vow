@@ -115,7 +115,7 @@ fn calls_in_block(stmts: List<Stmt>, info: Info, out: inout List<String>) do
     case While(cond: c, invs: invs, dec: dec, body: body) then
       calls_in_expr(e: c, info: info, out: inout out)
       calls_in_all(es: invs, info: info, out: inout out)
-      calls_in_opt_expr(e: dec, info: info, out: inout out)
+      calls_in_all(es: dec, info: info, out: inout out)
       calls_in_block(stmts: body, info: info, out: inout out)
     case ForRange(name: v, lo: lo, hi: hi, invs: invs, body: body) then
       calls_in_expr(e: lo, info: info, out: inout out)
@@ -203,7 +203,7 @@ fn hash_program(items: List<Item>, info: Info) -> List<FnHash> do
       for p in f.params do
         calls_in_opt_expr(e: p.ty.refine, info: info, out: inout callees)
       end for
-      calls_in_opt_expr(e: f.dec, info: info, out: inout callees)
+      calls_in_all(es: f.dec, info: info, out: inout callees)
       // Sorted, like the bootstrap compiler's BTreeSet.
       var sorted: Map<String, String> = {}
       for c in callees do

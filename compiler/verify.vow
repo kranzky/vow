@@ -67,13 +67,13 @@ end struct Spec
 
 // A loop being verified: its invariants; for a range loop, the loop variable and its
 // value in the next iteration (next_var is "" otherwise); and its 'decreases' measure
-// with that measure's value at the top of the iteration.
+// with the values of its parts at the top of the iteration.
 struct LoopCtx
   invs: List<Expr>,
   next_var: String,
   next_term: String,
-  dec: Option<Expr>,
-  d0: String,
+  dec: List<Expr>,
+  d0: List<String>,
 end struct LoopCtx
 
 struct Verifier
@@ -91,7 +91,7 @@ struct Verifier
   fname: String,
   ret: RTy,
   post: List<Expr>,
-  dec: Option<Expr>,
+  dec: List<Expr>,
   params: Map<String, String>,
   hole_facts: Map<Int, List<String>>,
   // Recursive specification functions whose definitions this query has, and the
@@ -131,7 +131,7 @@ fn new_verifier(info: Info) -> Verifier do
   end for
   let loops: List<LoopCtx> = []
   return Verifier(info: info, n: 0, decls: [], defs: [], qdefs: [], obs: [], preamble: pre, sigs: {}, strs: {}, loops: loops,
-    fname: "", ret: plain(Ty.TUnit), post: [], dec: Option.None, params: {}, hole_facts: {}, sf_done: [], eq_done: [], flits: [], floats: false, probe_line: -1, probe: [],
+    fname: "", ret: plain(Ty.TUnit), post: [], dec: [], params: {}, hole_facts: {}, sf_done: [], eq_done: [], flits: [], floats: false, probe_line: -1, probe: [],
     hyps: true)
 end fn new_verifier
 
@@ -658,7 +658,7 @@ fn verify_fn(v: inout Verifier, f: FnDecl) -> FnVc do
   set v = v with (n: 0, decls: [], defs: [], qdefs: [], obs: [], strs: {}, loops: empty_loops, fname: f.name, params: {}, sf_done: [], eq_done: [], flits: [], floats: false,
     info: info with (tenv: identity_env(f.tparams), eq_tparams: f.eq, ord_tparams: f.ord))
   var fi = FnInfo(name: f.name, params: [], io: [], ret: plain(Ty.TUnit), effects: [], pre: [], post: [],
-    dec: Option.None, inline: Option.None, spec_body: Option.None, spec_rec: false, pos: f.pos)
+    dec: [], inline: Option.None, spec_body: Option.None, spec_rec: false, pos: f.pos)
   match get_fn(info: v.info, name: f.name)
   case Some(value: x) then
     set fi = x
@@ -689,11 +689,9 @@ fn verify_fn(v: inout Verifier, f: FnDecl) -> FnVc do
     add_src(st: inout st, f: pretty_expr(r))
   end for
   // The measure is a specification too, evaluated on entry by a checked build.
-  match fi.dec
-  case Some(value: d) then
+  for d in fi.dec do
     check_wd(v: inout v, st: st, pos: d.pos, e: d, sp: state_spec(v: v, st: st, subj: "", res: ""))
-  case None then
-  end match
+  end for
   vblock(v: inout v, stmts: f.body, st: inout st)
   if (not st.dead) and (ty_show(fi.ret.ty) == "Unit") then
     check_post(v: inout v, st: st, pos: f.pos, val: "0")
@@ -2006,7 +2004,7 @@ fn push_loop(v: inout Verifier, l: LoopCtx) do
 end fn push_loop
 
 fn plain_loop(invs: List<Expr>) -> LoopCtx do
-  return LoopCtx(invs: invs, next_var: "", next_term: "", dec: Option.None, d0: "")
+  return LoopCtx(invs: invs, next_var: "", next_term: "", dec: [], d0: [])
 end fn plain_loop
 
 // ---- floats ----
@@ -2334,15 +2332,45 @@ fn scc_of_fn(info: Info, name: String) -> Int do
 end fn scc_of_fn
 
 fn check_loop_measure(v: inout Verifier, st: St, l: LoopCtx) do
-  match l.dec
-  case Some(value: d) then
+  if (len(l.dec) == 0) or (len(l.dec) != len(l.d0)) then
+    return
+  end if
+  var nows: List<String> = []
+  for d in l.dec do
     check_wd(v: inout v, st: st, pos: d.pos, e: d, sp: state_spec(v: v, st: st, subj: "", res: ""))
     let t = spec_term(v: inout v, e: d, st: st, subj: "", res: "")
-    let now = as_measure(v: inout v, d: d, t: t)
-    obligation(v: inout v, st: st, pos: d.pos, what: "loop measure decreases: " ++ pretty_expr(d), goal: "(< " ++ now ++ " " ++ l.d0 ++ ")")
-  case None then
-  end match
+    set nows = push(list: nows, item: as_measure(v: inout v, d: d, t: t))
+  end for
+  let d = l.dec[0]
+  if (len(l.dec) == 1) and (len(nows) == 1) then
+    obligation(v: inout v, st: st, pos: d.pos, what: "loop measure decreases: " ++ pretty_expr(d), goal: "(< " ++ nows[0] ++ " " ++ l.d0[0] ++ ")")
+  else
+    let what = "loop measure decreases: " ++ pretty_measure(l.dec)
+    obligation(v: inout v, st: st, pos: d.pos, what: what, goal: lex_less(now: nows, entry: l.d0))
+  end if
 end fn check_loop_measure
+
+// The goal that a measure's parts now are lexicographically smaller than its parts at
+// entry, compared on the parts both have: some part is smaller than it was and was
+// non-negative, and each part before it is unchanged. Any descending chain of such
+// measures is finite. For one part this is (and (>= e 0) (< n e)).
+fn lex_less(now: List<String>, entry: List<String>) -> String do
+  var k = len(now)
+  if len(entry) < k then
+    set k = len(entry)
+  end if
+  if k == 0 then
+    return "false"
+  end if
+  var i = k - 1
+  var acc = "(and (>= " ++ entry[i] ++ " 0) (< " ++ now[i] ++ " " ++ entry[i] ++ "))"
+  while i > 0 invariant (i >= 0) and (i < len(now)) and (i < len(entry)) do
+    set i = i - 1
+    let part = "(and (>= " ++ entry[i] ++ " 0) (< " ++ now[i] ++ " " ++ entry[i] ++ "))"
+    set acc = "(or " ++ part ++ " (and (= " ++ now[i] ++ " " ++ entry[i] ++ ") " ++ acc ++ "))"
+  end while
+  return acc
+end fn lex_less
 
 fn pop_loop(v: inout Verifier) do
   let n = len(v.loops)
@@ -2446,16 +2474,20 @@ fn vstmt(v: inout Verifier, s: Stmt, st: inout St) do
     add_fact(st: inout inner, f: c)
     add_src(st: inout inner, f: pretty_expr(cond))
     var lc = plain_loop(invs)
-    match dec
-    case Some(value: d) then
+    var d0s: List<String> = []
+    for d in dec do
       check_wd(v: inout v, st: inner, pos: d.pos, e: d, sp: state_spec(v: v, st: inner, subj: "", res: ""))
       let t = spec_term(v: inout v, e: d, st: inner, subj: "", res: "")
       let mt = as_measure(v: inout v, d: d, t: t)
       let d0 = define(v: inout v, sort: "Int", term: mt)
-      obligation(v: inout v, st: inner, pos: d.pos, what: "loop measure is non-negative: " ++ pretty_expr(d), goal: "(>= " ++ d0 ++ " 0)")
-      set lc = lc with (dec: dec, d0: d0)
-    case None then
-    end match
+      // A measure of one part must stay non-negative; in a lexicographic one, only the
+      // part that decreases must have been (lex_less).
+      if len(dec) == 1 then
+        obligation(v: inout v, st: inner, pos: d.pos, what: "loop measure is non-negative: " ++ pretty_expr(d), goal: "(>= " ++ d0 ++ " 0)")
+      end if
+      set d0s = push(list: d0s, item: d0)
+    end for
+    set lc = lc with (dec: dec, d0: d0s)
     push_loop(v: inout v, l: lc)
     vblock(v: inout v, stmts: body, st: inout inner)
     pop_loop(inout v)
@@ -2490,7 +2522,7 @@ fn vstmt(v: inout Verifier, s: Stmt, st: inout St) do
     add_src(st: inout inner, f: pretty_expr(lo) ++ " <= " ++ var_name)
     add_src(st: inout inner, f: var_name ++ " < " ++ pretty_expr(hi))
     let next = define(v: inout v, sort: "Int", term: "(+ " ++ iv ++ " 1)")
-    push_loop(v: inout v, l: LoopCtx(invs: invs, next_var: var_name, next_term: next, dec: Option.None, d0: ""))
+    push_loop(v: inout v, l: LoopCtx(invs: invs, next_var: var_name, next_term: next, dec: [], d0: []))
     vblock(v: inout v, stmts: body, st: inout inner)
     pop_loop(inout v)
     check_invs(v: inout v, st: set_term(st: inner, name: var_name, term: next), invs: invs, what: "is preserved")
@@ -3190,7 +3222,7 @@ end struct Update
 
 fn vcall_user(v: inout Verifier, e: Expr, name: String, p: List<String>, pe: List<Expr>, st: inout St) -> String do
   var fi = FnInfo(name: name, params: [], io: [], ret: plain(Ty.TUnknown), effects: [], pre: [], post: [],
-    dec: Option.None, inline: Option.None, spec_body: Option.None, spec_rec: false, pos: e.pos)
+    dec: [], inline: Option.None, spec_body: Option.None, spec_rec: false, pos: e.pos)
   match get_fn(info: v.info, name: name)
   case Some(value: x) then
     set fi = x
@@ -3217,26 +3249,33 @@ fn vcall_user(v: inout Verifier, e: Expr, name: String, p: List<String>, pe: Lis
   // caller's measure: the callee's measure, on the arguments as passed in, is smaller.
   let same = name == v.fname
   let k = scc_of_fn(info: v.info, name: v.fname)
-  if same or ((k >= 0) and (scc_of_fn(info: v.info, name: name) == k)) then
-    match v.dec
-    case Some(value: d) then
-      var cd = d
-      match fi.dec
-      case Some(value: x) then
-        set cd = x
-      case None then
-      end match
+  // Measures are compared lexicographically on the parts both have (lex_less).
+  if (same or ((k >= 0) and (scc_of_fn(info: v.info, name: name) == k))) and (len(v.dec) > 0) then
+    var cd = v.dec
+    if len(fi.dec) > 0 then
+      set cd = fi.dec
+    end if
+    var n = len(v.dec)
+    if len(cd) < n then
+      set n = len(cd)
+    end if
+    let mine = measure_prefix(ds: v.dec, k: n)
+    let theirs = measure_prefix(ds: cd, k: n)
+    var entry: List<String> = []
+    for d in mine do
       let e0 = spec_with(v: inout v, e: d, binds: v.params, subj: "")
-      let entry = as_measure(v: inout v, d: d, t: e0)
-      let n0 = spec_with(v: inout v, e: cd, binds: binds, subj: "")
-      let now = as_measure(v: inout v, d: cd, t: n0)
-      var what = "recursive call to '" ++ name ++ "' decreases its measure: " ++ pretty_expr(d)
-      if not same then
-        set what = "call to '" ++ name ++ "' decreases the measure of '" ++ v.fname ++ "': " ++ pretty_expr(cd) ++ " < " ++ pretty_expr(d)
-      end if
-      obligation(v: inout v, st: st, pos: e.pos, what: what, goal: "(and (>= " ++ entry ++ " 0) (< " ++ now ++ " " ++ entry ++ "))")
-    case None then
-    end match
+      set entry = push(list: entry, item: as_measure(v: inout v, d: d, t: e0))
+    end for
+    var now: List<String> = []
+    for d in theirs do
+      let n0 = spec_with(v: inout v, e: d, binds: binds, subj: "")
+      set now = push(list: now, item: as_measure(v: inout v, d: d, t: n0))
+    end for
+    var what = "recursive call to '" ++ name ++ "' decreases its measure: " ++ pretty_measure(v.dec)
+    if not same then
+      set what = "call to '" ++ name ++ "' decreases the measure of '" ++ v.fname ++ "': " ++ measure_text(theirs) ++ " < " ++ measure_text(mine)
+    end if
+    obligation(v: inout v, st: st, pos: e.pos, what: what, goal: lex_less(now: now, entry: entry))
   end if
   // Each inout argument's var receives a new value.
   var post = binds

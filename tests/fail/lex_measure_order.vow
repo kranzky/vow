@@ -1,0 +1,19 @@
+// error: cannot prove recursive call to 'ack' decreases its measure: n, m
+// language: 0.9
+// The parts of a lexicographic measure are compared in the order written.
+
+fn ack(m: Int where it >= 0, n: Int where it >= 0) -> Int
+  ensures result > n
+  decreases n, m
+do
+  if m == 0 then
+    return n + 1
+  elif n == 0 then
+    return ack(m: m - 1, n: 1)
+  end if
+  return ack(m: m - 1, n: ack(m: m, n: n - 1))
+end fn ack
+
+fn main() do
+  let _ = ack(m: 1, n: 1)
+end fn main

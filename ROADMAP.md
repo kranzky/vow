@@ -77,9 +77,9 @@ Must-have, language and proofs:
 - [x] Refined type arguments through generic functions: `last(xs)` on a `List<Nat>`
       is a `Nat`, because a generic function can only return a `T` it was given; not
       where `T` appears in a map or a recursive type
-- [ ] Lexicographic measures (`decreases (a, b)`), for recursion that one Int or
-      structural measure cannot order: a rose tree walked through a helper over its
-      children, or mutual recursion mixing a list index and a tree
+- [x] Lexicographic measures (`decreases a, b`), for recursion that one Int or
+      structural measure cannot order: Ackermann's function, nested counters in one
+      loop, a rose tree walked through a helper over its children (`examples/rose.vow`)
 - [x] An `Eq` bound on type parameters (`fn index_of<T: Eq>(...)`) for types that hold
       no float and no map, required for `==` on `T`: checked at each call, and `==` on
       `T` is an equivalence for the verifier (reflexive, symmetric, transitive)

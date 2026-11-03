@@ -1,0 +1,65 @@
+// language: 0.9
+// Lexicographic measures: 'decreases a, b' orders calls and iterations by a, then by b.
+
+// Each call lowers m, or keeps m and lowers n.
+fn ack(m: Int where it >= 0, n: Int where it >= 0) -> Int
+  ensures result > n
+  decreases m, n
+do
+  if m == 0 then
+    return n + 1
+  elif n == 0 then
+    return ack(m: m - 1, n: 1)
+  end if
+  return ack(m: m - 1, n: ack(m: m, n: n - 1))
+end fn ack
+
+struct Rose
+  label: Int,
+  kids: List<Rose>,
+end struct Rose
+
+// A rose tree walked through a helper over its children. A struct's field is no larger
+// than the struct, so the call from total to kids_total keeps the first part and lowers
+// the second; a call back to total is on an element, smaller than its list; and the
+// helper's call to itself keeps the first two parts and lowers the third.
+fn total(r: Rose) -> Int decreases r, 1 do
+  return r.label + kids_total(ks: r.kids, i: 0)
+end fn total
+
+fn kids_total(ks: List<Rose>, i: Int where (0 <= it) and (it <= len(ks))) -> Int
+  decreases ks, 0, len(ks) - i
+do
+  if i == len(ks) then
+    return 0
+  end if
+  return total(ks[i]) + kids_total(ks: ks, i: i + 1)
+end fn kids_total
+
+// A loop whose inner counter is reset each time the outer one drops.
+fn steps(n: Int where it >= 0) -> Int do
+  var i = n
+  var j = n
+  var count = 0
+  while i > 0
+    invariant (i >= 0) and (j >= 0)
+    decreases i, j
+  do
+    if j > 0 then
+      set j = j - 1
+    else
+      set i = i - 1
+      set j = n
+    end if
+    set count = count + 1
+  end while
+  return count
+end fn steps
+
+fn main() uses console do
+  print("ack(2, 3) = " ++ int_to_str(ack(m: 2, n: 3)) ++ "\n")
+  let leaf = Rose(label: 3, kids: [])
+  let t = Rose(label: 1, kids: [leaf, Rose(label: 2, kids: [leaf, leaf]), leaf])
+  print("total = " ++ int_to_str(total(t)) ++ "\n")
+  print("steps(3) = " ++ int_to_str(steps(3)) ++ "\n")
+end fn main

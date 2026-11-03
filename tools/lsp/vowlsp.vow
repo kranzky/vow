@@ -664,7 +664,7 @@ fn find_in_block(stmts: List<Stmt>, line: Int, name: String, out: inout List<Fou
         set es = push(list: es, item: a.cond)
       end for
     case While(cond: c, invs: invs, dec: d, body: b) then
-      set es = [c] ++ invs
+      set es = [c] ++ invs ++ d
     case ForRange(name: n, lo: lo, hi: hi, invs: invs, body: b) then
       set es = [lo, hi] ++ invs
     case ForEach(name: n, list: l, invs: invs, body: b) then

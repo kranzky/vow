@@ -1,0 +1,18 @@
+// language: 0.9
+// Checked builds compare a lexicographic measure's parts in order: here the reset of j
+// is not paid for by a smaller i.
+// vowflags: --no-verify --check-contracts
+
+fn main() do
+  var i = 2
+  var j = 2
+  while i > 0
+    decreases i, j
+  do
+    if j > 0 then
+      set j = j - 1
+    else
+      set j = 2
+    end if
+  end while
+end fn main

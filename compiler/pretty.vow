@@ -208,11 +208,9 @@ fn pretty_stmt(out: inout List<String>, s: Stmt, ind: Int) do
     pline(out: inout out, ind: ind, s: "end if")
   case While(cond: c, invs: invs, dec: dec, body: body) then
     var d = ""
-    match dec
-    case Some(value: m) then
-      set d = " decreases " ++ pretty_expr(m)
-    case None then
-    end match
+    if len(dec) > 0 then
+      set d = " decreases " ++ pretty_measure(dec)
+    end if
     pline(out: inout out, ind: ind, s: "while " ++ pretty_expr(c) ++ pretty_invs(invs) ++ d ++ " do")
     pretty_block(out: inout out, stmts: body, ind: ind + 1)
     pline(out: inout out, ind: ind, s: "end while")
@@ -288,13 +286,39 @@ fn fn_contract(f: FnDecl) -> String do
   for e in f.post do
     set s = s ++ " ensures " ++ pretty_expr(e)
   end for
-  match f.dec
-  case Some(value: d) then
-    set s = s ++ " decreases " ++ pretty_expr(d)
-  case None then
-  end match
+  if len(f.dec) > 0 then
+    set s = s ++ " decreases " ++ pretty_measure(f.dec)
+  end if
   return s
 end fn fn_contract
+
+// A measure as written: its parts separated by commas.
+fn pretty_measure(ds: List<Expr>) -> String do
+  var s = ""
+  for d in ds do
+    if len(s) > 0 then
+      set s = s ++ ", "
+    end if
+    set s = s ++ pretty_expr(d)
+  end for
+  return s
+end fn pretty_measure
+
+// The parts of a measure that a call compares: as many as both measures have.
+fn measure_prefix(ds: List<Expr>, k: Int) -> List<Expr> do
+  if (k >= 0) and (k < len(ds)) then
+    return slice(of: ds, from: 0, to: k)
+  end if
+  return ds
+end fn measure_prefix
+
+// A measure for a message: its parts, in parentheses when there are several.
+fn measure_text(ds: List<Expr>) -> String do
+  if len(ds) == 1 then
+    return pretty_measure(ds)
+  end if
+  return "(" ++ pretty_measure(ds) ++ ")"
+end fn measure_text
 
 fn pretty_item(item: Item) -> String do
   var out: List<String> = []

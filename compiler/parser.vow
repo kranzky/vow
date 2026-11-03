@@ -314,6 +314,28 @@ fn parse_tparams(p: inout Parser, eq: inout List<String>, ord: inout List<String
   return out
 end fn parse_tparams
 
+// A 'decreases' measure: one expression, or several separated by commas, compared
+// lexicographically (Vow has no tuples, so '(a, b)' is an error that says how to write it).
+fn parse_measure(p: inout Parser) -> List<Expr> do
+  if is_tok(p: p, text: "(") then
+    var q = p
+    let _ = advance(inout q)
+    let _ = parse_expr(inout q)
+    if (not failed(q)) and is_tok(p: q, text: ",") then
+      let c = peek(q)
+      fail(p: inout p, d: diag(pos: c.pos, msg: "a lexicographic measure is written without parentheses: 'decreases a, b'"))
+      return []
+    end if
+  end if
+  var out = [parse_expr(inout p)]
+  var more = accept(p: inout p, text: ",")
+  while more do
+    set out = push(list: out, item: parse_expr(inout p))
+    set more = accept(p: inout p, text: ",")
+  end while
+  return out
+end fn parse_measure
+
 fn parse_fn(p: inout Parser) -> FnDecl do
   let start = expect(p: inout p, text: "fn", ctx: "").pos
   let name = ident(p: inout p, ctx: "for the function")
@@ -344,7 +366,7 @@ fn parse_fn(p: inout Parser) -> FnDecl do
   end if
   var pre: List<Expr> = []
   var post: List<Expr> = []
-  var dec: Option<Expr> = Option.None
+  var dec: List<Expr> = []
   var more = true
   while more do
     if accept(p: inout p, text: "requires") then
@@ -353,10 +375,10 @@ fn parse_fn(p: inout Parser) -> FnDecl do
       set post = push(list: post, item: parse_expr(inout p))
     elif is_tok(p: p, text: "decreases") then
       let k = advance(inout p)
-      if is_some(dec) then
+      if len(dec) > 0 then
         fail(p: inout p, d: diag(pos: k.pos, msg: "a function has at most one 'decreases' clause"))
       end if
-      set dec = Option.Some(value: parse_expr(inout p))
+      set dec = parse_measure(inout p)
     else
       set more = false
     end if
@@ -566,9 +588,9 @@ fn parse_stmt(p: inout Parser) -> Stmt do
     let k = advance(inout p)
     let cond = parse_expr(inout p)
     let invs = parse_invariants(inout p)
-    var dec: Option<Expr> = Option.None
+    var dec: List<Expr> = []
     if accept(p: inout p, text: "decreases") then
-      set dec = Option.Some(value: parse_expr(inout p))
+      set dec = parse_measure(inout p)
     end if
     let d = expect(p: inout p, text: "do", ctx: "after the while condition")
     let body = parse_block(inout p)

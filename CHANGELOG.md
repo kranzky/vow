@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- Lexicographic termination measures: `decreases a, b` (no parentheses, as in Dafny)
+  is smaller when some part is smaller and was non-negative and every part before it
+  is unchanged. It proves Ackermann's function (`decreases m, n`), a loop with nested
+  counters (`decreases i, j`, resetting `j` when `i` drops), and a rose tree walked
+  through a helper over its children (`decreases r, 1` and `decreases ks, 0, len(ks) -
+  i`; see `examples/rose.vow`), none of which one measure could order. Measures of
+  different lengths in one recursive group are compared on the parts both have.
+  Checked builds compare the same way. `decreases (a, b)` is an error that says how to
+  write it. A measure of one part is proved exactly as before.
+
 ## v0.9.9
 
 - The bound `Ord` on a function's type parameters: `fn sort<T: Ord>(xs: List<T>) ->

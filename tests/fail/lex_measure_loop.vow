@@ -1,0 +1,18 @@
+// error: cannot prove loop measure decreases: i, j
+// language: 0.9
+// Resetting j is fine only when i decreases.
+
+fn main() do
+  var i = 3
+  var j = 3
+  while i > 0
+    invariant (i >= 0) and (j >= 0)
+    decreases i, j
+  do
+    if j > 0 then
+      set j = j - 1
+    else
+      set j = 3
+    end if
+  end while
+end fn main

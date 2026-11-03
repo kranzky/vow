@@ -103,7 +103,8 @@ struct FnInfo
   effects: List<String>,
   pre: List<Expr>,
   post: List<Expr>,
-  dec: Option<Expr>,
+  // The 'decreases' measure's parts, compared lexicographically; empty if none.
+  dec: List<Expr>,
   // For a pure, non-recursive function whose whole body is 'return e': that e.
   // Such a function may be used in specifications, where it is inlined.
   inline: Option<Expr>,
@@ -1949,11 +1950,9 @@ fn check_contracts(c: inout Checker, f: FnDecl) do
       check_pred(c: inout c, e: e, scope: all, subject: Option.None, res: Option.Some(value: fi.ret.ty))
     end for
     set c = c with (olds: [])
-    match f.dec
-    case Some(value: d) then
+    for d in f.dec do
       check_measure(c: inout c, e: d, scope: all)
-    case None then
-    end match
+    end for
   case None then
   end match
 end fn check_contracts
@@ -2270,7 +2269,7 @@ end fn compute_inline
 fn has_measure(c: Checker, n: String) -> Bool do
   match get_fn(info: c.info, name: n)
   case Some(value: fi) then
-    return is_some(fi.dec)
+    return len(fi.dec) > 0
   case None then
     return false
   end match
@@ -2396,11 +2395,9 @@ fn spec_calls_item(item: Item, out: inout List<String>) do
       spec_calls_type(t: t, out: inout out)
     case None then
     end match
-    match f.dec
-    case Some(value: d) then
+    for d in f.dec do
       callees(e: d, out: inout out)
-    case None then
-    end match
+    end for
     spec_calls_block(stmts: f.body, out: inout out)
   case StructItem(decl: s) then
     for p in s.fields do
@@ -2454,11 +2451,9 @@ fn spec_calls_block(stmts: List<Stmt>, out: inout List<String>) do
       for i in invs do
         callees(e: i, out: inout out)
       end for
-      match dec
-      case Some(value: d) then
+      for d in dec do
         callees(e: d, out: inout out)
-      case None then
-      end match
+      end for
       spec_calls_block(stmts: body, out: inout out)
     case ForRange(name: v, lo: lo, hi: hi, invs: invs, body: body) then
       for i in invs do
@@ -2748,14 +2743,12 @@ fn check_stmt(c: inout Checker, s: Stmt) do
     for i in invs do
       invariant_expr(c: inout c, e: i)
     end for
-    match dec
-    case Some(value: d) then
+    for d in dec do
       set c = c with (spec: true)
       let dt = check_expr(c: inout c, e: d, expected: Option.None)
       expect_measure(c: inout c, pos: d.pos, t: dt)
       set c = c with (spec: false)
-    case None then
-    end match
+    end for
     set c = c with (loops: c.loops + 1)
     check_block(c: inout c, stmts: body)
     set c = c with (loops: c.loops - 1)

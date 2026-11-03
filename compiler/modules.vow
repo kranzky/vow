@@ -725,7 +725,7 @@ fn res_sk(r: inout Resolver, k: SK) -> SK do
   case While(cond: c, invs: invs, dec: d, body: b) then
     let c2 = res_expr(r: inout r, e: c)
     let i2 = res_exprs(r: inout r, es: invs)
-    let d2 = res_opt_expr(r: inout r, e: d)
+    let d2 = res_exprs(r: inout r, es: d)
     return SK.While(cond: c2, invs: i2, dec: d2, body: res_block(r: inout r, stmts: b))
   case ForRange(name: n, lo: lo, hi: hi, invs: invs, body: b) then
     let lo2 = res_expr(r: inout r, e: lo)
@@ -847,7 +847,7 @@ fn block_binders(stmts: List<Stmt>, out: inout List<String>) do
     case While(cond: c, invs: invs, dec: d, body: b) then
       expr_binders(e: c, out: inout out)
       exprs_binders(es: invs, out: inout out)
-      opt_binders(e: d, out: inout out)
+      exprs_binders(es: d, out: inout out)
       block_binders(stmts: b, out: inout out)
     case ForRange(name: n, lo: lo, hi: hi, invs: invs, body: b) then
       set out = push(list: out, item: n)
@@ -959,14 +959,14 @@ fn resolve_item(r: inout Resolver, item: Item, canon: String) -> Item do
     params_binders(ps: d.params, out: inout locals)
     exprs_binders(es: d.pre, out: inout locals)
     exprs_binders(es: d.post, out: inout locals)
-    opt_binders(e: d.dec, out: inout locals)
+    exprs_binders(es: d.dec, out: inout locals)
     block_binders(stmts: d.body, out: inout locals)
     enter_decl(r: inout r, locals: locals, tparams: d.tparams, pos: d.pos)
     let params = res_params(r: inout r, ps: d.params)
     let ret = res_opt_type(r: inout r, t: d.ret)
     let pre = res_exprs(r: inout r, es: d.pre)
     let post = res_exprs(r: inout r, es: d.post)
-    let dec = res_opt_expr(r: inout r, e: d.dec)
+    let dec = res_exprs(r: inout r, es: d.dec)
     let body = res_block(r: inout r, stmts: d.body)
     return Item.FnItem(decl: d with (name: canon, params: params, ret: ret, pre: pre, post: post, dec: dec, body: body))
   case StructItem(decl: d) then

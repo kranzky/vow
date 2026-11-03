@@ -223,7 +223,7 @@ fn name(p1: T1, p2: T2) -> R
   uses console, fs, proc       // optional effect list
   requires <bool expr>         // zero or more
   ensures <bool expr>          // zero or more; may mention `result`
-  decreases <int expr>         // optional termination measure for recursion
+  decreases <expr>, ...        // optional termination measure for recursion
 do
   <statements>
 end fn name
@@ -393,7 +393,7 @@ var x = e                  // reassignable binding
 set x = e                  // reassign a var
 return e                   // or bare `return` in a Unit function
 if c then ... elif c then ... else ... end if
-while c invariant P decreases M do ... end while   // decreases is optional
+while c invariant P decreases M do ... end while   // decreases M or M1, M2, ... is optional
 for i in a..b invariant P do ... end for     // a <= i < b; a and b evaluated once;
                                              // invariants may mention i
 for x in xs invariant P do ... end for       // elements of a list
@@ -541,6 +541,16 @@ obligations to Z3 in SMT-LIB 2.
   caller's `M`, which must be non-negative. A measure may not call a function of its
   own recursive group (it would rest on the termination it proves). `for` loops always terminate. Functions
   without measures get partial-correctness proofs: their contracts hold if they return.
+- A **lexicographic measure** `decreases M1, M2, ...` (no parentheses: Vow has no
+  tuples) orders by its first part, then by the next: it is smaller when some part is
+  smaller and was non-negative and every part before it is unchanged. For a loop this
+  replaces both conditions above (`while i > 0 decreases i, j` may reset `j` whenever
+  `i` drops). `ack(m: m - 1, n: ack(m: m, n: n - 1))` terminates with `decreases m, n`.
+  Measures of different lengths, in one recursive group, are compared on the parts both
+  have, so a part that only some members use goes last: a rose tree walked through a
+  helper over its children takes `decreases r, 1` in `total(r: Rose)` and `decreases
+  ks, 0, len(ks) - i` in `kids_total(ks: List<Rose>, i: Int)`, since `r.kids` is no larger
+  than `r`.
 - A measure is an `Int`, or a value of a list, struct, enum or option type, which must
   get structurally smaller: a variant's fields and a list's elements are smaller than
   the value, and a struct's fields are no larger than the struct (so recursion through
@@ -690,7 +700,7 @@ option, the fields of a generic type's instance); a loop measure's being
 non-negative and smaller at the end of every iteration and at every `continue`; at every
 call within a group of recursive functions, the caller's measure on entry being
 non-negative and the callee's, on the arguments, smaller (a structural measure is
-compared by the value's height);
+compared by the value's height; a lexicographic measure by the rule above);
 `assert`; and the bounds and division checks above. A failure panics with the contract
 that failed (`vow: panic at f.vow:3: postcondition failed: result > n`). On a verified
 program no such check can fail, so one that does is a bug in the verifier; on a program

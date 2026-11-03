@@ -19,7 +19,8 @@ code satisfies everything proved there:
 - each loop invariant holds on entry, at the top of every iteration, at `break` and
   `continue`, and when the loop ends; each `assert` holds where it is written;
 - where a function or loop has a `decreases` measure, the measure is non-negative and
-  decreases, so the loop or recursion terminates.
+  decreases (a lexicographic one in the order of its parts), so the loop or recursion
+  terminates.
 
 This is partial correctness: a run that does not return (it loops forever without a
 measure, overflows, fails a `check`, panics or exits) makes no claim from that point
@@ -313,6 +314,17 @@ value's rank, which the verifier relates only as a value's real height is relate
 a variant's fields and a list's elements are smaller than the value, and a struct's
 fields no larger. These facts are stated for the parts the code reads, so every rank
 fact is true of heights, and a rank proved smaller is a height that is smaller.
+A lexicographic measure `decreases M1, ..., Mn` is proved smaller in the order on
+tuples where some part is smaller and was non-negative, and every part before it is
+unchanged; for a loop this one condition replaces the two above. The order is
+well-founded: in a descending chain the first part never grows and can drop only from
+a non-negative value, so finitely often; once it stops, the same holds of the second
+part; and so on. Within a recursive group measures may have different lengths, and a
+call compares the parts both have. That is still well-founded: in an infinite chain of
+calls the first part is eventually constant, from then on every call is between
+members with at least two parts and its second part never grows, and so on, until a
+call must decrease a part past the length of one of its two measures. With one part,
+the condition is the one above, and the SMT is unchanged.
 A measure calls no function of its own group *(checker)*: within the group's queries
 such a function has no axioms, so it is known only through what the group's calls
 assume of it, and a measure built from it would rest on the termination it is meant to

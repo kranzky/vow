@@ -55,9 +55,9 @@ struct Gen
   // of 'it' and 'result' while a check is generated; olds the entry values of inout
   // parameters; spec_binds C values for names in a field refinement (its sibling
   // fields); var_preds the refinements of vars and inout parameters; and for each
-  // enclosing loop, innermost last, its invariants, its measure and the measure's value
-  // when the iteration began ("" if none); dec_c the C variable holding the function's
-  // own measure on entry ("" if none), and ranks the types whose values a structural
+  // enclosing loop, innermost last, its invariants, its measure's parts and their
+  // values when the iteration began (none if no measure); dec_c the C variables holding
+  // the parts of the function's own measure on entry (none if none), and ranks the types whose values a structural
   // measure measures, each needing a vrank_ function.
   contracts: Bool,
   fname: String,
@@ -68,8 +68,8 @@ struct Gen
   var_preds: Map<String, RTy>,
   loop_invs: List<List<Expr>>,
   loop_dec: List<List<Expr>>,
-  loop_m: List<String>,
-  dec_c: String,
+  loop_m: List<List<String>>,
+  dec_c: List<String>,
   ranks: List<Ty>,
 end struct Gen
 
@@ -116,7 +116,7 @@ fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool, 
     owned_vars: [], scope_marks: [], loop_marks: [], temps: [], temp_marks: [], move_id: -1,
     moved: false, inout_vars: [], steal_ids: [], eqs: [], src: no_pos(), mapped_file: -1, mapped_next: -1, lines: lines,
     contracts: contracts, fname: "", it_c: "", result_c: "", olds: {}, spec_binds: {}, var_preds: {}, loop_invs: [],
-    loop_dec: [], loop_m: [], dec_c: "", ranks: [])
+    loop_dec: [], loop_m: [], dec_c: [], ranks: [])
   // Generic functions are compiled through their instances.
   var fns: List<FnDecl> = []
   for item in items do
@@ -652,7 +652,7 @@ fn gen_function(g: inout Gen, f: FnDecl) do
     end if
   end for
   set g = g with (io_params: io, owned_vars: [], scope_marks: [], loop_marks: [], temps: [], temp_marks: [], src: f.pos,
-    fname: f.name, olds: {}, var_preds: {}, loop_invs: [], loop_dec: [], loop_m: [], dec_c: "")
+    fname: f.name, olds: {}, var_preds: {}, loop_invs: [], loop_dec: [], loop_m: [], dec_c: [])
   line(g: inout g, s: "static V " ++ c_fn(f.name) ++ "(" ++ c_params(f) ++ ") {")
   indent(inout g)
   if g.contracts then
@@ -790,21 +790,24 @@ fn gen_stmt(g: inout Gen, s: Stmt) do
     let c = gen_top(g: inout g, e: cond)
     flush(inout g)
     line(g: inout g, s: "if (!" ++ c.c ++ ") break;")
-    var m = ""
+    var m: List<String> = []
     var decs: List<Expr> = []
     if g.contracts then
-      match dec
-      case Some(value: d) then
-        // An Int measure, or a structural one measured by its rank.
+      for d in dec do
+        // An Int measure, or a structural one measured by its rank. A measure of one
+        // part must stay non-negative; in a lexicographic one, only the part that
+        // decreases must have been (c_lex_less).
         let mv = gen_top(g: inout g, e: d)
         let mc = c_measure(g: inout g, d: d, c: mv.c)
-        set m = fresh_tmp(inout g)
-        line(g: inout g, s: "int64_t " ++ m ++ " = " ++ mc ++ ";")
+        let t = fresh_tmp(inout g)
+        line(g: inout g, s: "int64_t " ++ t ++ " = " ++ mc ++ ";")
         flush(inout g)
-        line(g: inout g, s: "if (" ++ m ++ " < 0) " ++ panic_at(g: g, pos: d.pos, msg: c_string("loop measure is negative: " ++ pretty_expr(d))))
-        set decs = [d]
-      case None then
-      end match
+        if len(dec) == 1 then
+          line(g: inout g, s: "if (" ++ t ++ " < 0) " ++ panic_at(g: g, pos: d.pos, msg: c_string("loop measure is negative: " ++ pretty_expr(d))))
+        end if
+        set m = push(list: m, item: t)
+      end for
+      set decs = dec
     end if
     push_loop_ctx(g: inout g, invs: invs, decs: decs, m: m)
     gen_loop_body(g: inout g, stmts: body)
@@ -827,7 +830,7 @@ fn gen_stmt(g: inout Gen, s: Stmt) do
       line(g: inout g, s: "for (V " ++ lv ++ " = " ++ a.c ++ "; VI(" ++ lv ++ ") < VI(" ++ b.c ++ "); " ++ lv ++ " = (V)(VI(" ++ lv ++ ") + 1)) {")
       indent(inout g)
     end if
-    push_loop_ctx(g: inout g, invs: invs, decs: [], m: "")
+    push_loop_ctx(g: inout g, invs: invs, decs: [], m: [])
     gen_loop_body(g: inout g, stmts: body)
     pop_loop_ctx(inout g)
     dedent(inout g)
@@ -847,7 +850,7 @@ fn gen_stmt(g: inout Gen, s: Stmt) do
     if g.contracts then
       gen_invs(g: inout g, invs: invs)
     end if
-    push_loop_ctx(g: inout g, invs: invs, decs: [], m: "")
+    push_loop_ctx(g: inout g, invs: invs, decs: [], m: [])
     gen_loop_body(g: inout g, stmts: body)
     pop_loop_ctx(inout g)
     dedent(inout g)
@@ -1068,23 +1071,34 @@ fn gen_entry_checks(g: inout Gen, f: FnDecl) do
     end for
     // The measure on entry, which each call within the function's recursive group must
     // decrease (gen_call_measure_check).
-    match fi.dec
-    case Some(value: d) then
-      line(g: inout g, s: "int64_t vow_dec = 0;")
+    if len(fi.dec) > 0 then
+      var names: List<String> = []
+      for i in 0..len(fi.dec) do
+        var nm = "vow_dec"
+        if i > 0 then
+          set nm = "vow_dec" ++ int_to_str(i)
+        end if
+        line(g: inout g, s: "int64_t " ++ nm ++ " = 0;")
+        set names = push(list: names, item: nm)
+      end for
       line(g: inout g, s: "if (vow_spec_depth == 0) {")
       indent(inout g)
       line(g: inout g, s: "vow_spec_depth++;")
       push_frame(inout g)
-      let v = gen_expr(g: inout g, e: d)
-      let m = c_measure(g: inout g, d: d, c: v.c)
-      line(g: inout g, s: "vow_dec = " ++ m ++ ";")
+      for i in 0..len(fi.dec) do
+        let d = fi.dec[i]
+        let v = gen_expr(g: inout g, e: d)
+        let m = c_measure(g: inout g, d: d, c: v.c)
+        if i < len(names) then
+          line(g: inout g, s: names[i] ++ " = " ++ m ++ ";")
+        end if
+      end for
       pop_frame(inout g)
       line(g: inout g, s: "vow_spec_depth--;")
       dedent(inout g)
       line(g: inout g, s: "}")
-      set g = g with (dec_c: "vow_dec")
-    case None then
-    end match
+      set g = g with (dec_c: names)
+    end if
   case None then
   end match
 end fn gen_entry_checks
@@ -1106,14 +1120,18 @@ fn gen_call_measure_check(g: inout Gen, pos: Pos, name: String, args: List<Arg>,
   if (not g.contracts) or (len(g.dec_c) == 0) then
     return
   end if
+  let mine = dec_exprs(g)
   let k = scc_of_fn(info: g.info, name: g.fname)
   if (name != g.fname) and ((k < 0) or (scc_of_fn(info: g.info, name: name) != k)) then
     return
   end if
   match get_fn(info: g.info, name: name)
   case Some(value: fi) then
-    match fi.dec
-    case Some(value: cd) then
+    var cd = mine
+    if len(fi.dec) > 0 then
+      set cd = fi.dec
+    end if
+    if len(cd) > 0 then
       // The callee's parameters, bound to the arguments' values (an inout argument's
       // value is its var's).
       var binds = g.spec_binds
@@ -1140,37 +1158,61 @@ fn gen_call_measure_check(g: inout Gen, pos: Pos, name: String, args: List<Arg>,
       indent(inout g)
       line(g: inout g, s: "vow_spec_depth++;")
       push_frame(inout g)
-      let v = gen_expr(g: inout g, e: cd)
-      let now = c_measure(g: inout g, d: cd, c: v.c)
-      line(g: inout g, s: "vow_spec_depth--;")
-      var what = "recursive call to '" ++ name ++ "' did not decrease its measure: " ++ pretty_expr(cd)
-      if name != g.fname then
-        set what = "call to '" ++ name ++ "' did not decrease the measure of '" ++ g.fname ++ "': " ++ pretty_expr(cd) ++ " < " ++ dec_text(g: g)
+      // Compared lexicographically on the parts both measures have.
+      var parts = len(cd)
+      if len(g.dec_c) < parts then
+        set parts = len(g.dec_c)
       end if
-      line(g: inout g, s: "if (!((" ++ g.dec_c ++ " >= 0) && (" ++ now ++ " < " ++ g.dec_c ++ "))) " ++ panic_at(g: g, pos: pos, msg: c_string(what)))
+      var now: List<String> = []
+      for i in 0..parts do
+        let d = cd[i]
+        let v = gen_expr(g: inout g, e: d)
+        set now = push(list: now, item: c_measure(g: inout g, d: d, c: v.c))
+      end for
+      line(g: inout g, s: "vow_spec_depth--;")
+      var what = "recursive call to '" ++ name ++ "' did not decrease its measure: " ++ pretty_measure(cd)
+      if name != g.fname then
+        set what = "call to '" ++ name ++ "' did not decrease the measure of '" ++ g.fname ++ "': " ++ measure_text(measure_prefix(ds: cd, k: parts)) ++ " < " ++ measure_text(measure_prefix(ds: mine, k: parts))
+      end if
+      line(g: inout g, s: "if (!" ++ c_lex_less(now: now, entry: g.dec_c) ++ ") " ++ panic_at(g: g, pos: pos, msg: c_string(what)))
       pop_frame(inout g)
       dedent(inout g)
       line(g: inout g, s: "}")
       set g = g with (inout_vars: io, move_id: mid, steal_ids: steals, spec_binds: saved)
-    case None then
-    end match
+    end if
   case None then
   end match
 end fn gen_call_measure_check
 
-// The caller's measure, as written.
-fn dec_text(g: Gen) -> String do
+// The caller's measure.
+fn dec_exprs(g: Gen) -> List<Expr> do
   match get_fn(info: g.info, name: g.fname)
   case Some(value: fi) then
-    match fi.dec
-    case Some(value: d) then
-      return pretty_expr(d)
-    case None then
-    end match
+    return fi.dec
   case None then
+    return []
   end match
-  return ""
-end fn dec_text
+end fn dec_exprs
+
+// C for: the measure's parts now are lexicographically smaller than at entry, on the
+// parts both have (as the verifier's lex_less).
+fn c_lex_less(now: List<String>, entry: List<String>) -> String do
+  var k = len(now)
+  if len(entry) < k then
+    set k = len(entry)
+  end if
+  if k == 0 then
+    return "0"
+  end if
+  var i = k - 1
+  var acc = "((" ++ entry[i] ++ " >= 0) && (" ++ now[i] ++ " < " ++ entry[i] ++ "))"
+  while i > 0 invariant (i >= 0) and (i < len(now)) and (i < len(entry)) do
+    set i = i - 1
+    let part = "((" ++ entry[i] ++ " >= 0) && (" ++ now[i] ++ " < " ++ entry[i] ++ "))"
+    set acc = "(" ++ part ++ " || ((" ++ now[i] ++ " == " ++ entry[i] ++ ") && " ++ acc ++ "))"
+  end while
+  return acc
+end fn c_lex_less
 
 // On return: the result's refinements and the postconditions, with res the C value
 // returned ("0" for Unit).
@@ -1189,7 +1231,7 @@ fn gen_exit_checks(g: inout Gen, res: String) do
   end match
 end fn gen_exit_checks
 
-fn push_loop_ctx(g: inout Gen, invs: List<Expr>, decs: List<Expr>, m: String) do
+fn push_loop_ctx(g: inout Gen, invs: List<Expr>, decs: List<Expr>, m: List<String>) do
   set g = g with (loop_invs: push(list: g.loop_invs, item: invs), loop_dec: push(list: g.loop_dec, item: decs),
     loop_m: push(list: g.loop_m, item: m))
 end fn push_loop_ctx
@@ -1211,16 +1253,23 @@ fn gen_measure_check(g: inout Gen) do
   end if
   let m = g.loop_m[n - 1]
   let ds = g.loop_dec[n - 1]
-  if (len(m) == 0) or (len(ds) == 0) then
+  if (len(m) == 0) or (len(ds) == 0) or (len(m) != len(ds)) then
     return
   end if
   let d = ds[0]
   let io = g.inout_vars
   set g = g with (inout_vars: [])
   push_frame(inout g)
-  let v = gen_expr(g: inout g, e: d)
-  let now = c_measure(g: inout g, d: d, c: v.c)
-  line(g: inout g, s: "if (!(" ++ now ++ " < " ++ m ++ ")) " ++ panic_at(g: g, pos: d.pos, msg: c_string("loop measure did not decrease: " ++ pretty_expr(d))))
+  var now: List<String> = []
+  for x in ds do
+    let v = gen_expr(g: inout g, e: x)
+    set now = push(list: now, item: c_measure(g: inout g, d: x, c: v.c))
+  end for
+  if (len(ds) == 1) and (len(now) == 1) then
+    line(g: inout g, s: "if (!(" ++ now[0] ++ " < " ++ m[0] ++ ")) " ++ panic_at(g: g, pos: d.pos, msg: c_string("loop measure did not decrease: " ++ pretty_expr(d))))
+  else
+    line(g: inout g, s: "if (!" ++ c_lex_less(now: now, entry: m) ++ ") " ++ panic_at(g: g, pos: d.pos, msg: c_string("loop measure did not decrease: " ++ pretty_measure(ds))))
+  end if
   pop_frame(inout g)
   set g = g with (inout_vars: io)
 end fn gen_measure_check

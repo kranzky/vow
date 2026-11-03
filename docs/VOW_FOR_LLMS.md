@@ -411,6 +411,32 @@ each call must make it smaller. If the measure needs help, add a progress invari
 contract only says what holds *if* the code returns. `vowc check --totality` lists the
 functions not proved to terminate, and why.
 
+**When one number is not enough, measure lexicographically.** `decreases a, b`, with no
+parentheses, as in Dafny, is smaller when `a` drops, or when `a` stays the same and `b`
+drops; `b` may grow whenever `a` drops. Use it for Ackermann-style recursion
+(`decreases m, n`), for nested counters in one loop (`decreases i, j`, resetting `j`
+when `i` drops), and to walk a rose tree through a helper over its children. A struct's
+field is no larger than the struct, so the step from a node into its child list keeps
+the first part and drops the second (from `examples/rose.vow`):
+
+```
+fn total(r: Rose) -> Int decreases r, 1 do
+  return r.label + kids_total(ks: r.kids, i: 0)
+end fn total
+
+fn kids_total(ks: List<Rose>, i: Int where (0 <= it) and (it <= len(ks))) -> Int
+  decreases ks, 0, len(ks) - i
+do
+  if i == len(ks) then
+    return 0
+  end if
+  return total(ks[i]) + kids_total(ks: ks, i: i + 1)
+end fn kids_total
+```
+
+Measures in one recursive group are compared on the parts both have, so put the parts
+every member shares first.
+
 **Nested loops need progress invariants.** A loop's measure must drop on every path,
 including paths through inner loops. After an inner loop the verifier only knows the
 inner invariants, so record where it started:

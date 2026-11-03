@@ -1,0 +1,13 @@
+// error: a 'decreases' measure must be an Int, or a list, struct, enum or option value, not Float
+// language: 0.9
+
+fn halve(n: Int where it >= 0, x: Float) -> Int decreases n, x do
+  if n == 0 then
+    return 0
+  end if
+  return halve(n: n - 1, x: x)
+end fn halve
+
+fn main() do
+  let _ = halve(n: 3, x: 1.0)
+end fn main

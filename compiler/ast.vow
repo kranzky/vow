@@ -71,7 +71,7 @@ struct FnDecl
   effects: List<Effect>,
   pre: List<Expr>,
   post: List<Expr>,
-  dec: Option<Expr>,
+  dec: List<Expr>,
   body: List<Stmt>,
   pos: Pos,
 end struct FnDecl
@@ -146,7 +146,7 @@ enum SK
   Set(name: String, value: Expr),
   Return(value: Option<Expr>),
   If(arms: List<Arm>, els: Option<List<Stmt>>),
-  While(cond: Expr, invs: List<Expr>, dec: Option<Expr>, body: List<Stmt>),
+  While(cond: Expr, invs: List<Expr>, dec: List<Expr>, body: List<Stmt>),
   ForRange(name: String, lo: Expr, hi: Expr, invs: List<Expr>, body: List<Stmt>),
   ForEach(name: String, list: Expr, invs: List<Expr>, body: List<Stmt>),
   Match(scrut: Expr, cases: List<Case>, els: Option<List<Stmt>>),
@@ -314,7 +314,7 @@ fn copy_sk(k: SK, next: inout Int) -> SK do
   case While(cond: c, invs: invs, dec: d, body: b) then
     let c2 = copy_expr(e: c, next: inout next)
     let i2 = copy_exprs(es: invs, next: inout next)
-    let d2 = copy_opt_expr(e: d, next: inout next)
+    let d2 = copy_exprs(es: d, next: inout next)
     return SK.While(cond: c2, invs: i2, dec: d2, body: copy_block(stmts: b, next: inout next))
   case ForRange(name: n, lo: lo, hi: hi, invs: invs, body: b) then
     let lo2 = copy_expr(e: lo, next: inout next)
@@ -353,6 +353,6 @@ fn copy_fn(f: FnDecl, next: inout Int) -> FnDecl do
   end match
   let pre = copy_exprs(es: f.pre, next: inout next)
   let post = copy_exprs(es: f.post, next: inout next)
-  let dec = copy_opt_expr(e: f.dec, next: inout next)
+  let dec = copy_exprs(es: f.dec, next: inout next)
   return f with (params: params, ret: ret, pre: pre, post: post, dec: dec, body: copy_block(stmts: f.body, next: inout next))
 end fn copy_fn

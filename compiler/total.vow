@@ -32,7 +32,7 @@ fn proof_callees(f: FnDecl, info: Info) -> List<String> do
     calls_in_opt_expr(e: t.refine, info: info, out: inout out)
   case None then
   end match
-  calls_in_opt_expr(e: f.dec, info: info, out: inout out)
+  calls_in_all(es: f.dec, info: info, out: inout out)
   types_in_block(stmts: f.body, info: info, out: inout out)
   types_in_all(es: f.pre, info: info, out: inout out)
   types_in_all(es: f.post, info: info, out: inout out)
@@ -354,7 +354,7 @@ fn measure_errors(items: List<Item>, r: Recursion, info: Info) -> List<Diag> do
   for item in items do
     match item
     case FnItem(decl: f) then
-      if has(map: r.recursive, key: f.name) and is_some(f.dec) then
+      if has(map: r.recursive, key: f.name) and (len(f.dec) > 0) then
         set measured = insert(map: measured, key: scc_of(scc: r.scc, n: f.name), value: f.name)
       end if
     else
@@ -365,13 +365,11 @@ fn measure_errors(items: List<Item>, r: Recursion, info: Info) -> List<Diag> do
     match item
     case FnItem(decl: f) then
       if has(map: r.recursive, key: f.name) then
-        match f.dec
-        case Some(value: d) then
+        for d in f.dec do
           group_measure_errors(d: d, whose: "the measure of '" ++ f.name ++ "'", f: f.name, r: r, info: info, out: inout out)
-        case None then
-        end match
+        end for
       end if
-      if has(map: r.recursive, key: f.name) and not is_some(f.dec) then
+      if has(map: r.recursive, key: f.name) and (len(f.dec) == 0) then
         match lookup(map: measured, key: scc_of(scc: r.scc, n: f.name))
         case Some(value: g) then
           let msg = "'" ++ f.name ++ "' is mutually recursive with '" ++ g ++ "', which has a 'decreases' measure; give '" ++ f.name ++ "' one too"
@@ -405,7 +403,7 @@ fn unmeasured_loop(stmts: List<Stmt>) -> Option<Pos> do
     var inner: List<List<Stmt>> = []
     match s.kind
     case While(cond: c, invs: invs, dec: dec, body: body) then
-      if not is_some(dec) then
+      if len(dec) == 0 then
         return Option.Some(value: s.pos)
       end if
       set inner = [body]
@@ -466,7 +464,7 @@ fn totality(items: List<Item>, info: Info, r: Recursion, files: List<String>) ->
       case Some(value: p) then
         set why = "has a 'while' loop without 'decreases' at " ++ pos_text(p: p, files: files)
       case None then
-        if has(map: r.recursive, key: f.name) and not is_some(f.dec) then
+        if has(map: r.recursive, key: f.name) and (len(f.dec) == 0) then
           set why = "is recursive and has no 'decreases' measure"
         end if
       end match

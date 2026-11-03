@@ -1,0 +1,16 @@
+// error: cannot prove recursive call to 'count' decreases its measure: a, b
+// language: 0.9
+// The part that decreases must have been non-negative: b can fall forever below zero.
+
+fn count(a: Int where it >= 0, b: Int) -> Int decreases a, b do
+  if b > -100 then
+    return count(a: a, b: b - 1)
+  elif a > 0 then
+    return count(a: a - 1, b: 10)
+  end if
+  return 0
+end fn count
+
+fn main() do
+  let _ = count(a: 2, b: 2)
+end fn main
