@@ -178,7 +178,9 @@ Emacs (Eglot):
 
 ## Status
 
-The current release is **v0.9.8**, which adds the bound `Eq` on type parameters
+The current release is **v0.9.9**, which adds the bound `Ord` on type parameters (`<` on
+`T`), order on strings, and bounds on generic structs and enums (`struct Range<T: Ord>`).
+v0.9.8 added the bound `Eq` on type parameters
 (required for `==` on `T`) and generic functions in specifications. v0.9.7 fixed the
 findings of a review of the type checker. v0.9.6 added refined type arguments (`List<Nat>`,
 `Option<Nat>`, `Result<Nat, String>`, refinements through generic functions) to v0.9.0,

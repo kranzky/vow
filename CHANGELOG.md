@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.9.9
 
 - The bound `Ord` on a function's type parameters: `fn sort<T: Ord>(xs: List<T>) ->
   List<T>`. It allows `<`, `<=`, `>` and `>=` on `T` and includes `Eq`; its type
