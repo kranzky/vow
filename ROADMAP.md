@@ -107,7 +107,7 @@ Must-have, runtime and portability:
 - [x] `HashMap` alongside the persistent ordered `Map`, tree inserts in place, and
       fields moved out of structs on update; k-nucleotide went from 1.11 s to 0.21 s
 - [x] `#line` mapping; panics name the `.vow` file and line
-- [ ] Windows `run()`
+- [ ] Windows `run()` (part of M9b; the port rewrites `vrun`, where task A6 is)
 - [x] `std/text.vow` (verified text library), `make_dir`, `list_dir`
 - [ ] More standard modules and a C FFI; `net`/`time`/`random` effects
 
@@ -118,9 +118,130 @@ Must-have, tooling:
       types and contracts, go to definition
 - [x] Language server: hover with the facts the verifier knows at that point
 - [x] Pinned Z3 version (5.3.2, installed by `tools/install-z3.sh`; CI uses it)
-- [ ] Verifier performance (incremental solving)
+- [ ] Verifier performance: the driver already uses one Z3 process with push/pop per
+      function and obligation; the measured gains are tasks V1, V2, V5 and V6 below
 - [ ] Publish a first package: a git repository of verified Vow code, listed at
       vow.kranzky.com/packages.html and imported by a test program through `vow.pkg`
+
+Review after v0.9.9 (five independent reviews of the runtime, code generation, the
+verifier pipeline, the front end and the tooling; each task's evidence, a way to
+reproduce it and a fix are under the same identifier in
+`docs/tasks/review-v0.9.9.md`). No wrong proof was found in normal use.
+
+Wrong behaviour in programs the compiler accepts (first):
+- [ ] A1: `read_file` on a pipe or other unseekable file overflows the heap; on a
+      directory it returns an empty string
+- [ ] A2: `set xs = xs ++ xs` on a list never terminates
+- [ ] A3: a struct or variant with 64 or more fields segfaults, or panics the compiler;
+      report a limit of 63
+- [ ] A4: `==` on a deep value (a million-link chain) overflows the C stack; make the
+      generated equality and rank functions iterate
+- [ ] A5: stack overflow from deep recursion is a segfault; panic with "stack overflow"
+      and document it as a way a verified program can fail
+- [ ] A6: `run()` reports success when `fork` fails; unchecked allocations in the I/O
+      built-ins
+- [ ] A7: write errors on standard output are ignored and the program exits 0
+- [ ] A8: a proof cached under `VOW_SMT_V03=1` is reused by a normal run, which then
+      accepts a program it must reject
+- [ ] A9: `fn main<T>()` passes `check` and fails in the C compiler
+- [ ] A10: `vowc build prog` overwrites a source file that has no extension
+
+Compiler robustness:
+- [ ] B1: 25,000 nested parentheses or terms of one `++` chain segfault the compiler;
+      limit depth in the parser and iterate over operator chains
+- [ ] B2: lexer: a newline inside a character literal (wrong line numbers, and `fmt`
+      fails), a byte order mark, non-ASCII bytes that make `--json` output invalid,
+      `0x1F` and `1e5` split into two tokens, float literals out of range, the minimum
+      integer literal
+- [ ] B3: a directory is read as an empty source file; one file reached by two names
+      (case, symlink, absolute path) is loaded twice
+- [ ] B4: `compute_inline` is cubic: 2,000 one-line functions take 5 s to check, 10,000
+      over a minute
+- [ ] B5: other costs that grow faster than the input: local lookup, type equality by
+      rendering, alias resolution, cache keys and lookup; `check` generates C it discards
+- [ ] B6: generated C: an `if` with over 2,000 `elif` arms does not compile; many `try`
+      statements in one function are quadratic; a panic in an `elif` condition names
+      the wrong line
+- [ ] B7: misleading diagnostics: a field named `end`, a local named like a module
+      alias, internal module tags, "needs Result, but this is Result", a duplicate
+- [ ] B8: command line: an unknown command is reported only after the whole build;
+      options before the file are rejected
+
+Verifier time and stability (the compiler checks itself in 34 s; with V1, under 1 s):
+- [ ] V1: skip functions with nothing to prove, and run sanity checks without
+      model-based instantiation: 90% of the time is three sanity checks that time out
+- [ ] V2: after V1, run chunks of functions in parallel Z3 processes (0.82 s to
+      0.24 s), and ask for the model in the same run
+- [ ] V3: an overall time limit: a hung or overrunning Z3 hangs `vowc`, and a function
+      with k hard obligations costs k times 10 s
+- [ ] V4: bound queries by Z3's resource count, not wall-clock time, so that an answer
+      does not depend on machine load or on what ran before
+- [ ] V5: cache keys cover only the types and specification functions a function can
+      reach: today, editing any one-line function re-verifies the whole program
+- [ ] V6: assert each fact once per path (script size is quadratic in a path's facts)
+- [ ] V7: a function that mentions a Float never gets a counterexample, and blames the
+      Z3 version
+- [ ] V8: counterexamples show `old(x)`, and say when a state is a loop's summary
+- [ ] V9: with `--json`, report solver trouble as a JSON diagnostic naming the function
+
+Checked builds (`--check-contracts`, the fuzzers' oracle):
+- [ ] K1: a contract that holds can panic with an overflow, because it was proved over
+      all integers and is evaluated in 64 bits
+- [ ] K2: an in-place update through an `inout` parameter copies every time (80,000
+      inserts: 21 s against 0.006 s); capture entry values only where `old` is used
+- [ ] K3: whole values are re-checked at every step (each element's refinement after
+      every push; a structural measure's height at every call)
+
+Speed of the runtime and generated code:
+- [ ] P1: string `++` in place for `set s = s ++ x` (proved string builders, and
+      `std/text`'s `to_lower` and `to_upper`, are quadratic), and one allocation for a
+      chain of `++`
+- [ ] P2: the documented "remove the last element" idiom copies the list; share the
+      buffer and truncate in place
+- [ ] P3: updating one element of a list of structs allocates a struct
+- [ ] P4: borrow the subject of a `match` or `for x in xs` that cannot be reassigned
+      (binarytrees: 0.97 s to 0.78 s)
+- [ ] P5: `value_or(opt: lookup(...), default: d)` without allocating an Option
+- [ ] P6: shared constants for variants without fields; an 8-byte object header with
+      per-type descriptors (which also removes the limit in A3)
+- [ ] P7: `float_to_str` without 17 print-and-parse round trips
+
+Language server:
+- [ ] L1: checking one file clears the diagnostics of every other open file
+- [ ] L2: an ordinary function named `test_...` is reported as an error, and hides
+      every proof failure in the file
+- [ ] L3: positions in UTF-16 code units, not bytes; never negative
+- [ ] L4: keep proof failures on screen after the first keystroke that follows a save
+- [ ] L5: hover and go-to-definition resolve local names before global ones
+- [ ] L6: drop stale edits and prove in a process that a newer edit can abandon (a
+      hover waits 23 s behind a cold proof today)
+
+Standard library:
+- [ ] S1: `std/json`: surrogates, leading zeros, control bytes in strings, the minimum
+      integer, error offsets
+- [ ] S2: `std/json`: a depth limit (100,000 nested brackets segfault, and one such
+      message kills the language server)
+- [ ] S3: `std/text`: contracts for `contains`, `compare`, `replace` and `repeat`
+
+Packages and running programs:
+- [ ] G1: `vowc add lib <url> main` can pin the branch `feature/main`
+- [ ] G2: packages: a pin to a missing commit is written before it fails; relative
+      URLs; `--` before URLs passed to git; `@lib/../` escapes the package
+- [ ] G3: `vowc run` passes stdin through and streams output (today the program gets
+      empty input, and its output appears when it exits)
+
+Tests, CI and releases:
+- [ ] T1: `tests/rc.sh` counts a build that fails as a failure
+- [ ] T2: harnesses that can pass without checking: the SMT fingerprint after any
+      edit to `std/`, the differential test when both compilers fail, the generator
+      fuzzer when nothing verifies, the formatting check on a crash; a verified program
+      killed by a signal is a finding; timeouts everywhere
+- [ ] T3: the Release workflow runs the tests before it uploads, and publishes last;
+      permissions, timeouts and pinned actions in CI
+- [ ] T4: `install.sh` runs the new binary before it replaces the old one, and
+      replaces it atomically
+- [ ] T5: the Makefile deletes a half-written generated file, and `make test` notices
+      stale embedded copies of `std/` and the runtime
 
 Release criteria:
 - [ ] Agent benchmark for 1.0: Astra (OpenAI's most capable coding model) builds the
