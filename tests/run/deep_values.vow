@@ -1,0 +1,78 @@
+// language: 0.9
+// Comparing long chains, and measuring one in a checked build, does not use the C
+// stack: a million links here.
+enum Chain
+  End,
+  Link(head: Int, tail: Chain),
+end enum Chain
+
+struct Node
+  value: Int,
+  label: String,
+  next: Option<Node>,
+end struct Node
+
+enum Tree
+  Leaf(n: Float),
+  Branch(kids: List<Tree>),
+end enum Tree
+
+fn chain(n: Int, last: Int) -> Chain do
+  var c = Chain.Link(head: last, tail: Chain.End)
+  for i in 0..n do
+    set c = Chain.Link(head: i, tail: c)
+  end for
+  return c
+end fn chain
+
+fn nodes(n: Int, last: String) -> Node do
+  var node = Node(value: 0, label: last, next: Option.None)
+  for i in 0..n do
+    set node = Node(value: i, label: "n", next: Option.Some(value: node))
+  end for
+  return node
+end fn nodes
+
+// A tree leaning left: each branch holds the rest of the tree and a leaf.
+fn tree(n: Int, last: Float) -> Tree do
+  var t = Tree.Leaf(n: last)
+  for i in 0..n do
+    set t = Tree.Branch(kids: [t, Tree.Leaf(n: 1.5)])
+  end for
+  return t
+end fn tree
+
+// The measure is the chain itself: a checked build finds its height on entry.
+fn first_positive(c: Chain) -> Int
+  decreases c
+do
+  match c
+  case End then
+    return 0
+  case Link(head: h, tail: t) then
+    if h > 0 then
+      return h
+    end if
+    return first_positive(t)
+  end match
+end fn first_positive
+
+fn yn(b: Bool) -> String do
+  if b then
+    return "equal"
+  end if
+  return "different"
+end fn yn
+
+fn main() uses console do
+  let n = 1000000
+  let c = chain(n: n, last: 7)
+  print("chains: " ++ yn(c == chain(n: n, last: 7)) ++ ", " ++ yn(c == chain(n: n, last: 8)) ++ ", " ++ yn(c == chain(n: n - 1, last: 7)) ++ "\n")
+  let a = nodes(n: n, last: "end")
+  print("nodes: " ++ yn(a == nodes(n: n, last: "end")) ++ ", " ++ yn(a == nodes(n: n, last: "other")) ++ "\n")
+  let t = tree(n: n, last: 2.5)
+  print("trees: " ++ yn(t == tree(n: n, last: 2.5)) ++ ", " ++ yn(t == tree(n: n, last: 0.0 / 0.0)) ++ ", " ++ yn(t == t) ++ "\n")
+  let nan = tree(n: 3, last: 0.0 / 0.0)
+  print("nan: " ++ yn(nan == nan) ++ "\n")
+  print("first positive: " ++ int_to_str(first_positive(c)) ++ "\n")
+end fn main

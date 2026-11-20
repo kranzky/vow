@@ -32,6 +32,8 @@ runtime failures are integer overflow, `panic` and a failed `check`. Fix these f
   (from reading).
 - **Fix:** read in a loop into a growing buffer until end of file; reject directories
   with `fstat`.
+- **Done:** `vread_file` reads in a loop into a growing buffer and gives `None` for a
+  directory or a read error. Test: `tests/run/read_file_stream.vow` (a FIFO).
 
 ### A2. `set xs = xs ++ xs` on a list never terminates (reproduced)
 
@@ -46,6 +48,8 @@ runtime failures are integer overflow, `panic` and a failed `check`. Fix these f
 - **Fix:** read `VL(b)->len` once before the loop in `vlist_cat` (tried in a copy:
   correct, clean under the sanitizers), or do not move the left operand when the right
   one names the same variable.
+- **Done:** `vlist_cat` reads the right operand's length once. Test:
+  `tests/run/list_cat_self.vow`.
 
 ### A3. A struct or variant with 64 or more fields crashes (reproduced)
 
@@ -58,6 +62,11 @@ runtime failures are integer overflow, `panic` and a failed `check`. Fix these f
   itself dies: `vow: panic at compiler/codegen.vow:1442: integer overflow in '+'`.
 - **Fix:** a diagnostic for types over the limit now; a per-type descriptor in place of
   the per-object mask later (see P6), which removes the limit.
+- **Done:** the limit is removed instead of reported. An object of more than 63 words
+  has a flag, and its header's mask is a pointer to a static bitmap the compiler emits
+  for its type (`vow_fields_wide`, `new_fields` in `compiler/codegen.vow`). The header
+  counts words in 16 bits, so more than 65,534 fields is an error. Test:
+  `tests/run/wide_types.vow` (200 fields; a variant with 70).
 
 ### A4. `==` on a deep value overflows the C stack (reproduced)
 
@@ -70,6 +79,11 @@ runtime failures are integer overflow, `panic` and a failed `check`. Fix these f
   links work.
 - **Fix:** loop on the last heap field (or use an explicit work stack, as
   `vow_destroy` does), for `veq_` and `vrank_`.
+- **Done:** each type has a step function that compares one pair of objects and pushes
+  the parts that could recurse onto a work stack (`vow_work_run`); other parts are
+  compared by a direct call, so equality on ordinary nested structs costs what it did.
+  Rank is found the same way, as the greatest depth reached. Test:
+  `tests/run/deep_values.vow` (a million links, three shapes).
 
 ### A5. Stack overflow is an unreported way for a verified program to fail (reproduced)
 
@@ -273,6 +287,11 @@ obligation, so "incremental solving" in the usual sense is done.
 - **Fix:** emit nothing for a function with no obligations; run the sanity check with
   `smt.mbqi false` (`unknown` already passes, and a ground inconsistency still answers
   `unsat`). `make bootstrap` runs this check twice and `make test` several times more.
+- **Done:** functions with no obligations are left out of the script (33.5 s to 1.9 s
+  for `vowc check compiler/vowc.vow --no-cache`; the same 1,102 proofs). The
+  `smt.mbqi false` part was measured and not taken: every sanity check then answers
+  `unknown`, so the check would only catch what E-matching finds, for 0.4 s. With
+  `VOW_SMT_V03=1` every function is still sent, as the frozen verifier does.
 
 ### V2. Run chunks of functions in parallel Z3 processes (measured by one reviewer)
 

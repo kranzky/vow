@@ -1,0 +1,24 @@
+// A list appended to itself: the left operand is moved and grows in place while the
+// right one is read.
+fn double(xs: inout List<Int>) do
+  set xs = xs ++ xs
+end fn double
+
+fn main() uses console do
+  var xs = [1, 2, 3]
+  set xs = xs ++ xs
+  print(int_to_str(len(xs)) ++ "\n")
+  double(xs: inout xs)
+  var sum = 0
+  for x in xs do
+    set sum = sum + x
+  end for
+  print(int_to_str(len(xs)) ++ " " ++ int_to_str(sum) ++ "\n")
+  var names = ["a", "b"]
+  set names = names ++ names
+  set names = names ++ names
+  print(join(parts: names, sep: "") ++ "\n")
+  var none: List<Int> = []
+  set none = none ++ none
+  print(int_to_str(len(none)) ++ "\n")
+end fn main

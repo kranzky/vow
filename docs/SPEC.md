@@ -109,9 +109,9 @@ end fn area
 
 Every program has `fn main()` that takes no parameters and returns `Unit`. An enum has
 at least one variant, and no two variants of an enum, nor two fields of a struct or
-variant, share a name. Functions and types are named apart: a function may not have the
-name of a struct, enum or alias, since a call such as `Point(x: 1, y: 2)` must mean one
-thing.
+variant, share a name. A struct or a variant has at most 65,534 fields. Functions and
+types are named apart: a function may not have the name of a struct, enum or alias,
+since a call such as `Point(x: 1, y: 2)` must mean one thing.
 
 ### Packages
 
@@ -489,7 +489,7 @@ SMT-LIB. The divisor must be provably non-zero.
 | `is_nan(x) -> Bool` | |
 | `read_line() -> Option<String>` | `uses console`; the next line of standard input without its `\n`, or `None` at the end |
 | `read_bytes(n) -> String` | `uses console`; up to `n` bytes of standard input (fewer at the end) |
-| `read_file(path) -> Option<String>` | `uses fs` |
+| `read_file(path) -> Option<String>` | `uses fs`; the whole file, or of a pipe or device everything up to its end; `None` if it cannot be opened or read, or is a directory |
 | `write_file(path: p, contents: c) -> Bool` | `uses fs` |
 | `make_dir(path) -> Bool` | `uses fs`; creates missing parents; true if the directory exists afterwards |
 | `list_dir(path) -> Option<List<String>>` | `uses fs`; sorted names, without `.` and `..` |

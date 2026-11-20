@@ -71,6 +71,8 @@ struct Gen
   loop_m: List<List<String>>,
   dec_c: List<String>,
   ranks: List<Ty>,
+  // The pointer bitmaps of wide objects (new_fields): bitmap i is the C array vow_wide_i.
+  wide: List<String>,
 end struct Gen
 
 fn c_string(s: String) -> String do
@@ -116,7 +118,7 @@ fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool, 
     owned_vars: [], scope_marks: [], loop_marks: [], temps: [], temp_marks: [], move_id: -1,
     moved: false, inout_vars: [], steal_ids: [], eqs: [], src: no_pos(), mapped_file: -1, mapped_next: -1, lines: lines,
     contracts: contracts, fname: "", it_c: "", result_c: "", olds: {}, spec_binds: {}, var_preds: {}, loop_invs: [],
-    loop_dec: [], loop_m: [], dec_c: [], ranks: [])
+    loop_dec: [], loop_m: [], dec_c: [], ranks: [], wide: [])
   // Generic functions are compiled through their instances.
   var fns: List<FnDecl> = []
   for item in items do
@@ -166,7 +168,7 @@ fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool, 
     set eq_defs = eq_defs ++ gen_eq_fn(g: inout g, t: t)
   end while
   for t in g.eqs do
-    set c = push(list: c, item: "static V " ++ eq_c_name(t) ++ "(V a, V b);")
+    set c = push(list: c, item: "static int " ++ eq_step_name(t) ++ "(V a, V b);")
   end for
   // Rank functions for structural measures (checked builds); likewise.
   var rank_defs: List<String> = []
@@ -177,7 +179,10 @@ fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool, 
     set rank_defs = rank_defs ++ gen_rank_fn(g: inout g, t: t)
   end while
   for t in g.ranks do
-    set c = push(list: c, item: "static int64_t " ++ rank_c_name(t) ++ "(V a);")
+    set c = push(list: c, item: "static int " ++ rank_step_name(t) ++ "(V a, V d);")
+  end for
+  for i in 0..len(g.wide) do
+    set c = push(list: c, item: "static const uint64_t vow_wide_" ++ int_to_str(i) ++ "[] = {" ++ g.wide[i] ++ "};")
   end for
   set c = push(list: c, item: "")
   set c = c ++ eq_defs ++ rank_defs
@@ -1428,25 +1433,85 @@ fn flag(b: Bool) -> String do
   return "0"
 end fn flag
 
-// The pointer mask for an object whose payload word i + offset holds field i.
-fn field_mask(fields: List<FieldInfo>, offset: Int where it >= 0) -> String do
-  var mask = 0
-  var bit = 1
+// C for a new object of the given number of words, word i + offset holding field i.
+// Up to 63 words, the header's mask says which words are heap values (bit i for word
+// i; the compiler's Int has 63 bits to give). A wider object points at a bitmap
+// instead, one 64-bit mask for each 64 words.
+fn new_fields(g: inout Gen, fields: List<FieldInfo>, offset: Int where it >= 0, words: Int) -> String do
+  if words <= 63 then
+    var mask = 0
+    var bit = 1
+    for i in 0..offset do
+      if bit < 4611686018427387904 then
+        set bit = bit * 2
+      end if
+    end for
+    for f in fields do
+      if is_heap(f.rty.ty) then
+        set mask = mask + bit
+      end if
+      if bit < 4611686018427387904 then
+        set bit = bit * 2
+      end if
+    end for
+    return "vow_fields(" ++ int_to_str(words) ++ ", UINT64_C(" ++ int_to_str(mask) ++ "))"
+  end if
+  var bits: List<Bool> = []
   for i in 0..offset do
-    if bit < 4611686018427387904 then
-      set bit = bit * 2
-    end if
+    set bits = push(list: bits, item: false)
   end for
   for f in fields do
-    if is_heap(f.rty.ty) then
-      set mask = mask + bit
-    end if
-    if bit < 4611686018427387904 then
-      set bit = bit * 2
+    set bits = push(list: bits, item: is_heap(f.rty.ty))
+  end for
+  var masks: List<String> = []
+  var from = 0
+  while from < words invariant from >= 0 do
+    set masks = push(list: masks, item: bitmap_word(bits: bits, from: from))
+    set from = from + 64
+  end while
+  let text = join(parts: masks, sep: ", ")
+  var at = -1
+  for i in 0..len(g.wide) do
+    if g.wide[i] == text then
+      set at = i
     end if
   end for
-  return "UINT64_C(" ++ int_to_str(mask) ++ ")"
-end fn field_mask
+  if at < 0 then
+    set at = len(g.wide)
+    set g = g with (wide: push(list: g.wide, item: text))
+  end if
+  return "vow_fields_wide(" ++ int_to_str(words) ++ ", vow_wide_" ++ int_to_str(at) ++ ")"
+end fn new_fields
+
+// Bits from .. from + 63 as a C constant, bit from + k at 2^k.
+fn bitmap_word(bits: List<Bool>, from: Int) -> String do
+  var digits: List<String> = []
+  for k in 0..16 do
+    let low = from + ((15 - k) * 4)
+    var d = 0
+    if bit_at(bits: bits, i: low) then
+      set d = d + 1
+    end if
+    if bit_at(bits: bits, i: low + 1) then
+      set d = d + 2
+    end if
+    if bit_at(bits: bits, i: low + 2) then
+      set d = d + 4
+    end if
+    if bit_at(bits: bits, i: low + 3) then
+      set d = d + 8
+    end if
+    set digits = push(list: digits, item: hex_digit(d))
+  end for
+  return "UINT64_C(0x" ++ join(parts: digits, sep: "") ++ ")"
+end fn bitmap_word
+
+fn bit_at(bits: List<Bool>, i: Int) -> Bool do
+  if (i >= 0) and (i < len(bits)) then
+    return bits[i]
+  end if
+  return false
+end fn bit_at
 
 fn gen_expr(g: inout Gen, e: Expr) -> Val do
   match e.kind
@@ -1529,7 +1594,9 @@ fn gen_expr(g: inout Gen, e: Expr) -> Val do
         if k == 0 then
           return owned_tmp(g: inout g, rhs: "vow_variant0(" ++ int_to_str(ci.variant) ++ ")", heap: true)
         end if
-        let r = owned_tmp(g: inout g, rhs: "vow_fields(" ++ int_to_str(k + 1) ++ ", 0)", heap: true)
+        let unit_only: List<FieldInfo> = []
+        let made = new_fields(g: inout g, fields: unit_only, offset: 1, words: k + 1)
+        let r = owned_tmp(g: inout g, rhs: made, heap: true)
         line(g: inout g, s: "VP(" ++ r.c ++ ")[0] = " ++ int_to_str(ci.variant) ++ ";")
         return r
       end if
@@ -1718,6 +1785,24 @@ fn eq_c_name(t: Ty) -> String do
   return "veq_" ++ mangle(ty_show(t))
 end fn eq_c_name
 
+fn eq_step_name(t: Ty) -> String do
+  return "veqs_" ++ mangle(ty_show(t))
+end fn eq_step_name
+
+// Notes that the program compares values of type t with its equality functions.
+fn need_eq(g: inout Gen, t: Ty) do
+  let name = eq_c_name(t)
+  var known = false
+  for x in g.eqs do
+    if eq_c_name(x) == name then
+      set known = true
+    end if
+  end for
+  if not known then
+    set g = g with (eqs: push(list: g.eqs, item: t))
+  end if
+end fn need_eq
+
 // A C expression comparing a and b, values of type t (both borrowed).
 fn c_eq(g: inout Gen, t: Ty, a: String, b: String) -> String do
   if ty_show(t) == "String" then
@@ -1729,23 +1814,98 @@ fn c_eq(g: inout Gen, t: Ty, a: String, b: String) -> String do
   if simple_eq(t) then
     return "(" ++ a ++ " == " ++ b ++ ")"
   end if
-  let name = eq_c_name(t)
-  var known = false
-  for x in g.eqs do
-    if eq_c_name(x) == name then
-      set known = true
-    end if
-  end for
-  if not known then
-    set g = g with (eqs: push(list: g.eqs, item: t))
-  end if
-  return name ++ "(" ++ a ++ ", " ++ b ++ ")"
+  need_eq(g: inout g, t: t)
+  return eq_c_name(t) ++ "(" ++ a ++ ", " ++ b ++ ")"
 end fn c_eq
 
-// The definition of the equality function for t: shared values are equal at once,
-// otherwise the parts are compared in order.
+// Whether a value of type t is, or can hold at any depth, a value of the type shown as
+// target.
+fn type_holds(info: Info, t: Ty, target: String, seen: inout List<String>) -> Bool do
+  if ty_show(t) == target then
+    return true
+  end if
+  match t
+  case TList(elem: x) then
+    return type_holds(info: info, t: x, target: target, seen: inout seen)
+  case TOpt(inner: x) then
+    return type_holds(info: info, t: x, target: target, seen: inout seen)
+  case TStruct(name: n) then
+    if contains_str(xs: seen, x: n) then
+      return false
+    end if
+    set seen = push(list: seen, item: n)
+    for f in struct_fields(info: info, name: n) do
+      if type_holds(info: info, t: f.rty.ty, target: target, seen: inout seen) then
+        return true
+      end if
+    end for
+    return false
+  case TEnum(name: n) then
+    if contains_str(xs: seen, x: n) then
+      return false
+    end if
+    set seen = push(list: seen, item: n)
+    match lookup(map: info.enums, key: n)
+    case Some(value: vs) then
+      for vi in vs do
+        for f in vi.fields do
+          if type_holds(info: info, t: f.rty.ty, target: target, seen: inout seen) then
+            return true
+          end if
+        end for
+      end for
+    case None then
+    end match
+    return false
+  else
+    return false
+  end match
+end fn type_holds
+
+// Whether the step function of owner pushes a field of type ft for a later step, where
+// it could call that type's step function at once. It must when ft can hold an owner:
+// such calls would nest as deep as the value. Any other field's step is called, and
+// those calls nest only as deep as the types do.
+fn step_pushes(g: Gen, owner: Ty, ft: Ty) -> Bool do
+  var seen: List<String> = []
+  return type_holds(info: g.info, t: ft, target: ty_show(owner), seen: inout seen)
+end fn step_pushes
+
+// C comparing the fields of a and b, values of type owner with field i at word
+// i + offset: first those compared on the spot, then the others pushed to be compared
+// later, the first of them on top.
+fn eq_fields(g: inout Gen, owner: Ty, fields: List<FieldInfo>, offset: Int, pad: String) -> List<String> do
+  var out: List<String> = []
+  for i in 0..len(fields) do
+    let ft = fields[i].rty.ty
+    let at = "VP(a)[" ++ int_to_str(i + offset) ++ "]"
+    let bt = "VP(b)[" ++ int_to_str(i + offset) ++ "]"
+    if simple_eq(ft) then
+      set out = push(list: out, item: pad ++ "if (!" ++ c_eq(g: inout g, t: ft, a: at, b: bt) ++ ") return 0;")
+    elif not step_pushes(g: g, owner: owner, ft: ft) then
+      need_eq(g: inout g, t: ft)
+      set out = push(list: out, item: pad ++ "if (!" ++ eq_step_name(ft) ++ "(" ++ at ++ ", " ++ bt ++ ")) return 0;")
+    end if
+  end for
+  for j in 0..len(fields) do
+    let i = (len(fields) - 1) - j
+    let ft = fields[i].rty.ty
+    if (not simple_eq(ft)) and step_pushes(g: g, owner: owner, ft: ft) then
+      need_eq(g: inout g, t: ft)
+      let w = int_to_str(i + offset)
+      set out = push(list: out, item: pad ++ "vow_work_push(" ++ eq_step_name(ft) ++ ", VP(a)[" ++ w ++ "], VP(b)[" ++ w ++ "]);")
+    end if
+  end for
+  return out
+end fn eq_fields
+
+// The equality functions for t. The step function compares one pair of values: shared
+// values are equal at once; otherwise their parts are compared, or pushed to be
+// compared by a later step (vow_work_run) when comparing them here could recurse
+// (step_pushes), so that comparing a long chain does not use the C stack. A list's
+// step calls its elements' steps: lists nest only as deep as their type.
 fn gen_eq_fn(g: inout Gen, t: Ty) -> List<String> do
-  var out = ["static V " ++ eq_c_name(t) ++ "(V a, V b) {"]
+  var out = ["static int " ++ eq_step_name(t) ++ "(V a, V b) {"]
   // A value is not equal to itself when it holds a NaN, so only values without floats
   // may be equal because they are the same object.
   if not contains_float(info: g.info, t: t) then
@@ -1753,18 +1913,18 @@ fn gen_eq_fn(g: inout Gen, t: Ty) -> List<String> do
   end if
   match t
   case TStruct(name: n) then
-    let fields = struct_fields(info: g.info, name: n)
-    for i in 0..len(fields) do
-      let at = "VP(a)[" ++ int_to_str(i) ++ "]"
-      let bt = "VP(b)[" ++ int_to_str(i) ++ "]"
-      set out = push(list: out, item: "    if (!" ++ c_eq(g: inout g, t: fields[i].rty.ty, a: at, b: bt) ++ ") return 0;")
-    end for
+    set out = out ++ eq_fields(g: inout g, owner: t, fields: struct_fields(info: g.info, name: n), offset: 0, pad: "    ")
   case TList(elem: et) then
     set out = push(list: out, item: "    if (VL(a)->len != VL(b)->len) return 0;")
     set out = push(list: out, item: "    for (int64_t i = 0; i < VL(a)->len; i++) {")
     let at = "VB(VL(a)->buf)->items[i]"
     let bt = "VB(VL(b)->buf)->items[i]"
-    set out = push(list: out, item: "        if (!" ++ c_eq(g: inout g, t: et, a: at, b: bt) ++ ") return 0;")
+    if simple_eq(et) then
+      set out = push(list: out, item: "        if (!" ++ c_eq(g: inout g, t: et, a: at, b: bt) ++ ") return 0;")
+    else
+      need_eq(g: inout g, t: et)
+      set out = push(list: out, item: "        if (!" ++ eq_step_name(et) ++ "(" ++ at ++ ", " ++ bt ++ ")) return 0;")
+    end if
     set out = push(list: out, item: "    }")
   else
     match variants_of(info: g.info, t: t)
@@ -1775,11 +1935,7 @@ fn gen_eq_fn(g: inout Gen, t: Ty) -> List<String> do
         let fields = vs[i].fields
         if len(fields) > 0 then
           set out = push(list: out, item: "    case " ++ int_to_str(i) ++ ":")
-          for k in 0..len(fields) do
-            let at = "VP(a)[" ++ int_to_str(k + 1) ++ "]"
-            let bt = "VP(b)[" ++ int_to_str(k + 1) ++ "]"
-            set out = push(list: out, item: "        if (!" ++ c_eq(g: inout g, t: fields[k].rty.ty, a: at, b: bt) ++ ") return 0;")
-          end for
+          set out = out ++ eq_fields(g: inout g, owner: t, fields: fields, offset: 1, pad: "        ")
           set out = push(list: out, item: "        break;")
         end if
       end for
@@ -1789,6 +1945,7 @@ fn gen_eq_fn(g: inout Gen, t: Ty) -> List<String> do
   end match
   set out = push(list: out, item: "    return 1;")
   set out = push(list: out, item: "}")
+  set out = push(list: out, item: "static V " ++ eq_c_name(t) ++ "(V a, V b) { return vow_work_run(" ++ eq_step_name(t) ++ ", a, b); }")
   set out = push(list: out, item: "")
   return out
 end fn gen_eq_fn
@@ -1797,26 +1954,28 @@ fn rank_c_name(t: Ty) -> String do
   return "vrank_" ++ mangle(ty_show(t))
 end fn rank_c_name
 
-// A value's rank, for a structural measure: its height, where an enum or option value
-// and a list are one more than their highest part, a struct as high as its highest
-// field, and anything else 0. Each part has a smaller rank than an enum value or list,
-// and no larger than a struct, as the verifier assumes (rank_part).
-fn c_rank(g: inout Gen, t: Ty, a: String) -> String do
-  var structured = false
+fn rank_step_name(t: Ty) -> String do
+  return "vranks_" ++ mangle(ty_show(t))
+end fn rank_step_name
+
+// Whether values of type t have parts, and so a rank of their own.
+fn is_ranked(t: Ty) -> Bool do
   match t
   case TList(elem: x) then
-    set structured = true
+    return true
   case TOpt(inner: x) then
-    set structured = true
+    return true
   case TStruct(name: n) then
-    set structured = true
+    return true
   case TEnum(name: n) then
-    set structured = true
+    return true
   else
+    return false
   end match
-  if not structured then
-    return "0"
-  end if
+end fn is_ranked
+
+// Notes that the program needs the rank functions for t.
+fn need_rank(g: inout Gen, t: Ty) do
   let name = rank_c_name(t)
   var known = false
   for x in g.ranks do
@@ -1827,42 +1986,63 @@ fn c_rank(g: inout Gen, t: Ty, a: String) -> String do
   if not known then
     set g = g with (ranks: push(list: g.ranks, item: t))
   end if
-  return name ++ "(" ++ a ++ ")"
+end fn need_rank
+
+// A value's rank, for a structural measure: its height, where an enum or option value
+// and a list are one more than their highest part, a struct as high as its highest
+// field, and anything else 0. Each part has a smaller rank than an enum value or list,
+// and no larger than a struct, as the verifier assumes (rank_part).
+fn c_rank(g: inout Gen, t: Ty, a: String) -> String do
+  if not is_ranked(t) then
+    return "0"
+  end if
+  need_rank(g: inout g, t: t)
+  return rank_c_name(t) ++ "(" ++ a ++ ")"
 end fn c_rank
 
+// C visiting, at depth d, the fields of a that have a rank (a is a value of type owner
+// with field i at word i + offset): called or pushed as for equality.
+fn rank_fields(g: inout Gen, owner: Ty, fields: List<FieldInfo>, offset: Int, pad: String) -> List<String> do
+  var out: List<String> = []
+  for i in 0..len(fields) do
+    let ft = fields[i].rty.ty
+    if is_ranked(ft) then
+      need_rank(g: inout g, t: ft)
+      let part = "VP(a)[" ++ int_to_str(i + offset) ++ "]"
+      if step_pushes(g: g, owner: owner, ft: ft) then
+        set out = push(list: out, item: pad ++ "vow_work_push(" ++ rank_step_name(ft) ++ ", " ++ part ++ ", d);")
+      else
+        set out = push(list: out, item: pad ++ rank_step_name(ft) ++ "(" ++ part ++ ", d);")
+      end if
+    end if
+  end for
+  return out
+end fn rank_fields
+
+// The rank functions for t. A value's height is the greatest depth of anything in it,
+// counting enum values, options and lists but not structs, so it is found on the way
+// down, without recursion: the step function is given a value and its parent's depth
+// d, records its own depth (vow_rank_max) and visits its parts as an equality step
+// does (vow_rank_run).
 fn gen_rank_fn(g: inout Gen, t: Ty) -> List<String> do
-  var out = ["static int64_t " ++ rank_c_name(t) ++ "(V a) {", "    int64_t r = 0, x;"]
-  var more = " + 1"
+  var out = ["static int " ++ rank_step_name(t) ++ "(V a, V d) {"]
+  let deeper = ["    d += 1;", "    if (VI(d) > vow_rank_max) vow_rank_max = VI(d);"]
   match t
   case TStruct(name: n) then
-    set more = ""
-    let fields = struct_fields(info: g.info, name: n)
-    for i in 0..len(fields) do
-      let rk = c_rank(g: inout g, t: fields[i].rty.ty, a: "VP(a)[" ++ int_to_str(i) ++ "]")
-      if rk != "0" then
-        set out = push(list: out, item: "    x = " ++ rk ++ "; if (x > r) r = x;")
-      end if
-    end for
+    set out = out ++ rank_fields(g: inout g, owner: t, fields: struct_fields(info: g.info, name: n), offset: 0, pad: "    ")
   case TList(elem: et) then
-    let rk = c_rank(g: inout g, t: et, a: "VB(VL(a)->buf)->items[i]")
-    if rk != "0" then
-      set out = push(list: out, item: "    for (int64_t i = 0; i < VL(a)->len; i++) {")
-      set out = push(list: out, item: "        x = " ++ rk ++ "; if (x > r) r = x;")
-      set out = push(list: out, item: "    }")
+    set out = out ++ deeper
+    if is_ranked(et) then
+      need_rank(g: inout g, t: et)
+      set out = push(list: out, item: "    for (int64_t i = 0; i < VL(a)->len; i++) " ++ rank_step_name(et) ++ "(VB(VL(a)->buf)->items[i], d);")
     end if
   else
+    set out = out ++ deeper
     match variants_of(info: g.info, t: t)
     case Some(value: vs) then
       set out = push(list: out, item: "    switch (VP(a)[0]) {")
       for i in 0..len(vs) do
-        let fields = vs[i].fields
-        var body: List<String> = []
-        for k in 0..len(fields) do
-          let rk = c_rank(g: inout g, t: fields[k].rty.ty, a: "VP(a)[" ++ int_to_str(k + 1) ++ "]")
-          if rk != "0" then
-            set body = push(list: body, item: "        x = " ++ rk ++ "; if (x > r) r = x;")
-          end if
-        end for
+        let body = rank_fields(g: inout g, owner: t, fields: vs[i].fields, offset: 1, pad: "        ")
         if len(body) > 0 then
           set out = push(list: out, item: "    case " ++ int_to_str(i) ++ ":")
           set out = out ++ body
@@ -1873,8 +2053,9 @@ fn gen_rank_fn(g: inout Gen, t: Ty) -> List<String> do
     case None then
     end match
   end match
-  set out = push(list: out, item: "    return r" ++ more ++ ";")
+  set out = push(list: out, item: "    return 1;")
   set out = push(list: out, item: "}")
+  set out = push(list: out, item: "static int64_t " ++ rank_c_name(t) ++ "(V a) { return vow_rank_run(" ++ rank_step_name(t) ++ ", a); }")
   set out = push(list: out, item: "")
   return out
 end fn gen_rank_fn
@@ -1964,7 +2145,8 @@ fn gen_call(g: inout Gen, e: Expr, args: List<Arg>) -> Val do
       let c = take(g: inout g, v: p[i], heap: fh)
       set cs = push(list: cs, item: c)
     end for
-    let r = owned_tmp(g: inout g, rhs: "vow_fields(" ++ int_to_str(len(p) + offset) ++ ", " ++ field_mask(fields: fields, offset: offset) ++ ")", heap: true)
+    let made = new_fields(g: inout g, fields: fields, offset: offset, words: len(p) + offset)
+    let r = owned_tmp(g: inout g, rhs: made, heap: true)
     if offset == 1 then
       line(g: inout g, s: "VP(" ++ r.c ++ ")[0] = " ++ int_to_str(ci.variant) ++ ";")
     end if

@@ -3500,10 +3500,17 @@ fn z3_version() -> String uses proc do
   return ""
 end fn z3_version
 
-fn script_for(pre: List<String>, vcs: List<FnVc>, model: Option<Ob>) -> String do
+// every: also send the functions with nothing to prove, as the v0.3 verifier does
+// (VOW_SMT_V03, for tests/differential.sh).
+fn script_for(pre: List<String>, vcs: List<FnVc>, model: Option<Ob>, every: Bool) -> String do
   var s: List<String> = ["(set-option :produce-models true)", "(set-option :timeout 10000)"]
   set s = s ++ pre
   for vc in vcs do
+    // A function with nothing to prove sends nothing: the sanity check below protects
+    // obligations, and on a long function without any it can run to the time limit.
+    if (len(vc.obs) == 0) and not every then
+      continue
+    end if
     set s = push(list: s, item: "(push 1) ; fn " ++ vc.name)
     if vc.axioms then
       set s = push(list: s, item: "(set-option :smt.mbqi false)")
@@ -3622,8 +3629,8 @@ fn split_pair(pair: String) -> String do
   return val
 end fn split_pair
 
-fn discharge(pre: List<String>, vcs: List<FnVc>) -> Discharged uses proc, fs do
-  let script = script_for(pre: pre, vcs: vcs, model: Option.None)
+fn discharge(pre: List<String>, vcs: List<FnVc>, every: Bool) -> Discharged uses proc, fs do
+  let script = script_for(pre: pre, vcs: vcs, model: Option.None, every: every)
   match getenv("VOW_SMT_DUMP")
   case Some(value: path) then
     let _ = write_file(path: path, contents: script)
@@ -3643,9 +3650,13 @@ fn discharge(pre: List<String>, vcs: List<FnVc>) -> Discharged uses proc, fs do
       return Discharged(error: "Z3 rejected the generated query: " ++ a, failures: none)
     end if
   end for
+  // One answer per obligation, and one for the sanity check of each function that has
+  // any (script_for).
   var total = 0
   for vc in vcs do
-    set total = total + (len(vc.obs) + 1)
+    if (len(vc.obs) > 0) or every then
+      set total = total + (len(vc.obs) + 1)
+    end if
   end for
   if len(answers) != total then
     let msg = "Z3 answered " ++ int_to_str(len(answers)) ++ " of " ++ int_to_str(total) ++ " queries"
@@ -3657,6 +3668,9 @@ fn discharge(pre: List<String>, vcs: List<FnVc>) -> Discharged uses proc, fs do
   var failures: List<Failure> = []
   var k = 0
   for vc in vcs invariant k >= 0 do
+    if (len(vc.obs) == 0) and not every then
+      continue
+    end if
     if (k < len(answers)) and (answers[k] == "unsat") then
       return Discharged(error: "internal verifier error: the definitions for '" ++ vc.name ++ "' are inconsistent", failures: none)
     end if
@@ -3672,7 +3686,7 @@ fn discharge(pre: List<String>, vcs: List<FnVc>) -> Discharged uses proc, fs do
       end if
       var model: List<Shown> = []
       if (a == "sat") and (len(ob.show) > 0) then
-        let mo = run_z3(script_for(pre: pre, vcs: [vc], model: Option.Some(value: ob)))
+        let mo = run_z3(script_for(pre: pre, vcs: [vc], model: Option.Some(value: ob), every: true))
         let vals = parse_values(mo.out)
         for i in 0..len(ob.show) do
           if i < len(vals) then

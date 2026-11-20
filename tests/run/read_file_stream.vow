@@ -1,0 +1,31 @@
+// language: 0.9
+// read_file reads a stream to its end (a FIFO has no size to ask for), and gives
+// None for a directory. (No later language feature is used here: the bootstrap
+// compiler is skipped because its frozen runtime reads a directory as "".)
+fn show(label: String, got: Option<String>) uses console do
+  match got
+  case Some(value: s) then
+    print(label ++ ": " ++ int_to_str(len(s)) ++ " bytes\n")
+  case None then
+    print(label ++ ": none\n")
+  end match
+end fn show
+
+fn main() uses console, fs, proc do
+  let base = "/tmp/vow-test-read-file"
+  let made = make_dir(base)
+  let fifo = base ++ "/fifo"
+  let cleared = run(argv: ["rm", "-f", fifo], input: "")
+  let created = run(argv: ["mkfifo", fifo], input: "")
+  // The writer waits in the background until read_file opens the other end.
+  let writer = run(argv: ["sh", "-c", "(yes | head -c 300000 > " ++ fifo ++ ") > /dev/null 2>&1 &"], input: "")
+  show(label: "fifo", got: read_file(fifo))
+  show(label: "directory", got: read_file(base))
+  let wrote = write_file(path: base ++ "/empty", contents: "") and write_file(path: base ++ "/some", contents: "hello\n")
+  show(label: "empty", got: read_file(base ++ "/empty"))
+  show(label: "some", got: read_file(base ++ "/some"))
+  show(label: "missing", got: read_file(base ++ "/nope"))
+  if made and wrote and (created.code == 0) and (cleared.code == 0) and (writer.code == 0) then
+    print("ok\n")
+  end if
+end fn main

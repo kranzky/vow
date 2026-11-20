@@ -77,12 +77,21 @@ enum { VK_FIELDS, VK_STR, VK_LIST, VK_BUF, VK_NODE, VK_HASH };
 typedef struct {
     int32_t rc;     // reference count; -1 for immortal objects (literals, None)
     uint8_t kind;   // VK_*
-    uint8_t flags;  // lists and buffers: elements are heap values; nodes: see below
+    uint8_t flags;  // lists and buffers: elements are heap values; nodes: see below;
+                    // VK_FIELDS: the object is wide (more than 63 words)
     uint16_t words; // VK_FIELDS: number of payload words
-    uint64_t mask;  // VK_FIELDS: bit i set when payload word i is a heap value
+    uint64_t mask;  // VK_FIELDS: bit i set when payload word i is a heap value; for a
+                    // wide object, a pointer to a static array of such masks instead
 } VHdr;
 
 #define VH(x) ((VHdr *)((char *)(uintptr_t)(x) - sizeof(VHdr)))
+
+// Whether payload word i of a VK_FIELDS object holds a heap value: bit i % 64 of
+// vow_bitmap(h)[i / 64].
+static inline const uint64_t *vow_bitmap(const VHdr *h) {
+    return h->flags ? (const uint64_t *)(uintptr_t)h->mask : &h->mask;
+}
+#define VOW_HEAP_WORD(m, i) (((m)[(i) >> 6] >> ((i) & 63)) & 1)
 
 // ---- allocation: size classes of 16 bytes with free lists, carved from chunks ----
 
@@ -273,10 +282,12 @@ static void vow_destroy(V x) {
         V y = vow_dstack[--vow_dlen];
         VHdr *h = VH(y);
         switch (h->kind) {
-        case VK_FIELDS:
+        case VK_FIELDS: {
+            const uint64_t *m = vow_bitmap(h);
             for (int i = 0; i < h->words; i++)
-                if (h->mask & ((uint64_t)1 << i)) vow_release(VP(y)[i]);
+                if (VOW_HEAP_WORD(m, i)) vow_release(VP(y)[i]);
             break;
+        }
         case VK_LIST: vow_release(VL(y)->buf); break;
         case VK_BUF:
             if (h->flags)
@@ -304,6 +315,53 @@ static void vow_destroy(V x) {
 static void vow_report_leaks(void) {
     const char *e = getenv("VOW_LEAKS");
     if (e && *e == '1') fprintf(stderr, "vow: %lld objects live at exit\n", (long long)(vow_live - vow_immortals));
+}
+
+// ---- deep comparison ----
+
+// The equality and rank functions generated for a type (veq_T, vrank_T) do not recurse,
+// so a long chain cannot overflow the C stack: a step function looks at one object and
+// pushes the parts still to visit.
+typedef int (*VStep)(V a, V b);
+typedef struct {
+    VStep step;
+    V a, b;
+} VFrame;
+static VFrame *vow_work;
+static size_t vow_wcap, vow_wlen;
+
+static void vow_work_push(VStep step, V a, V b) {
+    if (vow_wlen == vow_wcap) {
+        vow_wcap = vow_wcap ? vow_wcap * 2 : 256;
+        vow_work = (VFrame *)realloc(vow_work, vow_wcap * sizeof(VFrame));
+        if (!vow_work) vow_panic("out of memory");
+    }
+    vow_work[vow_wlen].step = step;
+    vow_work[vow_wlen].a = a;
+    vow_work[vow_wlen].b = b;
+    vow_wlen++;
+}
+
+// Runs step on (a, b), then on everything pushed, until a step answers 0.
+static V vow_work_run(VStep step, V a, V b) {
+    size_t base = vow_wlen;
+    int ok = step(a, b);
+    while (ok && vow_wlen > base) {
+        VFrame f = vow_work[--vow_wlen];
+        ok = f.step(f.a, f.b);
+    }
+    vow_wlen = base;
+    return (V)ok;
+}
+
+// A rank step is given a value and the depth of its parent, and records the greatest
+// depth reached: that is the rank of the value the run began with.
+static int64_t vow_rank_max;
+
+static int64_t vow_rank_run(VStep step, V a) {
+    vow_rank_max = 0;
+    vow_work_run(step, a, 0);
+    return vow_rank_max;
 }
 
 // ---- integers ----
@@ -492,15 +550,26 @@ static V vow_fields(int64_t words, uint64_t mask) {
     return r;
 }
 
+// An object of more than 63 words: bitmap has one mask for each 64 of them, and
+// outlives the object.
+static V vow_fields_wide(int64_t words, const uint64_t *bitmap) {
+    size_t n = (size_t)words * sizeof(V);
+    V r = vow_obj(VK_FIELDS, 1, (uint16_t)words, (uint64_t)(uintptr_t)bitmap, n);
+    memset(VP(r), 0, n);
+    return r;
+}
+
 // Consumes base; returns an object the caller owns exclusively: base itself when it was
 // unshared, otherwise a copy. The caller then replaces fields (dropping the old ones).
 static V vow_with(V base) {
     VHdr *h = VH(base);
     if (h->rc == 1) return base;
     V r = vow_fields(h->words, h->mask);
+    VH(r)->flags = h->flags;
     memcpy(VP(r), VP(base), (size_t)h->words * sizeof(V));
+    const uint64_t *m = vow_bitmap(h);
     for (int i = 0; i < h->words; i++)
-        if (h->mask & ((uint64_t)1 << i)) vdup(VP(r)[i]);
+        if (VOW_HEAP_WORD(m, i)) vdup(VP(r)[i]);
     vdrop(base);
     return r;
 }
@@ -725,7 +794,10 @@ static V vlist_slice_at(V l, V from, V to, VOW_AT) {
 // Consumes a, borrows b.
 static V vlist_cat(V a, V b) {
     int heap = VH(a)->flags;
-    for (int64_t i = 0; i < VL(b)->len; i++) {
+    // b can be a itself (set xs = xs ++ xs), growing as it is pushed to: its length
+    // is read once.
+    int64_t n = VL(b)->len;
+    for (int64_t i = 0; i < n; i++) {
         V x = VB(VL(b)->buf)->items[i];
         a = vlist_push(a, heap ? vdup(x) : x);
     }
@@ -1030,16 +1102,41 @@ static V veprint(V s) {
     return 0;
 }
 
+// None for a directory, or when opening or reading fails. Reads to the end of the
+// stream: a pipe or a device has no size, and a file's size is only a first guess.
 static V vread_file(V path) {
     FILE *f = fopen(VS(path)->data, "rb");
     if (!f) return vnone();
-    fseek(f, 0, SEEK_END);
-    long n = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    V s = vow_obj(VK_STR, 0, 0, 0, sizeof(VStr) + (size_t)n + 1);
-    VS(s)->len = (int64_t)fread(VS(s)->data, 1, (size_t)n, f);
-    VS(s)->data[VS(s)->len] = 0;
+    struct stat st;
+    if (fstat(fileno(f), &st) != 0 || S_ISDIR(st.st_mode)) {
+        fclose(f);
+        return vnone();
+    }
+    size_t cap = 4096, n = 0;
+    if (S_ISREG(st.st_mode) && st.st_size > 0) cap = (size_t)st.st_size + 1;
+    char *buf = (char *)malloc(cap);
+    if (!buf) vow_panic("out of memory");
+    for (;;) {
+        size_t k = fread(buf + n, 1, cap - n, f);
+        n += k;
+        if (k == 0) break;
+        if (n == cap) {
+            cap *= 2;
+            buf = (char *)realloc(buf, cap);
+            if (!buf) vow_panic("out of memory");
+        }
+    }
+    int failed = ferror(f);
     fclose(f);
+    if (failed) {
+        free(buf);
+        return vnone();
+    }
+    V s = vow_obj(VK_STR, 0, 0, 0, sizeof(VStr) + n + 1);
+    memcpy(VS(s)->data, buf, n);
+    VS(s)->data[n] = 0;
+    VS(s)->len = (int64_t)n;
+    free(buf);
     return vsome(s, 1);
 }
 

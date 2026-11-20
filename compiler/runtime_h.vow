@@ -80,12 +80,21 @@ fn runtime_header() -> String do
     "typedef struct {\n" ++
     "    int32_t rc;     // reference count; -1 for immortal objects (literals, None)\n" ++
     "    uint8_t kind;   // VK_*\n" ++
-    "    uint8_t flags;  // lists and buffers: elements are heap values; nodes: see below\n" ++
+    "    uint8_t flags;  // lists and buffers: elements are heap values; nodes: see below;\n" ++
+    "                    // VK_FIELDS: the object is wide (more than 63 words)\n" ++
     "    uint16_t words; // VK_FIELDS: number of payload words\n" ++
-    "    uint64_t mask;  // VK_FIELDS: bit i set when payload word i is a heap value\n" ++
+    "    uint64_t mask;  // VK_FIELDS: bit i set when payload word i is a heap value; for a\n" ++
+    "                    // wide object, a pointer to a static array of such masks instead\n" ++
     "} VHdr;\n" ++
     "\n" ++
     "#define VH(x) ((VHdr *)((char *)(uintptr_t)(x) - sizeof(VHdr)))\n" ++
+    "\n" ++
+    "// Whether payload word i of a VK_FIELDS object holds a heap value: bit i % 64 of\n" ++
+    "// vow_bitmap(h)[i / 64].\n" ++
+    "static inline const uint64_t *vow_bitmap(const VHdr *h) {\n" ++
+    "    return h->flags ? (const uint64_t *)(uintptr_t)h->mask : &h->mask;\n" ++
+    "}\n" ++
+    "#define VOW_HEAP_WORD(m, i) (((m)[(i) >> 6] >> ((i) & 63)) & 1)\n" ++
     "\n" ++
     "// ---- allocation: size classes of 16 bytes with free lists, carved from chunks ----\n" ++
     "\n" ++
@@ -276,10 +285,12 @@ fn runtime_header() -> String do
     "        V y = vow_dstack[--vow_dlen];\n" ++
     "        VHdr *h = VH(y);\n" ++
     "        switch (h->kind) {\n" ++
-    "        case VK_FIELDS:\n" ++
+    "        case VK_FIELDS: {\n" ++
+    "            const uint64_t *m = vow_bitmap(h);\n" ++
     "            for (int i = 0; i < h->words; i++)\n" ++
-    "                if (h->mask & ((uint64_t)1 << i)) vow_release(VP(y)[i]);\n" ++
+    "                if (VOW_HEAP_WORD(m, i)) vow_release(VP(y)[i]);\n" ++
     "            break;\n" ++
+    "        }\n" ++
     "        case VK_LIST: vow_release(VL(y)->buf); break;\n" ++
     "        case VK_BUF:\n" ++
     "            if (h->flags)\n" ++
@@ -307,6 +318,53 @@ fn runtime_header() -> String do
     "static void vow_report_leaks(void) {\n" ++
     "    const char *e = getenv(\"VOW_LEAKS\");\n" ++
     "    if (e && *e == '1') fprintf(stderr, \"vow: %lld objects live at exit\\n\", (long long)(vow_live - vow_immortals));\n" ++
+    "}\n" ++
+    "\n" ++
+    "// ---- deep comparison ----\n" ++
+    "\n" ++
+    "// The equality and rank functions generated for a type (veq_T, vrank_T) do not recurse,\n" ++
+    "// so a long chain cannot overflow the C stack: a step function looks at one object and\n" ++
+    "// pushes the parts still to visit.\n" ++
+    "typedef int (*VStep)(V a, V b);\n" ++
+    "typedef struct {\n" ++
+    "    VStep step;\n" ++
+    "    V a, b;\n" ++
+    "} VFrame;\n" ++
+    "static VFrame *vow_work;\n" ++
+    "static size_t vow_wcap, vow_wlen;\n" ++
+    "\n" ++
+    "static void vow_work_push(VStep step, V a, V b) {\n" ++
+    "    if (vow_wlen == vow_wcap) {\n" ++
+    "        vow_wcap = vow_wcap ? vow_wcap * 2 : 256;\n" ++
+    "        vow_work = (VFrame *)realloc(vow_work, vow_wcap * sizeof(VFrame));\n" ++
+    "        if (!vow_work) vow_panic(\"out of memory\");\n" ++
+    "    }\n" ++
+    "    vow_work[vow_wlen].step = step;\n" ++
+    "    vow_work[vow_wlen].a = a;\n" ++
+    "    vow_work[vow_wlen].b = b;\n" ++
+    "    vow_wlen++;\n" ++
+    "}\n" ++
+    "\n" ++
+    "// Runs step on (a, b), then on everything pushed, until a step answers 0.\n" ++
+    "static V vow_work_run(VStep step, V a, V b) {\n" ++
+    "    size_t base = vow_wlen;\n" ++
+    "    int ok = step(a, b);\n" ++
+    "    while (ok && vow_wlen > base) {\n" ++
+    "        VFrame f = vow_work[--vow_wlen];\n" ++
+    "        ok = f.step(f.a, f.b);\n" ++
+    "    }\n" ++
+    "    vow_wlen = base;\n" ++
+    "    return (V)ok;\n" ++
+    "}\n" ++
+    "\n" ++
+    "// A rank step is given a value and the depth of its parent, and records the greatest\n" ++
+    "// depth reached: that is the rank of the value the run began with.\n" ++
+    "static int64_t vow_rank_max;\n" ++
+    "\n" ++
+    "static int64_t vow_rank_run(VStep step, V a) {\n" ++
+    "    vow_rank_max = 0;\n" ++
+    "    vow_work_run(step, a, 0);\n" ++
+    "    return vow_rank_max;\n" ++
     "}\n" ++
     "\n" ++
     "// ---- integers ----\n" ++
@@ -495,15 +553,26 @@ fn runtime_header() -> String do
     "    return r;\n" ++
     "}\n" ++
     "\n" ++
+    "// An object of more than 63 words: bitmap has one mask for each 64 of them, and\n" ++
+    "// outlives the object.\n" ++
+    "static V vow_fields_wide(int64_t words, const uint64_t *bitmap) {\n" ++
+    "    size_t n = (size_t)words * sizeof(V);\n" ++
+    "    V r = vow_obj(VK_FIELDS, 1, (uint16_t)words, (uint64_t)(uintptr_t)bitmap, n);\n" ++
+    "    memset(VP(r), 0, n);\n" ++
+    "    return r;\n" ++
+    "}\n" ++
+    "\n" ++
     "// Consumes base; returns an object the caller owns exclusively: base itself when it was\n" ++
     "// unshared, otherwise a copy. The caller then replaces fields (dropping the old ones).\n" ++
     "static V vow_with(V base) {\n" ++
     "    VHdr *h = VH(base);\n" ++
     "    if (h->rc == 1) return base;\n" ++
     "    V r = vow_fields(h->words, h->mask);\n" ++
+    "    VH(r)->flags = h->flags;\n" ++
     "    memcpy(VP(r), VP(base), (size_t)h->words * sizeof(V));\n" ++
+    "    const uint64_t *m = vow_bitmap(h);\n" ++
     "    for (int i = 0; i < h->words; i++)\n" ++
-    "        if (h->mask & ((uint64_t)1 << i)) vdup(VP(r)[i]);\n" ++
+    "        if (VOW_HEAP_WORD(m, i)) vdup(VP(r)[i]);\n" ++
     "    vdrop(base);\n" ++
     "    return r;\n" ++
     "}\n" ++
@@ -728,7 +797,10 @@ fn runtime_header() -> String do
     "// Consumes a, borrows b.\n" ++
     "static V vlist_cat(V a, V b) {\n" ++
     "    int heap = VH(a)->flags;\n" ++
-    "    for (int64_t i = 0; i < VL(b)->len; i++) {\n" ++
+    "    // b can be a itself (set xs = xs ++ xs), growing as it is pushed to: its length\n" ++
+    "    // is read once.\n" ++
+    "    int64_t n = VL(b)->len;\n" ++
+    "    for (int64_t i = 0; i < n; i++) {\n" ++
     "        V x = VB(VL(b)->buf)->items[i];\n" ++
     "        a = vlist_push(a, heap ? vdup(x) : x);\n" ++
     "    }\n" ++
@@ -1033,16 +1105,41 @@ fn runtime_header() -> String do
     "    return 0;\n" ++
     "}\n" ++
     "\n" ++
+    "// None for a directory, or when opening or reading fails. Reads to the end of the\n" ++
+    "// stream: a pipe or a device has no size, and a file's size is only a first guess.\n" ++
     "static V vread_file(V path) {\n" ++
     "    FILE *f = fopen(VS(path)->data, \"rb\");\n" ++
     "    if (!f) return vnone();\n" ++
-    "    fseek(f, 0, SEEK_END);\n" ++
-    "    long n = ftell(f);\n" ++
-    "    fseek(f, 0, SEEK_SET);\n" ++
-    "    V s = vow_obj(VK_STR, 0, 0, 0, sizeof(VStr) + (size_t)n + 1);\n" ++
-    "    VS(s)->len = (int64_t)fread(VS(s)->data, 1, (size_t)n, f);\n" ++
-    "    VS(s)->data[VS(s)->len] = 0;\n" ++
+    "    struct stat st;\n" ++
+    "    if (fstat(fileno(f), &st) != 0 || S_ISDIR(st.st_mode)) {\n" ++
+    "        fclose(f);\n" ++
+    "        return vnone();\n" ++
+    "    }\n" ++
+    "    size_t cap = 4096, n = 0;\n" ++
+    "    if (S_ISREG(st.st_mode) && st.st_size > 0) cap = (size_t)st.st_size + 1;\n" ++
+    "    char *buf = (char *)malloc(cap);\n" ++
+    "    if (!buf) vow_panic(\"out of memory\");\n" ++
+    "    for (;;) {\n" ++
+    "        size_t k = fread(buf + n, 1, cap - n, f);\n" ++
+    "        n += k;\n" ++
+    "        if (k == 0) break;\n" ++
+    "        if (n == cap) {\n" ++
+    "            cap *= 2;\n" ++
+    "            buf = (char *)realloc(buf, cap);\n" ++
+    "            if (!buf) vow_panic(\"out of memory\");\n" ++
+    "        }\n" ++
+    "    }\n" ++
+    "    int failed = ferror(f);\n" ++
     "    fclose(f);\n" ++
+    "    if (failed) {\n" ++
+    "        free(buf);\n" ++
+    "        return vnone();\n" ++
+    "    }\n" ++
+    "    V s = vow_obj(VK_STR, 0, 0, 0, sizeof(VStr) + n + 1);\n" ++
+    "    memcpy(VS(s)->data, buf, n);\n" ++
+    "    VS(s)->data[n] = 0;\n" ++
+    "    VS(s)->len = (int64_t)n;\n" ++
+    "    free(buf);\n" ++
     "    return vsome(s, 1);\n" ++
     "}\n" ++
     "\n" ++

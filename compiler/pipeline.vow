@@ -116,7 +116,7 @@ fn verify_source(src: Source, c: Checker, file: String, no_cache: Bool, v03: Boo
   if len(c.info.holes) > 0 then
     return Verified(diags: hole_diags(c: c, v: v), error: "", undecided: false)
   end if
-  let r = discharge(pre: order_preamble(v.preamble), vcs: vcs)
+  let r = discharge(pre: order_preamble(v.preamble), vcs: vcs, every: v03)
   if len(r.error) > 0 then
     return Verified(diags: none, error: r.error, undecided: false)
   end if

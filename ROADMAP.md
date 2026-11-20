@@ -129,13 +129,14 @@ reproduce it and a fix are under the same identifier in
 `docs/tasks/review-v0.9.9.md`). No wrong proof was found in normal use.
 
 Wrong behaviour in programs the compiler accepts (first):
-- [ ] A1: `read_file` on a pipe or other unseekable file overflows the heap; on a
-      directory it returns an empty string
-- [ ] A2: `set xs = xs ++ xs` on a list never terminates
-- [ ] A3: a struct or variant with 64 or more fields segfaults, or panics the compiler;
-      report a limit of 63
-- [ ] A4: `==` on a deep value (a million-link chain) overflows the C stack; make the
-      generated equality and rank functions iterate
+- [x] A1: `read_file` on a pipe or other unseekable file overflowed the heap, and on a
+      directory returned an empty string; it reads to the end of the stream, and a
+      directory gives `None`
+- [x] A2: `set xs = xs ++ xs` on a list never terminated
+- [x] A3: a struct or variant with 64 or more fields segfaulted, or panicked the
+      compiler; the limit is gone (65,534 fields, reported beyond that)
+- [x] A4: `==` on a deep value (a million-link chain) overflowed the C stack; the
+      generated equality and rank functions no longer recurse
 - [ ] A5: stack overflow from deep recursion is a segfault; panic with "stack overflow"
       and document it as a way a verified program can fail
 - [ ] A6: `run()` reports success when `fork` fails; unchecked allocations in the I/O
@@ -168,10 +169,12 @@ Compiler robustness:
       options before the file are rejected
 
 Verifier time and stability (the compiler checks itself in 34 s; with V1, under 1 s):
-- [ ] V1: skip functions with nothing to prove, and run sanity checks without
-      model-based instantiation: 90% of the time is three sanity checks that time out
-- [ ] V2: after V1, run chunks of functions in parallel Z3 processes (0.82 s to
-      0.24 s), and ask for the model in the same run
+- [x] V1: functions with nothing to prove are not sent to Z3: 90% of the time was
+      three sanity checks that timed out (the compiler checks itself in 1.9 s, from
+      33.5 s). Sanity checks still use model-based instantiation: without it every one
+      answers `unknown`, for 0.4 s more
+- [ ] V2: run chunks of functions in parallel Z3 processes (measured at 0.82 s to
+      0.24 s for Z3 alone), and ask for the model in the same run
 - [ ] V3: an overall time limit: a hung or overrunning Z3 hangs `vowc`, and a function
       with k hard obligations costs k times 10 s
 - [ ] V4: bound queries by Z3's resource count, not wall-clock time, so that an answer

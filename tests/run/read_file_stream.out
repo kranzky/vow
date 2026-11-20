@@ -1,0 +1,6 @@
+fifo: 300000 bytes
+directory: none
+empty: 0 bytes
+some: 6 bytes
+missing: none
+ok

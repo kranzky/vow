@@ -1,0 +1,5 @@
+chains: equal, different, different
+nodes: equal, different
+trees: equal, different, equal
+nan: different
+first positive: 999999

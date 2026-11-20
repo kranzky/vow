@@ -11,6 +11,18 @@
   different lengths in one recursive group are compared on the parts both have.
   Checked builds compare the same way. `decreases (a, b)` is an error that says how to
   write it. A measure of one part is proved exactly as before.
+- Verification is much faster on large programs: a function with nothing to prove is no
+  longer sent to Z3. Its check that the definitions are consistent protects nothing
+  there, and on long functions that build text it ran to the 10-second limit. The
+  compiler checks itself in 1.9 s, from 33.5 s. Verifier version `vow-verifier-14`.
+- A struct or a variant can have more than 63 fields (up to 65,534). A wider one
+  compiled and then crashed, or panicked the compiler.
+- `==` on a deep value, such as a list of a million links built from an enum, no longer
+  overflows the C stack: the generated comparison keeps its own stack. So does the
+  height a checked build computes for a structural measure.
+- `read_file` reads a pipe, a FIFO or a device to its end, where it wrote past its
+  buffer, and gives `None` for a directory, where it gave `""`.
+- `set xs = xs ++ xs` on a list doubles it, where it never finished.
 
 ## v0.9.9
 

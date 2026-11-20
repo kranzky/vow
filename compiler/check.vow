@@ -2038,7 +2038,15 @@ fn check_generic_shape(c: inout Checker, item: Item) do
   end match
 end fn check_generic_shape
 
+// An object's header counts its words in 16 bits, and a variant's first word is its tag.
+fn check_field_count(c: inout Checker, ps: List<Param>) do
+  if len(ps) > 65534 then
+    err(c: inout c, pos: ps[65534].pos, msg: "a struct or a variant can have at most 65,534 fields")
+  end if
+end fn check_field_count
+
 fn check_param_shape(c: inout Checker, ps: List<Param>) do
+  check_field_count(c: inout c, ps: ps)
   var names: List<String> = []
   for f in ps do
     if f.is_inout then
@@ -2052,6 +2060,7 @@ fn check_param_shape(c: inout Checker, ps: List<Param>) do
 end fn check_param_shape
 
 fn collect_fields(c: inout Checker, ps: List<Param>) -> List<FieldInfo> do
+  check_field_count(c: inout c, ps: ps)
   var fields: List<FieldInfo> = []
   for f in ps do
     if f.is_inout then
