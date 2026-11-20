@@ -128,7 +128,9 @@ def is_bug(stderr):
 
 
 def program_steps(vowc, prog, args):
-    return [[vowc, "run", prog, "--check-contracts", "--no-cache", "--"] + args]
+    # Built and run as two steps, so that a program killed by a signal is seen as that
+    # (`vowc run` would report only a failure).
+    return [[vowc, "build", prog, "-o", "fz_prog", "--check-contracts", "--no-cache"], ["./fz_prog"] + args]
 
 
 def compiler_steps(vowc):
@@ -141,7 +143,8 @@ def compiler_steps(vowc):
 
 def exercise(steps, cwd, timeout):
     """'verified' if every step succeeds; 'BUG' (with the panic) if a step fails a
-    check; 'rejected' if the first step (verification) fails; otherwise 'panic' or
+    check, or is killed by a signal: a verified program may panic, never crash;
+    'rejected' if the first step (verification) fails; otherwise 'panic' or
     'timeout'."""
     for k, cmd in enumerate(steps):
         code, _, err = run(cmd, cwd, timeout)
@@ -150,6 +153,8 @@ def exercise(steps, cwd, timeout):
         bug = is_bug(err)
         if bug:
             return "BUG", bug
+        if code < 0:
+            return "BUG", f"{os.path.basename(cmd[0])} was killed by signal {-code}"
         if code != 0:
             if "vow: panic" in err:
                 return "panic", None
@@ -223,6 +228,8 @@ def main():
                 else:
                     print(f"skipped {rel}: does not pass as it is ({kind})", file=sys.stderr)
             targets = kept
+            if os.path.exists(os.path.join(pristine, "fz_prog")):
+                os.remove(os.path.join(pristine, "fz_prog"))
 
         corpus = []
         for rel, steps in targets:

@@ -14,13 +14,17 @@ fail=0
 for f in tests/run/*.vow examples/*.vow bench/*/*.vow tools/vowsite/vowsite.vow compiler/vowc.vow; do
   # The Rust bootstrap is frozen at the v0.3 language.
   grep -q '^// language:' "$f" && continue
+  # Both must write a script: a pair left by the program before proves nothing.
+  rm -f "$tmp/a.smt2" "$tmp/b.smt2"
   VOW_SMT_DUMP="$tmp/a.smt2" "$RUST" check "$f" --no-cache >/dev/null 2>&1
   VOW_SMT_DUMP="$tmp/b.smt2" VOW_SMT_V03=1 "$VOWC" check "$f" --no-cache >/dev/null 2>&1
-  if cmp -s "$tmp/a.smt2" "$tmp/b.smt2"; then
+  if [ ! -s "$tmp/a.smt2" ] || [ ! -s "$tmp/b.smt2" ]; then
+    fail=$((fail + 1)); echo "NO SMT $f"
+  elif cmp -s "$tmp/a.smt2" "$tmp/b.smt2"; then
     pass=$((pass + 1))
   else
     fail=$((fail + 1)); echo "DIFF $f"
   fi
 done
 echo "$pass identical, $fail different (SMT from both verifiers)"
-[ "$fail" -eq 0 ]
+[ "$fail" -eq 0 ] && [ "$pass" -gt 0 ]

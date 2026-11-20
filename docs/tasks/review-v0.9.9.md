@@ -628,6 +628,13 @@ No crash or hang in 30,000 fuzzed edits, and malformed framing is survived.
 - **Both fuzzers** class a verified program killed by a signal as "rejected" or
   "other", which is how A2 to A4 went unnoticed.
 - **No test script has a timeout**, so a hang costs CI its six-hour default.
+- **Done:** the fingerprint hashes each program with only the modules it imports;
+  the differential test removes both dumps first, fails when one is missing, and fails
+  when nothing was compared; the generator fuzzer exits 1 when nothing verified, and
+  counts a verified program that fails without a panic as a finding; the mutation
+  fuzzer builds and runs in two steps and counts a death by signal as a finding; the
+  formatting check fails on a file `fmt` cannot read (outside `fail/`) or crashes on.
+  Timeouts are per CI job (45 minutes), not per test.
 
 ### T3. The Release workflow publishes binaries without running the tests (from reading)
 
@@ -641,6 +648,13 @@ No crash or hang in 30,000 fuzzed edits, and malformed framing is survived.
   `install.sh` from main whether or not CI passed.
 - **Fix:** run `make test` before upload (or require CI for the commit); upload to a
   draft and publish last; `permissions: contents: read` and timeouts; pin actions.
+- **Done:** the Release workflow runs `tests/run.sh` and the language server's test
+  with the binaries it is about to package, and the x86-64 half of the macOS ones
+  under Rosetta; a last job publishes the release if it was created as a draft (the
+  workflow's header gives the steps). The macOS steps were rehearsed locally; the
+  workflow itself first runs at the next release. CI has `contents: read`; every job
+  has a timeout; actions are pinned to commits; the Site workflow runs after CI
+  succeeds on main.
 
 ### T4. `install.sh` replaces a working install before trying the new binary (reproduced by one reviewer)
 

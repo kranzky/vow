@@ -1,7 +1,14 @@
 name: Release
 
-# Builds vowc from the C seed for each platform, smoke-tests it by verifying real
-# examples, and attaches the binaries (with SHA-256 checksums) to the GitHub release.
+# Builds vowc from the C seed for each platform, runs the test suite with the binaries
+# being packaged, and attaches them (with SHA-256 checksums) to the GitHub release.
+#
+# To release without a moment when the latest release has no binaries (install.sh
+# would fail for that platform): push the tag, create the release as a draft
+# (gh release create vX.Y.Z --draft --notes-file ...), and run this workflow for the
+# tag (gh workflow run release.yml -f tag=vX.Y.Z). Its last job publishes the draft
+# once every platform is built, tested and uploaded. Publishing a release directly
+# still runs this workflow, and the binaries then follow the release.
 on:
   release:
     types: [published]
@@ -27,10 +34,11 @@ jobs:
           - os: ubuntu-24.04-arm
             target: linux-arm64
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
     env:
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           ref: ${{ env.TAG }}
       - name: Install Z3 (the pinned version, and musl on Linux)
@@ -59,12 +67,24 @@ jobs:
               CC=musl-gcc VOW_CFLAGS=-static dist/vowc build tools/lsp/vowlsp.vow -o dist/vow-lsp ;;
           esac
           file dist/vow-lsp
-      - name: Smoke test
+      - name: Test the binaries being packaged
         run: |
           dist/vowc version
-          dist/vowc run examples/bsearch.vow
-          dist/vowc check examples/isort.vow
-          dist/vowc check examples/escape.vow
+          VOWC="$PWD/dist/vowc" tests/run.sh
+          # The language server's session test starts build/vow-lsp.
+          mkdir -p build && cp dist/vow-lsp build/vow-lsp
+          dist/vowc test tests/lsp/lsp_test.vow
+      - name: Test the x86-64 half of the macOS binaries
+        if: matrix.target == 'macos-universal'
+        run: |
+          if arch -x86_64 /usr/bin/true 2>/dev/null; then
+            arch -x86_64 dist/vowc version
+            arch -x86_64 dist/vowc run examples/bsearch.vow --no-cache
+            arch -x86_64 dist/vowc check examples/isort.vow --no-cache
+            arch -x86_64 dist/vowc test tests/lsp/lsp_test.vow
+          else
+            echo "::warning::Rosetta is not installed here: the x86-64 half was not run"
+          fi
       - name: Package
         run: |
           name="vowc-${TAG#v}-${{ matrix.target }}"
@@ -76,3 +96,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh release upload "$TAG" vowc-*.tar.gz vowc-*.tar.gz.sha256 --clobber
+
+  # A release created as a draft is published only now, with every platform's binaries
+  # attached.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Publish the release if it is a draft
+        run: |
+          if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" = true ]; then
+            gh release edit "$TAG" --draft=false --latest
+          fi

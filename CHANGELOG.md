@@ -39,6 +39,8 @@
   `check` and failed in the C compiler.
 - `vowc build prog`, for a source file with no extension, refuses to write the
   executable over the source; name one with `-o`.
+- Release binaries are tested before they are attached: the whole test suite runs with
+  the packaged `vowc` and `vow-lsp` on each platform.
 
 ## v0.9.9
 

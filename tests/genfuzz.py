@@ -1532,7 +1532,11 @@ def attempt(job):
             if code is None:
                 return "timeout", seed, None, src
         if code != 0:
-            return ("panic" if "vow: panic" in err else "other"), seed, err.strip().splitlines()[:3], src
+            if "vow: panic" in err:
+                return "panic", seed, err.strip().splitlines()[:3], src
+            # A verified program can panic; anything else (a crash, generated C that
+            # does not compile) is a bug in the compiler or the runtime.
+            return "BUG", seed, f"the verified program failed without a panic (status {code}): {err.strip()[:200]}", src
         kept = len(g.o.specs) - len(off)
         return "verified", seed, kept, src
     finally:
@@ -1581,6 +1585,9 @@ def main():
                     print(f"BUG seed {seed}: {info} (saved {saved})", flush=True)
         print(", ".join(f"{v} {k}" for k, v in sorted(counts.items())) +
               f"; {kept_specs} contracts proved and checked at runtime")
+        if not counts.get("verified"):
+            print("FAIL no generated program verified: is Z3 installed, and does the compiler work?")
+            return 1
         return 1 if findings else 0
     finally:
         shutil.rmtree(base, ignore_errors=True)

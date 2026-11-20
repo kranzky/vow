@@ -17,13 +17,35 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 sha() { (sha256sum "$1" 2>/dev/null || shasum -a 256 "$1") | cut -d' ' -f1; }
 echo "$version" > "$tmp/new"
-# A program's source includes the standard modules and test modules it may import.
-cat std/*.vow tests/modules/*.vow examples/*/*.vow > "$tmp/std"
+# The files a program is made of: itself and, transitively, the modules it imports
+# (found beside the importing file or, as std/ is, from the repository root). Only
+# those: were every module counted for every program, one edit to a module would look
+# like a change to all of them, and nothing would be checked.
+sources() {
+  todo=$1
+  seen=""
+  while [ -n "$todo" ]; do
+    set -- $todo
+    cur=$1
+    shift
+    todo="$*"
+    case " $seen " in *" $cur "*) continue ;; esac
+    seen="$seen $cur"
+    for imp in $(sed -n 's/^import "\([^"]*\)".*/\1/p' "$cur"); do
+      if [ -f "$(dirname "$cur")/$imp" ]; then
+        todo="$todo $(dirname "$cur")/$imp"
+      elif [ -f "$imp" ]; then
+        todo="$todo $imp"
+      fi
+    done
+  done
+  echo $seen
+}
 for f in tests/run/*.vow examples/*.vow; do
   rm -f "$tmp/one.smt2"
   VOW_SMT_DUMP="$tmp/one.smt2" "$VOWC" check "$f" --no-cache >/dev/null 2>&1
   touch "$tmp/one.smt2"
-  cat "$f" "$tmp/std" > "$tmp/src"
+  cat $(sources "$f") > "$tmp/src"
   echo "$f $(sha "$tmp/src") $(sha "$tmp/one.smt2")" >> "$tmp/new"
 done
 if [ "$1" = "--update" ]; then

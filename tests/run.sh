@@ -105,8 +105,17 @@ if [ -z "$VOW_FROZEN" ]; then
     fail=$((fail + 1)); echo "FAIL fmt/messy.vow"; diff fmt/messy.expected "$fdir/messy.vow" | head -10
   fi
   rm -rf "$fdir"
+  # A file fmt cannot read, or crashes on, is a failure too; except that the tests of
+  # syntax errors (in a fail/ directory) need not parse.
   unformatted=$(find ../compiler ../std ../examples ../tests ../tools ../bench -name '*.vow' ! -path '*/fmt/messy.vow' |
-    while read -r f; do "$VOWC" fmt "$f" --check 2>/dev/null | grep 'not formatted'; done)
+    while read -r f; do
+      out=$("$VOWC" fmt "$f" --check 2>&1)
+      st=$?
+      [ "$st" -eq 0 ] && continue
+      case "$out" in (*"not formatted"*) echo "$f: not formatted"; continue ;; esac
+      case "$f" in (*/fail/*) [ "$st" -lt 126 ] && continue ;; esac
+      echo "$f: vowc fmt failed with status $st"
+    done)
   if [ -z "$unformatted" ]; then
     pass=$((pass + 1))
   else

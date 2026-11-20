@@ -236,12 +236,13 @@ Packages and running programs:
 
 Tests, CI and releases:
 - [x] T1: `tests/rc.sh` counts a build that fails as a failure
-- [ ] T2: harnesses that can pass without checking: the SMT fingerprint after any
+- [x] T2: harnesses that can pass without checking: the SMT fingerprint after any
       edit to `std/`, the differential test when both compilers fail, the generator
       fuzzer when nothing verifies, the formatting check on a crash; a verified program
-      killed by a signal is a finding; timeouts everywhere
-- [ ] T3: the Release workflow runs the tests before it uploads, and publishes last;
-      permissions, timeouts and pinned actions in CI
+      killed by a signal is a finding; timeouts on every CI job
+- [x] T3: the Release workflow runs the tests with the binaries before it uploads them,
+      and publishes a draft release last; permissions, timeouts and pinned actions in
+      CI; the site deploys after CI passes
 - [ ] T4: `install.sh` runs the new binary before it replaces the old one, and
       replaces it atomically
 - [ ] T5: the Makefile deletes a half-written generated file, and `make test` notices
