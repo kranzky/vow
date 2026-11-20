@@ -1,0 +1,67 @@
+// language: 0.9
+// Appending to a string that nothing else refers to extends it where it is. Every
+// other reference to it must still see the string it had.
+struct Buf
+  text: String,
+  count: Int,
+end struct Buf
+
+fn add(s: inout String, x: String) do
+  set s = s ++ x
+end fn add
+
+fn tail(s: String) -> String do
+  if len(s) <= 6 then
+    return s
+  end if
+  return slice(of: s, from: len(s) - 6, to: len(s))
+end fn tail
+
+fn main() uses console do
+  // A builder, with snapshots taken as it grows.
+  var s = ""
+  var snaps: List<String> = []
+  for i in 0..2000 do
+    if (i % 500) == 0 then
+      set snaps = push(list: snaps, item: s)
+    end if
+    set s = s ++ int_to_str(i % 10)
+  end for
+  print(int_to_str(len(s)) ++ " " ++ tail(s) ++ "\n")
+  for snap in snaps do
+    print(int_to_str(len(snap)) ++ " [" ++ tail(snap) ++ "]\n")
+  end for
+  // A chain is joined at once; its first part may be the variable assigned.
+  var t = "a"
+  let before = t
+  set t = t ++ "b" ++ ("c" ++ t) ++ "d" ++ ""
+  print(before ++ " " ++ t ++ "\n")
+  // A string appended to itself.
+  var d = "xy"
+  for i in 0..4 do
+    set d = d ++ d
+  end for
+  set d = d ++ d ++ "!" ++ d
+  print(int_to_str(len(d)) ++ " " ++ tail(d) ++ "\n")
+  // Through an inout parameter, and in a struct field.
+  var u = "in"
+  for i in 0..300 do
+    add(s: inout u, x: "+")
+  end for
+  print(int_to_str(len(u)) ++ " " ++ tail(u) ++ "\n")
+  var b = Buf(text: "", count: 0)
+  let empty = b
+  for i in 0..300 do
+    set b = b with (text: b.text ++ "ab", count: b.count + 1)
+  end for
+  print(int_to_str(len(b.text)) ++ " " ++ int_to_str(b.count) ++ " [" ++ empty.text ++ "]\n")
+  // Literals are never changed: the same literal starts every round.
+  var total = 0
+  for i in 0..3 do
+    var w = "lit"
+    set w = w ++ "eral"
+    set w = w ++ "s"
+    set total = total + len(w)
+  end for
+  print(int_to_str(total) ++ " " ++ ("lit" ++ "!") ++ "\n")
+end fn main

@@ -12,6 +12,7 @@
 
 import "check.vow"
 import "pretty.vow"
+import "hash.vow"
 
 struct Val
   c: String,
@@ -496,8 +497,8 @@ fn move_candidate(g: Gen, value: Expr, name: String) -> Int do
   case With(obj: o, args: args) then
     return var_id(e: o, name: name)
   case Binary(op: op, l: l, r: r) then
-    if (op == "++") and (ty_show(type_of(info: g.info, e: l)) != "String") then
-      return var_id(e: l, name: name)
+    if op == "++" then
+      return var_id(e: cat_first(g: g, e: l), name: name)
     end if
     return -1
   case Call(callee: c, args: args) then
@@ -518,6 +519,64 @@ fn move_candidate(g: Gen, value: Expr, name: String) -> Int do
   end match
 end fn move_candidate
 
+// The first of the strings a chain of '++' joins, given the chain's left operand: the
+// one the whole chain consumes (gen_str_cat). A list's '++' consumes its left operand.
+fn cat_first(g: Gen, e: Expr) -> Expr do
+  if ty_show(type_of(info: g.info, e: e)) != "String" then
+    return e
+  end if
+  match e.kind
+  case Binary(op: op, l: l, r: r) then
+    if op == "++" then
+      return cat_first(g: g, e: l)
+    end if
+    return e
+  else
+    return e
+  end match
+end fn cat_first
+
+// The strings a chain of '++' joins, in order: a ++ (b ++ c) ++ d is a, b, c, d.
+fn cat_parts(g: Gen, e: Expr, out: inout List<Expr>) do
+  match e.kind
+  case Binary(op: op, l: l, r: r) then
+    if (op == "++") and (ty_show(type_of(info: g.info, e: l)) == "String") then
+      cat_parts(g: g, e: l, out: inout out)
+      cat_parts(g: g, e: r, out: inout out)
+      return
+    end if
+  else
+  end match
+  set out = push(list: out, item: e)
+end fn cat_parts
+
+// l ++ r on strings. The whole chain is joined at once, so no string is built for a
+// part of it, and the first string is consumed: one that nothing else refers to (the
+// variable in `set s = s ++ x`, or a value just computed) is extended where it is.
+fn gen_str_cat(g: inout Gen, l: Expr, r: Expr) -> Val do
+  var parts: List<Expr> = []
+  cat_parts(g: g, e: l, out: inout parts)
+  cat_parts(g: g, e: r, out: inout parts)
+  var vals: List<Val> = []
+  for x in parts do
+    let v = gen_expr(g: inout g, e: x)
+    set vals = push(list: vals, item: v)
+  end for
+  if len(vals) < 2 then
+    return plain_val("0")
+  end if
+  let first = take(g: inout g, v: vals[0], heap: true)
+  if len(vals) == 2 then
+    return owned_tmp(g: inout g, rhs: "vstr_append(" ++ first ++ ", " ++ vals[1].c ++ ")", heap: true)
+  end if
+  var rest: List<String> = []
+  for i in 1..len(vals) do
+    set rest = push(list: rest, item: vals[i].c)
+  end for
+  let call = "vstr_append_n(" ++ first ++ ", " ++ int_to_str(len(rest)) ++ ", (V[]){" ++ join(parts: rest, sep: ", ") ++ "})"
+  return owned_tmp(g: inout g, rhs: call, heap: true)
+end fn gen_str_cat
+
 // The operand a consuming operation consumes (the list of push/set_at/++, the map of
 // insert, the base of with), if e is such an operation.
 fn consumed_operand(g: Gen, e: Expr) -> Option<Expr> do
@@ -525,8 +584,8 @@ fn consumed_operand(g: Gen, e: Expr) -> Option<Expr> do
   case With(obj: o, args: args) then
     return Option.Some(value: o)
   case Binary(op: op, l: l, r: r) then
-    if (op == "++") and (ty_show(type_of(info: g.info, e: l)) != "String") then
-      return Option.Some(value: l)
+    if op == "++" then
+      return Option.Some(value: cat_first(g: g, e: l))
     end if
     return Option.None
   case Call(callee: c, args: args) then
@@ -1054,22 +1113,26 @@ fn gen_inout_checks(g: inout Gen, e: Expr) do
 end fn gen_inout_checks
 
 // On entry: the parameters' refinements and the preconditions; and the entry values of
-// inout parameters, for old(x).
+// the inout parameters that old(x) names. Only those: a kept entry value is a second
+// reference, so every update of the parameter in the body would copy it.
 fn gen_entry_checks(g: inout Gen, f: FnDecl) do
   match get_fn(info: g.info, name: f.name)
   case Some(value: fi) then
+    let named = olds_named(f: f, info: g.info)
     for i in 0..len(fi.params) do
       let p = fi.params[i]
       gen_rty(g: inout g, r: p.rty, subject: cvar(g: g, n: p.name), desc: "parameter '" ++ p.name ++ "'")
       if (i < len(fi.io)) and fi.io[i] then
         set g = g with (var_preds: insert(map: g.var_preds, key: p.name, value: p.rty))
-        let o = "o_" ++ p.name
-        line(g: inout g, s: "V " ++ o ++ " = " ++ cvar(g: g, n: p.name) ++ ";")
-        if is_heap(p.rty.ty) then
-          line(g: inout g, s: "vdup(" ++ o ++ ");")
-          declare_owned(g: inout g, c: o)
+        if contains_str(xs: named, x: p.name) then
+          let o = "o_" ++ p.name
+          line(g: inout g, s: "V " ++ o ++ " = " ++ cvar(g: g, n: p.name) ++ ";")
+          if is_heap(p.rty.ty) then
+            line(g: inout g, s: "vdup(" ++ o ++ ");")
+            declare_owned(g: inout g, c: o)
+          end if
+          set g = g with (olds: insert(map: g.olds, key: p.name, value: o))
         end if
-        set g = g with (olds: insert(map: g.olds, key: p.name, value: o))
       end if
     end for
     for r in fi.pre do
@@ -1726,9 +1789,12 @@ fn gen_binary(g: inout Gen, op: String, l: Expr, r: Expr) -> Val do
     line(g: inout g, s: "}")
     return plain_val(t)
   end if
+  let is_str = ty_show(type_of(info: g.info, e: l)) == "String"
+  if is_str and (op == "++") then
+    return gen_str_cat(g: inout g, l: l, r: r)
+  end if
   let a = gen_expr(g: inout g, e: l)
   let b = gen_expr(g: inout g, e: r)
-  let is_str = ty_show(type_of(info: g.info, e: l)) == "String"
   if ty_show(type_of(info: g.info, e: l)) == "Float" then
     match op
     case "+" then
@@ -1752,9 +1818,6 @@ fn gen_binary(g: inout Gen, op: String, l: Expr, r: Expr) -> Val do
   end if
   match op
   case "++" then
-    if is_str then
-      return owned_tmp(g: inout g, rhs: "vstr_cat(" ++ a.c ++ ", " ++ b.c ++ ")", heap: true)
-    end if
     let ac = take(g: inout g, v: a, heap: true)
     return owned_tmp(g: inout g, rhs: "vlist_cat(" ++ ac ++ ", " ++ b.c ++ ")", heap: true)
   case "+" then

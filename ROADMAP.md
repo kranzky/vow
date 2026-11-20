@@ -191,14 +191,15 @@ Verifier time and stability (the compiler checks itself in 34 s; with V1, under 
 Checked builds (`--check-contracts`, the fuzzers' oracle):
 - [ ] K1: a contract that holds can panic with an overflow, because it was proved over
       all integers and is evaluated in 64 bits
-- [ ] K2: an in-place update through an `inout` parameter copies every time (80,000
-      inserts: 21 s against 0.006 s); capture entry values only where `old` is used
+- [x] K2: an in-place update through an `inout` parameter copied every time in a checked
+      build (80,000 inserts: 21 s against 0.006 s); entry values are captured only
+      where `old` is used
 - [ ] K3: whole values are re-checked at every step (each element's refinement after
       every push; a structural measure's height at every call)
 
 Speed of the runtime and generated code:
-- [ ] P1: string `++` in place for `set s = s ++ x` (proved string builders, and
-      `std/text`'s `to_lower` and `to_upper`, are quadratic), and one allocation for a
+- [x] P1: string `++` in place for `set s = s ++ x` (proved string builders, and
+      `std/text`'s `to_lower` and `to_upper`, were quadratic), and one allocation for a
       chain of `++`
 - [ ] P2: the documented "remove the last element" idiom copies the list; share the
       buffer and truncate in place

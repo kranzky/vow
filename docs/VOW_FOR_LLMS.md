@@ -463,10 +463,9 @@ prove progress.
 **Proofs about built strings.** The verifier tracks the bytes of strings built with
 `++`, `slice` and `char`, so a property such as "no `<` anywhere" can be an invariant
 of a `++` loop (`examples/escape.vow`). It knows nothing about the bytes of a `join`.
-So when you need a proof about a string's contents, build that string with `++`. Use
-`join` when only speed matters; it avoids the quadratic copying of repeated `++`. A
-common split: prove each small piece (for example, every escaped text fragment), then
-`join` the pieces into the page.
+So when you need a proof about a string's contents, build that string with `++`. Both
+are fast: `set s = s ++ x` extends `s` where it is (see below), and `join` builds its
+result in one step.
 
 **Specifications are restricted.** Inside `requires`, `ensures`, `where`, `invariant`,
 `decreases`, `assert` and `check` you may use literals, variables, `it`, `result`,
@@ -670,12 +669,14 @@ do
 end fn least
 ```
 
-**Building strings.** Collect parts in a `List<String>` and `join` once at the end.
-Repeated `++` copies the whole string every time.
+**Building strings.** Append with `set s = s ++ x` (or `set s = s ++ a ++ b`): while
+nothing else refers to `s` it is extended where it is, so a loop of appends costs time
+in proportion to the result. A whole chain `a ++ b ++ c` is joined in one step. When
+the parts are already in a list, `join` them.
 
 **Performance: update in place with `set x = op(x, ...)`.** Values are immutable, but
-when a value has only one reference, `push`, `set_at`, `with` and `insert` update it in
-place. Write updates as `set xs = set_at(list: xs, at: i, value: v)`,
+when a value has only one reference, `push`, `set_at`, `with`, `insert` and `++` update
+it in place. Write updates as `set xs = set_at(list: xs, at: i, value: v)`,
 `set s = s with (count: s.count + 1)` or `set m = insert(map: m, key: k, value: v)`:
 the old value is moved into the operation, so nothing is copied. A second reference
 (`let copy = xs`) makes the next update copy once, which is what keeps `copy`

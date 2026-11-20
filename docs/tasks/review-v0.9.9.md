@@ -421,6 +421,10 @@ soundness bug, and slowness limits what can be fuzzed.
 - **Reproduce:** `fn count(m: inout HashMap<Int, Int>, k: Int)` that inserts, called n
   times: 40,000 calls take 0.006 s plain and 5 s checked; 80,000 take 21 s.
 - **Fix:** capture only the parameters that `old(p)` names.
+- **Done:** `gen_entry_checks` captures the entry value of an `inout` parameter only
+  when `old(p)` appears in a postcondition or a loop invariant of the function
+  (`olds_named` in `compiler/hash.vow`). 40,000 inserts in a checked build: 5.2 s to
+  under 0.01 s.
 
 ### K3. Whole values are re-checked at every step (measured by one reviewer)
 
@@ -445,6 +449,14 @@ soundness bug, and slowness limits what can be fuzzed.
   intermediate and keeps them all until the statement ends.
 - **Fix:** give strings a capacity, move the left operand for `set s = s ++ x`, and
   flatten chains into one concatenation.
+- **Done:** `vstr_append_n` consumes its first string and extends it where it is when
+  nothing else refers to it and its block has room; a string that outgrows its block a
+  second time gets twice the room it needs (the room is kept in the header's unused
+  mask word, so strings are no larger). A chain of `++` is flattened and joined in one
+  call. `set s = s ++ x` moves `s`, and `set r = r with (f: r.f ++ x)` moves the
+  field, as for lists. A benchmark of four builders (400,000 appends, a three-part
+  chain, a struct field, `to_upper` of 800 KB) went from 12.2 s to 0.02 s. Test:
+  `tests/run/string_append.vow`.
 
 ### P2. The documented "remove the last element" idiom copies the list (reproduced by one reviewer)
 

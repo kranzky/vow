@@ -39,6 +39,14 @@
   `check` and failed in the C compiler.
 - `vowc build prog`, for a source file with no extension, refuses to write the
   executable over the source; name one with `-o`.
+- Appending to a string is fast: `set s = s ++ x` extends `s` where it is when nothing
+  else refers to it, as `push` does for a list, and a chain `a ++ b ++ c` is joined in
+  one step. A loop of appends was quadratic (400,000 appends took 3 s; `to_upper` of
+  3.2 MB took over two minutes); it now costs time in proportion to the result. Build
+  strings with `++` when you need proofs about their bytes, without the cost.
+- Checked builds (`--check-contracts`) no longer copy a list or map on every update
+  through an `inout` parameter: the entry value is kept only for parameters that
+  `old(x)` names. 40,000 inserts went from 5.2 s to under 0.01 s.
 - `run_attached(argv) -> Int` (`uses proc`): runs a command with the program's own
   standard input, output and error, waits, and gives its exit status. For an editor, a
   pager, or a build whose output should appear as it is written; `run` still captures

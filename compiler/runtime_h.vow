@@ -100,7 +100,9 @@ fn runtime_header() -> String do
     "                    // VK_FIELDS: the object is wide (more than 63 words)\n" ++
     "    uint16_t words; // VK_FIELDS: number of payload words\n" ++
     "    uint64_t mask;  // VK_FIELDS: bit i set when payload word i is a heap value; for a\n" ++
-    "                    // wide object, a pointer to a static array of such masks instead\n" ++
+    "                    // wide object, a pointer to a static array of such masks instead.\n" ++
+    "                    // VK_STR: the bytes there is room for, once the string has been\n" ++
+    "                    // appended to (vstr_append_n); 0 while that is its length\n" ++
     "} VHdr;\n" ++
     "\n" ++
     "#define VH(x) ((VHdr *)((char *)(uintptr_t)(x) - sizeof(VHdr)))\n" ++
@@ -259,7 +261,7 @@ fn runtime_header() -> String do
     "static size_t vow_size(VHdr *h, V x) {\n" ++
     "    switch (h->kind) {\n" ++
     "    case VK_FIELDS: return vow_round(sizeof(VHdr) + (size_t)(h->words > 0 ? h->words : 1) * sizeof(V));\n" ++
-    "    case VK_STR: return vow_round(sizeof(VHdr) + sizeof(VStr) + (size_t)VS(x)->len + 1);\n" ++
+    "    case VK_STR: return vow_round(sizeof(VHdr) + sizeof(VStr) + (size_t)(h->mask ? (int64_t)h->mask : VS(x)->len) + 1);\n" ++
     "    case VK_LIST: return vow_round(sizeof(VHdr) + sizeof(VList));\n" ++
     "    case VK_BUF: return vow_round(sizeof(VHdr) + sizeof(VBuf) + (size_t)VB(x)->cap * sizeof(V));\n" ++
     "    case VK_HASH: return vow_round(sizeof(VHdr) + sizeof(VHash) + (size_t)VHM(x)->cap * 3 * sizeof(V));\n" ++
@@ -478,6 +480,46 @@ fn runtime_header() -> String do
     "    VS(s)->data[n] = 0;\n" ++
     "    return s;\n" ++
     "}\n" ++
+    "\n" ++
+    "// a followed by the k strings at parts. Consumes a, borrows the parts (any of which may\n" ++
+    "// be a itself). When nothing else refers to a it is extended where it is, if its block\n" ++
+    "// has room: `set s = s ++ x` in a loop is then linear, not quadratic. A string that has\n" ++
+    "// outgrown its block once is given twice the room it needs the next time; before that,\n" ++
+    "// and when a is shared, the result is exactly as long as it must be.\n" ++
+    "static V vstr_append_n(V a, int64_t k, const V *parts) {\n" ++
+    "    int64_t la = VS(a)->len, need = la;\n" ++
+    "    for (int64_t i = 0; i < k; i++) need += VS(parts[i])->len;\n" ++
+    "    VHdr *h = VH(a);\n" ++
+    "    V s = a;\n" ++
+    "    if (h->rc == 1) {\n" ++
+    "        size_t fixed = sizeof(VHdr) + sizeof(VStr) + 1;\n" ++
+    "        int64_t room = (int64_t)(vow_round(fixed + (size_t)(h->mask ? (int64_t)h->mask : la)) - fixed);\n" ++
+    "        if (need <= room) {\n" ++
+    "            h->mask = (uint64_t)room;\n" ++
+    "        } else {\n" ++
+    "            int64_t cap = h->mask ? need * 2 : need;\n" ++
+    "            cap = (int64_t)(vow_round(fixed + (size_t)cap) - fixed);\n" ++
+    "            s = vow_obj(VK_STR, 0, 0, (uint64_t)cap, sizeof(VStr) + (size_t)cap + 1);\n" ++
+    "            memcpy(VS(s)->data, VS(a)->data, (size_t)la);\n" ++
+    "        }\n" ++
+    "    } else {\n" ++
+    "        s = vow_obj(VK_STR, 0, 0, 0, sizeof(VStr) + (size_t)need + 1);\n" ++
+    "        memcpy(VS(s)->data, VS(a)->data, (size_t)la);\n" ++
+    "    }\n" ++
+    "    // a's length is set last: a part that is a itself is still read at its old length.\n" ++
+    "    char *at = VS(s)->data + la;\n" ++
+    "    for (int64_t i = 0; i < k; i++) {\n" ++
+    "        size_t n = (size_t)VS(parts[i])->len;\n" ++
+    "        memcpy(at, VS(parts[i])->data, n);\n" ++
+    "        at += n;\n" ++
+    "    }\n" ++
+    "    VS(s)->len = need;\n" ++
+    "    VS(s)->data[need] = 0;\n" ++
+    "    if (s != a) vdrop(a);\n" ++
+    "    return s;\n" ++
+    "}\n" ++
+    "\n" ++
+    "static V vstr_append(V a, V b) { return vstr_append_n(a, 1, &b); }\n" ++
     "\n" ++
     "static inline V vstr_eq(V a, V b) {\n" ++
     "    return (V)(VS(a)->len == VS(b)->len && memcmp(VS(a)->data, VS(b)->data, (size_t)VS(a)->len) == 0);\n" ++

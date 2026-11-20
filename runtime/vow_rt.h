@@ -97,7 +97,9 @@ typedef struct {
                     // VK_FIELDS: the object is wide (more than 63 words)
     uint16_t words; // VK_FIELDS: number of payload words
     uint64_t mask;  // VK_FIELDS: bit i set when payload word i is a heap value; for a
-                    // wide object, a pointer to a static array of such masks instead
+                    // wide object, a pointer to a static array of such masks instead.
+                    // VK_STR: the bytes there is room for, once the string has been
+                    // appended to (vstr_append_n); 0 while that is its length
 } VHdr;
 
 #define VH(x) ((VHdr *)((char *)(uintptr_t)(x) - sizeof(VHdr)))
@@ -256,7 +258,7 @@ static inline V *vhm_valarr(V h) { return vhm_keyarr(h) + VHM(h)->cap; }
 static size_t vow_size(VHdr *h, V x) {
     switch (h->kind) {
     case VK_FIELDS: return vow_round(sizeof(VHdr) + (size_t)(h->words > 0 ? h->words : 1) * sizeof(V));
-    case VK_STR: return vow_round(sizeof(VHdr) + sizeof(VStr) + (size_t)VS(x)->len + 1);
+    case VK_STR: return vow_round(sizeof(VHdr) + sizeof(VStr) + (size_t)(h->mask ? (int64_t)h->mask : VS(x)->len) + 1);
     case VK_LIST: return vow_round(sizeof(VHdr) + sizeof(VList));
     case VK_BUF: return vow_round(sizeof(VHdr) + sizeof(VBuf) + (size_t)VB(x)->cap * sizeof(V));
     case VK_HASH: return vow_round(sizeof(VHdr) + sizeof(VHash) + (size_t)VHM(x)->cap * 3 * sizeof(V));
@@ -475,6 +477,46 @@ static V vstr_cat(V a, V b) {
     VS(s)->data[n] = 0;
     return s;
 }
+
+// a followed by the k strings at parts. Consumes a, borrows the parts (any of which may
+// be a itself). When nothing else refers to a it is extended where it is, if its block
+// has room: `set s = s ++ x` in a loop is then linear, not quadratic. A string that has
+// outgrown its block once is given twice the room it needs the next time; before that,
+// and when a is shared, the result is exactly as long as it must be.
+static V vstr_append_n(V a, int64_t k, const V *parts) {
+    int64_t la = VS(a)->len, need = la;
+    for (int64_t i = 0; i < k; i++) need += VS(parts[i])->len;
+    VHdr *h = VH(a);
+    V s = a;
+    if (h->rc == 1) {
+        size_t fixed = sizeof(VHdr) + sizeof(VStr) + 1;
+        int64_t room = (int64_t)(vow_round(fixed + (size_t)(h->mask ? (int64_t)h->mask : la)) - fixed);
+        if (need <= room) {
+            h->mask = (uint64_t)room;
+        } else {
+            int64_t cap = h->mask ? need * 2 : need;
+            cap = (int64_t)(vow_round(fixed + (size_t)cap) - fixed);
+            s = vow_obj(VK_STR, 0, 0, (uint64_t)cap, sizeof(VStr) + (size_t)cap + 1);
+            memcpy(VS(s)->data, VS(a)->data, (size_t)la);
+        }
+    } else {
+        s = vow_obj(VK_STR, 0, 0, 0, sizeof(VStr) + (size_t)need + 1);
+        memcpy(VS(s)->data, VS(a)->data, (size_t)la);
+    }
+    // a's length is set last: a part that is a itself is still read at its old length.
+    char *at = VS(s)->data + la;
+    for (int64_t i = 0; i < k; i++) {
+        size_t n = (size_t)VS(parts[i])->len;
+        memcpy(at, VS(parts[i])->data, n);
+        at += n;
+    }
+    VS(s)->len = need;
+    VS(s)->data[need] = 0;
+    if (s != a) vdrop(a);
+    return s;
+}
+
+static V vstr_append(V a, V b) { return vstr_append_n(a, 1, &b); }
 
 static inline V vstr_eq(V a, V b) {
     return (V)(VS(a)->len == VS(b)->len && memcmp(VS(a)->data, VS(b)->data, (size_t)VS(a)->len) == 0);

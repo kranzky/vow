@@ -12,10 +12,15 @@ fn verifier_version() -> String do
   return "vow-verifier-14"
 end fn verifier_version
 
-fn calls_in_expr(e: Expr, info: Info, out: inout List<String>) do
+// The walkers below collect names from expressions and statements: with what "calls",
+// the user functions called; with what "olds", the inout parameters named by old(x).
+fn collect_expr(e: Expr, info: Info, what: String, out: inout List<String>) do
   match call_info(info: info, e: e)
   case Some(value: ci) then
-    if ci.kind == "user" then
+    if (what == "olds") and (ci.kind == "old") then
+      add_name(out: inout out, n: ci.name)
+    end if
+    if (what == "calls") and (ci.kind == "user") then
       // A call to an instance of a generic function relies on the generic contract.
       match lookup(map: info.origins, key: ci.name)
       case Some(value: g) then
@@ -28,50 +33,50 @@ fn calls_in_expr(e: Expr, info: Info, out: inout List<String>) do
   end match
   match e.kind
   case Call(callee: c, args: args) then
-    calls_in_expr(e: c, info: info, out: inout out)
+    collect_expr(e: c, info: info, what: what, out: inout out)
     for a in args do
-      calls_in_expr(e: a.value, info: info, out: inout out)
+      collect_expr(e: a.value, info: info, what: what, out: inout out)
     end for
   case With(obj: c, args: args) then
-    calls_in_expr(e: c, info: info, out: inout out)
+    collect_expr(e: c, info: info, what: what, out: inout out)
     for a in args do
-      calls_in_expr(e: a.value, info: info, out: inout out)
+      collect_expr(e: a.value, info: info, what: what, out: inout out)
     end for
   case ListLit(items: items) then
     for x in items do
-      calls_in_expr(e: x, info: info, out: inout out)
+      collect_expr(e: x, info: info, what: what, out: inout out)
     end for
   case Index(obj: a, idx: b) then
-    calls_in_expr(e: a, info: info, out: inout out)
-    calls_in_expr(e: b, info: info, out: inout out)
+    collect_expr(e: a, info: info, what: what, out: inout out)
+    collect_expr(e: b, info: info, what: what, out: inout out)
   case Binary(op: op, l: a, r: b) then
-    calls_in_expr(e: a, info: info, out: inout out)
-    calls_in_expr(e: b, info: info, out: inout out)
+    collect_expr(e: a, info: info, what: what, out: inout out)
+    collect_expr(e: b, info: info, what: what, out: inout out)
   case Field(obj: a, name: n) then
-    calls_in_expr(e: a, info: info, out: inout out)
+    collect_expr(e: a, info: info, what: what, out: inout out)
   case Unary(op: op, x: a) then
-    calls_in_expr(e: a, info: info, out: inout out)
+    collect_expr(e: a, info: info, what: what, out: inout out)
   case Quant(q: q, name: n, lo: lo, hi: hi, body: b) then
-    calls_in_expr(e: lo, info: info, out: inout out)
-    calls_in_expr(e: hi, info: info, out: inout out)
-    calls_in_expr(e: b, info: info, out: inout out)
+    collect_expr(e: lo, info: info, what: what, out: inout out)
+    collect_expr(e: hi, info: info, what: what, out: inout out)
+    collect_expr(e: b, info: info, what: what, out: inout out)
   else
   end match
-end fn calls_in_expr
+end fn collect_expr
 
-fn calls_in_all(es: List<Expr>, info: Info, out: inout List<String>) do
+fn collect_all(es: List<Expr>, info: Info, what: String, out: inout List<String>) do
   for e in es do
-    calls_in_expr(e: e, info: info, out: inout out)
+    collect_expr(e: e, info: info, what: what, out: inout out)
   end for
-end fn calls_in_all
+end fn collect_all
 
-fn calls_in_opt_expr(e: Option<Expr>, info: Info, out: inout List<String>) do
+fn collect_opt_expr(e: Option<Expr>, info: Info, what: String, out: inout List<String>) do
   match e
   case Some(value: x) then
-    calls_in_expr(e: x, info: info, out: inout out)
+    collect_expr(e: x, info: info, what: what, out: inout out)
   case None then
   end match
-end fn calls_in_opt_expr
+end fn collect_opt_expr
 
 fn add_name(out: inout List<String>, n: String) do
   if not contains_str(xs: out, x: n) then
@@ -79,63 +84,89 @@ fn add_name(out: inout List<String>, n: String) do
   end if
 end fn add_name
 
-fn calls_in_opt(b: Option<List<Stmt>>, info: Info, out: inout List<String>) do
+fn collect_opt(b: Option<List<Stmt>>, info: Info, what: String, out: inout List<String>) do
   match b
   case Some(value: s) then
-    calls_in_block(stmts: s, info: info, out: inout out)
+    collect_block(stmts: s, info: info, what: what, out: inout out)
   case None then
   end match
-end fn calls_in_opt
+end fn collect_opt
 
-fn calls_in_block(stmts: List<Stmt>, info: Info, out: inout List<String>) do
+fn collect_block(stmts: List<Stmt>, info: Info, what: String, out: inout List<String>) do
   for s in stmts do
     match s.kind
     case Let(name: n, ty: t, value: value, mutable: m) then
-      calls_in_expr(e: value, info: info, out: inout out)
+      collect_expr(e: value, info: info, what: what, out: inout out)
     case Set(name: n, value: value) then
-      calls_in_expr(e: value, info: info, out: inout out)
+      collect_expr(e: value, info: info, what: what, out: inout out)
     case Return(value: v) then
       match v
       case Some(value: e) then
-        calls_in_expr(e: e, info: info, out: inout out)
+        collect_expr(e: e, info: info, what: what, out: inout out)
       case None then
       end match
     case Assert(e: e) then
-      calls_in_expr(e: e, info: info, out: inout out)
+      collect_expr(e: e, info: info, what: what, out: inout out)
     case Check(e: e) then
-      calls_in_expr(e: e, info: info, out: inout out)
+      collect_expr(e: e, info: info, what: what, out: inout out)
     case ExprStmt(e: e) then
-      calls_in_expr(e: e, info: info, out: inout out)
+      collect_expr(e: e, info: info, what: what, out: inout out)
     case If(arms: arms, els: els) then
       for a in arms do
-        calls_in_expr(e: a.cond, info: info, out: inout out)
-        calls_in_block(stmts: a.body, info: info, out: inout out)
+        collect_expr(e: a.cond, info: info, what: what, out: inout out)
+        collect_block(stmts: a.body, info: info, what: what, out: inout out)
       end for
-      calls_in_opt(b: els, info: info, out: inout out)
+      collect_opt(b: els, info: info, what: what, out: inout out)
     case While(cond: c, invs: invs, dec: dec, body: body) then
-      calls_in_expr(e: c, info: info, out: inout out)
-      calls_in_all(es: invs, info: info, out: inout out)
-      calls_in_all(es: dec, info: info, out: inout out)
-      calls_in_block(stmts: body, info: info, out: inout out)
+      collect_expr(e: c, info: info, what: what, out: inout out)
+      collect_all(es: invs, info: info, what: what, out: inout out)
+      collect_all(es: dec, info: info, what: what, out: inout out)
+      collect_block(stmts: body, info: info, what: what, out: inout out)
     case ForRange(name: v, lo: lo, hi: hi, invs: invs, body: body) then
-      calls_in_expr(e: lo, info: info, out: inout out)
-      calls_in_expr(e: hi, info: info, out: inout out)
-      calls_in_all(es: invs, info: info, out: inout out)
-      calls_in_block(stmts: body, info: info, out: inout out)
+      collect_expr(e: lo, info: info, what: what, out: inout out)
+      collect_expr(e: hi, info: info, what: what, out: inout out)
+      collect_all(es: invs, info: info, what: what, out: inout out)
+      collect_block(stmts: body, info: info, what: what, out: inout out)
     case ForEach(name: v, list: l, invs: invs, body: body) then
-      calls_in_expr(e: l, info: info, out: inout out)
-      calls_in_all(es: invs, info: info, out: inout out)
-      calls_in_block(stmts: body, info: info, out: inout out)
+      collect_expr(e: l, info: info, what: what, out: inout out)
+      collect_all(es: invs, info: info, what: what, out: inout out)
+      collect_block(stmts: body, info: info, what: what, out: inout out)
     case Match(scrut: sc, cases: cases, els: els) then
-      calls_in_expr(e: sc, info: info, out: inout out)
+      collect_expr(e: sc, info: info, what: what, out: inout out)
       for cs in cases do
-        calls_in_block(stmts: cs.body, info: info, out: inout out)
+        collect_block(stmts: cs.body, info: info, what: what, out: inout out)
       end for
-      calls_in_opt(b: els, info: info, out: inout out)
+      collect_opt(b: els, info: info, what: what, out: inout out)
     else
     end match
   end for
+end fn collect_block
+
+// The user functions an expression, some expressions or a block call.
+fn calls_in_expr(e: Expr, info: Info, out: inout List<String>) do
+  collect_expr(e: e, info: info, what: "calls", out: inout out)
+end fn calls_in_expr
+
+fn calls_in_all(es: List<Expr>, info: Info, out: inout List<String>) do
+  collect_all(es: es, info: info, what: "calls", out: inout out)
+end fn calls_in_all
+
+fn calls_in_opt_expr(e: Option<Expr>, info: Info, out: inout List<String>) do
+  collect_opt_expr(e: e, info: info, what: "calls", out: inout out)
+end fn calls_in_opt_expr
+
+fn calls_in_block(stmts: List<Stmt>, info: Info, out: inout List<String>) do
+  collect_block(stmts: stmts, info: info, what: "calls", out: inout out)
 end fn calls_in_block
+
+// The inout parameters whose entry values a function names with old(x): in its
+// postconditions and in the invariants of its loops.
+fn olds_named(f: FnDecl, info: Info) -> List<String> do
+  var out: List<String> = []
+  collect_all(es: f.post, info: info, what: "olds", out: inout out)
+  collect_block(stmts: f.body, info: info, what: "olds", out: inout out)
+  return out
+end fn olds_named
 
 fn is_inline(info: Info, name: String) -> Bool do
   match get_fn(info: info, name: name)

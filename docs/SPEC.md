@@ -671,12 +671,14 @@ to the same tokens and has the same comments. `--check` reports instead of writi
 Every value is one 64-bit word. Integers and booleans are unboxed. Strings, lists,
 maps, structs and enums are pointers to immutable heap objects, each with a reference
 count. An object is freed as soon as nothing refers to it (cycles cannot occur, because
-values are immutable). When an object has a single reference, `with`, `push`, `set_at`
-and `insert` update it in place instead of copying; nothing else can observe the
-difference, so value semantics are preserved. In `set x = op(x, ...)`, the old value of
+values are immutable). When an object has a single reference, `with`, `push`, `set_at`,
+`insert` and `++` update it in place instead of copying; nothing else can observe the
+difference, so value semantics are preserved. A chain of `++` on strings is joined in
+one step, and a string that is appended to repeatedly is given room to grow, so
+building one with `set s = s ++ x` costs time in proportion to its final length. In `set x = op(x, ...)`, the old value of
 `x` is moved into `op`, which is what makes such updates in place. In
 `set s = s with (f: op(s.f, ...))`, where `s.f` is read only once, the field is moved
-out of `s` as well, so a list or map held in a struct is updated in place too.
+out of `s` as well, so a list, map or string held in a struct is updated in place too.
 
 A `Map` is a balanced tree: a shared map copies only the path to the changed key, so
 snapshots are cheap. A `HashMap` is an open-addressing hash table: lookups and inserts
