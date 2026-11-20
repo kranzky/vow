@@ -55,7 +55,9 @@ for f in panic/*.vow; do
   flags=$(sed -n 's|^// vowflags: ||p' "$f")
   exp="${f%.vow}.err"
   if "$VOWC" build "$f" -o "$tmpd/prog" $flags >/dev/null 2>&1; then
-    "$tmpd/prog" >/dev/null 2>"$tmpd/err"
+    # The usual stack limit, so that panic/stack_overflow.vow overflows soon wherever
+    # it runs.
+    (ulimit -s 8192 2>/dev/null; "$tmpd/prog" >/dev/null 2>"$tmpd/err")
     got=$(cat "$tmpd/err")
   else
     got="(did not build)"
@@ -162,6 +164,19 @@ if [ -z "$VOW_FROZEN" ]; then
     fi
     rm -rf "$cdir"
   done
+fi
+# A proof made with VOW_SMT_V03 (the v0.3 encoding, for differential.sh) is not cached:
+# that encoding accepts fail/unreal_struct.vow, and a normal run after it must not.
+if [ -z "$VOW_FROZEN" ]; then
+  cdir=$(mktemp -d)
+  cp fail/unreal_struct.vow "$cdir/main.vow"
+  VOW_SMT_V03=1 "$VOWC" check "$cdir/main.vow" >/dev/null 2>&1
+  if "$VOWC" check "$cdir/main.vow" 2>&1 | grep -qF "cannot prove assertion: x > 0"; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1)); echo "FAIL a proof made with VOW_SMT_V03 was reused from the cache"
+  fi
+  rm -rf "$cdir"
 fi
 # The pinned Z3 version must be the same in the compiler and the installer.
 pinned=$(sed -n 's/^VERSION=//p' ../tools/install-z3.sh)

@@ -525,8 +525,12 @@ never compiles, so it can't be shipped by accident.
 
 **Runtime panics** name the source line: `vow: panic at calc.vow:12: integer overflow
 in '*'` (exit status 101). In a verified program the only runtime failures are integer
-overflow, `panic(msg)` and a failed `check`; bounds and division are proved. `vowc check
-file.vow --totality` lists the functions not proved to terminate, with the reason.
+overflow, `panic(msg)`, a failed `check`, and running out of stack or memory (`vow:
+panic: stack overflow (recursion too deep)`, `vow: panic: out of memory`); bounds and
+division are proved. A recursion more than tens of thousands of calls deep can
+overflow the stack even when its measure is proved, so walk long data with a loop.
+`vowc check file.vow --totality` lists the functions not proved to terminate, with the
+reason.
 
 **Checking contracts while the program runs.** `vowc run file.vow --no-verify
 --check-contracts` runs code whose proofs do not go through yet, checking every

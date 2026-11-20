@@ -189,6 +189,7 @@ fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool, 
   // The functions come last: from their first #line directive on, every C line is
   // attributed to Vow source.
   set c = push(list: c, item: "int main(int argc, char **argv) {")
+  set c = push(list: c, item: "    vow_guard_stack(&argc);")
   set c = push(list: c, item: "    vow_argc = argc;")
   set c = push(list: c, item: "    vow_argv = argv;")
   for i in 0..len(g.strs) do

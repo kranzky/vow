@@ -93,6 +93,13 @@ runtime failures are integer overflow, `panic` and a failed `check`. Fix these f
   itself (B1). The docs list the ways a verified program can fail, and this is not one.
 - **Fix:** a `sigaltstack` handler (or a depth counter in checked builds) that prints
   `vow: panic: stack overflow`, and a line in the spec and the guides.
+- **Done:** `vow_guard_stack` (called first in `main`) handles SIGSEGV and SIGBUS on a
+  stack of its own. A fault at an address within the stack's limit, or the megabyte
+  below it, prints `vow: panic: stack overflow (recursion too deep)` and exits 101,
+  after flushing standard output unless it was being written. Any other fault ends
+  the program as before. The compiler gets the same handler, so B1 is now a panic
+  instead of a segfault (still without a diagnostic). Test:
+  `tests/panic/stack_overflow.vow`.
 
 ### A6. `run()` reports success when `fork` fails (reproduced)
 
@@ -130,6 +137,9 @@ runtime failures are integer overflow, `panic` and a failed `check`. Fix these f
 - **Fix:** make the switch imply `--no-cache`, or put it in the key.
 - **Related, from reading:** the key does not include the Z3 version or `VOW_Z3`. No
   wrong accept was constructed from that.
+- **Done:** a run with `VOW_SMT_V03` set neither reads nor writes the cache
+  (`verify_source`). `tests/run.sh` checks it with `tests/fail/unreal_struct.vow`. The
+  related point (Z3 version and `VOW_Z3` are not in the key) is still open.
 
 ### A9. `fn main<T>()` passes `check`, then fails in the C compiler (reproduced)
 
@@ -585,6 +595,8 @@ No crash or hang in 30,000 fuzzed edits, and malformed framing is survived.
 - **Where:** `tests/rc.sh:25-28`: `build` prints "FAIL build" and returns 1, and no
   caller increments `fail`. A regression that stops checked or debug builds from
   compiling leaves `make test-rc` green.
+- **Done:** `build` increments `fail`. With a flag that breaks every build
+  (`RC_FLAGS=--bogus`) the script now reports "0 passed, 57 failed".
 
 ### T2. Three more harnesses can pass without checking anything (reproduced by one reviewer; confirmed by reading)
 

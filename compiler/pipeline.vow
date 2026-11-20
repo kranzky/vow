@@ -74,13 +74,16 @@ struct Verified
 end struct Verified
 
 // Verifies a checked program, skipping functions whose verification key is in the
-// cache next to file (and recording the keys of those proved).
+// cache next to file (and recording the keys of those proved). v03 (VOW_SMT_V03, for
+// tests/differential.sh) proves with the v0.3 encoding, which lacks facts later found
+// to be needed: such a run neither reads the cache nor writes it.
 fn verify_source(src: Source, c: Checker, file: String, no_cache: Bool, v03: Bool) -> Verified uses fs, proc do
   let none: List<Diag> = []
+  let uncached = no_cache or v03
   let hashes = hash_program(items: src.items, info: c.info)
   let cache_path = file ++ ".vowcache"
   var cached: List<String> = []
-  if not no_cache then
+  if not uncached then
     match read_file(cache_path)
     case Some(value: text) then
       for l in split(s: text, sep: '\n') do
@@ -120,7 +123,7 @@ fn verify_source(src: Source, c: Checker, file: String, no_cache: Bool, v03: Boo
   if len(r.error) > 0 then
     return Verified(diags: none, error: r.error, undecided: false)
   end if
-  if not no_cache then
+  if not uncached then
     var lines: List<String> = []
     for h in hashes do
       var failed = false

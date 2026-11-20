@@ -22,7 +22,7 @@ check() { # name, binary, expected-output-file-or-empty, args...
   fi
   pass=$((pass + 1))
 }
-build() { VOW_CFLAGS=-DVOW_RC_DEBUG "$VOWC" build "$1" -o "$2" $RC_FLAGS >/dev/null 2>"$tmp/build.err" || { echo "FAIL build $1"; cat "$tmp/build.err"; return 1; }; }
+build() { VOW_CFLAGS=-DVOW_RC_DEBUG "$VOWC" build "$1" -o "$2" $RC_FLAGS >/dev/null 2>"$tmp/build.err" || { fail=$((fail + 1)); echo "FAIL build $1"; cat "$tmp/build.err"; return 1; }; }
 for f in tests/run/*.vow; do
   build "$f" "$tmp/prog" && check "$f" "$tmp/prog" "${f%.vow}.out"
 done

@@ -687,7 +687,12 @@ to `.vow` lines (`--no-line-directives` leaves them out). A runtime failure prin
 `vow: panic at <file>:<line>: <message>` to stderr and exits with status 101: integer
 overflow, `panic(msg)`, a failed `check`, and, in programs built with `--no-verify`,
 out-of-bounds indexes, slices and `set_at`, division by zero and `char` codes out of
-range (verified programs cannot fail these, so the checks are compiled out).
+range (verified programs cannot fail these, so the checks are compiled out). Running
+out of stack or memory is a failure of the same kind, with no line to name:
+`vow: panic: stack overflow (recursion too deep)` and `vow: panic: out of memory`. No
+proof rules these out: a measure bounds how long a recursion runs, not how deep the
+stack is. The default stack (8 MB on Linux and macOS) holds a recursion tens of
+thousands of calls deep; write a loop for anything that can go deeper.
 
 `--check-contracts` (with `build`, `run` or `test`) also checks at runtime what the
 verifier proves: preconditions and parameter refinements on entry; postconditions,

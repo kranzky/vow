@@ -23,6 +23,13 @@
 - `read_file` reads a pipe, a FIFO or a device to its end, where it wrote past its
   buffer, and gives `None` for a directory, where it gave `""`.
 - `set xs = xs ++ xs` on a list doubles it, where it never finished.
+- A recursion too deep for the stack ends with `vow: panic: stack overflow (recursion
+  too deep)` and exit status 101, as other panics do, where the program crashed with a
+  segmentation fault. The spec and the guide now list running out of stack or memory
+  among the ways a verified program can fail.
+- A run with `VOW_SMT_V03` set (a testing switch) no longer reads or writes the
+  verification cache: a proof it cached could make a normal run accept a program it
+  must reject.
 
 ## v0.9.9
 

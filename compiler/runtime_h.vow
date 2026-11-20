@@ -36,6 +36,8 @@ fn runtime_header() -> String do
     "#include <stdio.h>\n" ++
     "#include <stdlib.h>\n" ++
     "#include <string.h>\n" ++
+    "#include <signal.h>\n" ++
+    "#include <sys/resource.h>\n" ++
     "#include <sys/stat.h>\n" ++
     "#include <sys/wait.h>\n" ++
     "#include <unistd.h>\n" ++
@@ -1094,8 +1096,57 @@ fn runtime_header() -> String do
     "static int vow_argc;\n" ++
     "static char **vow_argv;\n" ++
     "\n" ++
+    "// ---- stack overflow ----\n" ++
+    "\n" ++
+    "// Recursion deeper than the C stack allows is a panic, not a crash: the fault is\n" ++
+    "// handled on a stack of its own, and an address within the stack's limit (or just past\n" ++
+    "// it) means the stack ran out. Any other fault is a bug in the runtime or the compiler,\n" ++
+    "// and ends the program as it would without the handler.\n" ++
+    "static char vow_fault_stack[65536];\n" ++
+    "static char *vow_stack_top;\n" ++
+    "static size_t vow_stack_limit;\n" ++
+    "// Set while standard output is being written to: flushing it then could deadlock.\n" ++
+    "static volatile sig_atomic_t vow_stdout_busy;\n" ++
+    "\n" ++
+    "static void vow_on_fault(int sig, siginfo_t *si, void *context) {\n" ++
+    "    (void)context;\n" ++
+    "    char *at = (char *)si->si_addr;\n" ++
+    "    size_t reach = vow_stack_limit + ((size_t)1 << 20);\n" ++
+    "    if (at <= vow_stack_top && (size_t)(vow_stack_top - at) <= reach) {\n" ++
+    "        static const char msg[] = \"vow: panic: stack overflow (recursion too deep)\\n\";\n" ++
+    "        if (!vow_stdout_busy) fflush(stdout);\n" ++
+    "        if (write(2, msg, sizeof msg - 1) < 0) _exit(101);\n" ++
+    "        _exit(101);\n" ++
+    "    }\n" ++
+    "    signal(sig, SIG_DFL);\n" ++
+    "}\n" ++
+    "\n" ++
+    "// Called first in main, with the address of one of its locals.\n" ++
+    "static void vow_guard_stack(void *top) {\n" ++
+    "#if !defined(__SANITIZE_ADDRESS__)\n" ++
+    "    struct rlimit lim;\n" ++
+    "    vow_stack_top = (char *)top;\n" ++
+    "    vow_stack_limit = (size_t)1 << 30;\n" ++
+    "    if (getrlimit(RLIMIT_STACK, &lim) == 0 && lim.rlim_cur != RLIM_INFINITY) vow_stack_limit = (size_t)lim.rlim_cur;\n" ++
+    "    stack_t alt;\n" ++
+    "    alt.ss_sp = vow_fault_stack;\n" ++
+    "    alt.ss_size = sizeof vow_fault_stack;\n" ++
+    "    alt.ss_flags = 0;\n" ++
+    "    if (sigaltstack(&alt, 0) != 0) return;\n" ++
+    "    struct sigaction act;\n" ++
+    "    memset(&act, 0, sizeof act);\n" ++
+    "    act.sa_sigaction = vow_on_fault;\n" ++
+    "    act.sa_flags = SA_SIGINFO | SA_ONSTACK;\n" ++
+    "    sigemptyset(&act.sa_mask);\n" ++
+    "    sigaction(SIGSEGV, &act, 0);\n" ++
+    "    sigaction(SIGBUS, &act, 0);\n" ++
+    "#endif\n" ++
+    "}\n" ++
+    "\n" ++
     "static V vprint(V s) {\n" ++
+    "    vow_stdout_busy = 1;\n" ++
     "    fwrite(VS(s)->data, 1, (size_t)VS(s)->len, stdout);\n" ++
+    "    vow_stdout_busy = 0;\n" ++
     "    return 0;\n" ++
     "}\n" ++
     "\n" ++

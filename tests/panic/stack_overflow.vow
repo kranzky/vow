@@ -1,0 +1,17 @@
+// language: 0.9
+// A recursion proved to end can still need more stack than there is: that is a panic,
+// not a crash, and what was printed before it is not lost. (The bootstrap compiler is
+// skipped because its frozen runtime crashes here.)
+fn count(n: Int where it >= 0) -> Int
+  decreases n
+do
+  if n == 0 then
+    return 0
+  end if
+  return count(n - 1) + 1
+end fn count
+
+fn main() uses console do
+  print(int_to_str(count(1000)) ++ "\n")
+  print(int_to_str(count(100000000)) ++ "\n")
+end fn main

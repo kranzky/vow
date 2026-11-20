@@ -407,7 +407,8 @@ not; and whether the program has structural measures, which add the rank facts t
 function's queries. The verifier version changes whenever the SMT the verifier emits does
 (`tests/fingerprint.sh` enforces this), so a result proved by an older verifier, which
 may have had a bug since fixed, is proved again. `tests/cache/` edits programs between
-two checks with the cache on.
+two checks with the cache on. A run with `VOW_SMT_V03` set (the v0.3 encoding, kept
+for `tests/differential.sh`) neither reads the cache nor writes it.
 
 ## Known limits
 
@@ -417,6 +418,9 @@ two checks with the cache on.
   specification is evaluated. It checks a structural measure by the value's height,
   which is one rank the verifier's facts allow, not the only one.
 - Integer arithmetic is proved for mathematical integers; a run that overflows traps.
+- Nothing is proved about memory. A measure shows that a recursion ends, not that the
+  stack is deep enough for it: a run that needs more stack or more memory than there
+  is panics (`stack overflow`, `out of memory`), and makes no claim from there on.
 - The argument above is informal. The rules it lists are the verifier's; a rule the
   verifier applies but that is missing here is a gap in this document, and should be
   treated as a possible soundness bug until it is argued.

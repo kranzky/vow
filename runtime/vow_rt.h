@@ -33,6 +33,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <signal.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -1091,8 +1093,57 @@ static V vhm_keys(V h, int flags) {
 static int vow_argc;
 static char **vow_argv;
 
+// ---- stack overflow ----
+
+// Recursion deeper than the C stack allows is a panic, not a crash: the fault is
+// handled on a stack of its own, and an address within the stack's limit (or just past
+// it) means the stack ran out. Any other fault is a bug in the runtime or the compiler,
+// and ends the program as it would without the handler.
+static char vow_fault_stack[65536];
+static char *vow_stack_top;
+static size_t vow_stack_limit;
+// Set while standard output is being written to: flushing it then could deadlock.
+static volatile sig_atomic_t vow_stdout_busy;
+
+static void vow_on_fault(int sig, siginfo_t *si, void *context) {
+    (void)context;
+    char *at = (char *)si->si_addr;
+    size_t reach = vow_stack_limit + ((size_t)1 << 20);
+    if (at <= vow_stack_top && (size_t)(vow_stack_top - at) <= reach) {
+        static const char msg[] = "vow: panic: stack overflow (recursion too deep)\n";
+        if (!vow_stdout_busy) fflush(stdout);
+        if (write(2, msg, sizeof msg - 1) < 0) _exit(101);
+        _exit(101);
+    }
+    signal(sig, SIG_DFL);
+}
+
+// Called first in main, with the address of one of its locals.
+static void vow_guard_stack(void *top) {
+#if !defined(__SANITIZE_ADDRESS__)
+    struct rlimit lim;
+    vow_stack_top = (char *)top;
+    vow_stack_limit = (size_t)1 << 30;
+    if (getrlimit(RLIMIT_STACK, &lim) == 0 && lim.rlim_cur != RLIM_INFINITY) vow_stack_limit = (size_t)lim.rlim_cur;
+    stack_t alt;
+    alt.ss_sp = vow_fault_stack;
+    alt.ss_size = sizeof vow_fault_stack;
+    alt.ss_flags = 0;
+    if (sigaltstack(&alt, 0) != 0) return;
+    struct sigaction act;
+    memset(&act, 0, sizeof act);
+    act.sa_sigaction = vow_on_fault;
+    act.sa_flags = SA_SIGINFO | SA_ONSTACK;
+    sigemptyset(&act.sa_mask);
+    sigaction(SIGSEGV, &act, 0);
+    sigaction(SIGBUS, &act, 0);
+#endif
+}
+
 static V vprint(V s) {
+    vow_stdout_busy = 1;
     fwrite(VS(s)->data, 1, (size_t)VS(s)->len, stdout);
+    vow_stdout_busy = 0;
     return 0;
 }
 

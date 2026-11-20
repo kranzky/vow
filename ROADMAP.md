@@ -137,13 +137,13 @@ Wrong behaviour in programs the compiler accepts (first):
       compiler; the limit is gone (65,534 fields, reported beyond that)
 - [x] A4: `==` on a deep value (a million-link chain) overflowed the C stack; the
       generated equality and rank functions no longer recurse
-- [ ] A5: stack overflow from deep recursion is a segfault; panic with "stack overflow"
-      and document it as a way a verified program can fail
+- [x] A5: stack overflow from deep recursion was a segfault; it is a panic ("stack
+      overflow (recursion too deep)"), documented as a way a verified program can fail
 - [ ] A6: `run()` reports success when `fork` fails; unchecked allocations in the I/O
       built-ins
 - [ ] A7: write errors on standard output are ignored and the program exits 0
-- [ ] A8: a proof cached under `VOW_SMT_V03=1` is reused by a normal run, which then
-      accepts a program it must reject
+- [x] A8: a proof cached under `VOW_SMT_V03=1` was reused by a normal run, which then
+      accepted a program it must reject; such a run no longer uses the cache
 - [ ] A9: `fn main<T>()` passes `check` and fails in the C compiler
 - [ ] A10: `vowc build prog` overwrites a source file that has no extension
 
@@ -234,7 +234,7 @@ Packages and running programs:
       empty input, and its output appears when it exits)
 
 Tests, CI and releases:
-- [ ] T1: `tests/rc.sh` counts a build that fails as a failure
+- [x] T1: `tests/rc.sh` counts a build that fails as a failure
 - [ ] T2: harnesses that can pass without checking: the SMT fingerprint after any
       edit to `std/`, the differential test when both compilers fail, the generator
       fuzzer when nothing verifies, the formatting check on a crash; a verified program
