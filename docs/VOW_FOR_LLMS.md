@@ -35,6 +35,10 @@ vowc fmt file.vow              # rewrite in the canonical layout (whitespace onl
 vowc test file_test.vow        # verify, then run each test_... function
 ```
 
+A program started by `vowc run` reads `vowc`'s standard input and writes as it runs,
+as the built executable would (`echo 3 | vowc run double.vow`), and `vowc` exits with
+the program's status.
+
 ## 2. Rules that cause most errors
 
 Check your code against this list before running the compiler.
@@ -170,7 +174,7 @@ end fn main
 ```
 
 Built-ins: `len push slice join int_to_str str_to_int char insert lookup has keys hash
-panic print eprint read_line read_bytes read_file write_file args getenv run exit
+panic print eprint read_line read_bytes read_file write_file args getenv run run_attached exit
 int_to_float float_to_int float_to_str float_to_fixed str_to_float floor ceil round sqrt abs_float
 is_nan`. Signatures are in the
 spec. `print` adds no newline.
@@ -731,8 +735,9 @@ every loop stops naturally.
 
 **Effects.** Declare the smallest set you need: `uses console` for
 `print`/`eprint`, `uses fs` for files and directories (`read_file`, `write_file`,
-`make_dir`, `list_dir`), `uses proc` for `args`, `getenv`, `run` and `exit`. A pure
-function needs no `uses` clause, and that is checkable by anyone reading its signature.
+`make_dir`, `list_dir`), `uses proc` for `args`, `getenv`, `run`, `run_attached` and
+`exit`. A pure function needs no `uses` clause, and that is checkable by anyone reading
+its signature.
 
 **A command-line tool without `proc`.** Keep every function pure except `main`, and
 end on errors with `panic`, which needs no effect. `exit` and `args` need `proc`, so

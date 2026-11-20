@@ -1,0 +1,6 @@
+before
+from the command
+status 3
+missing 127
+signal -1
+empty argv -1

@@ -11,7 +11,11 @@ tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 pass=0
 fail=0
-for f in tests/run/*.vow examples/*.vow bench/*/*.vow tools/vowsite/vowsite.vow compiler/vowc.vow; do
+# The compiler's source is in the v0.3 language except for compiler/attached.vow: both
+# verifiers read a copy in which a stand-in with the same signature replaces it.
+cp -R compiler "$tmp/compiler"
+cp tests/v03/attached.vow "$tmp/compiler/attached.vow"
+for f in tests/run/*.vow examples/*.vow bench/*/*.vow tools/vowsite/vowsite.vow "$tmp/compiler/vowc.vow"; do
   # The Rust bootstrap is frozen at the v0.3 language.
   grep -q '^// language:' "$f" && continue
   # Both must write a script: a pair left by the program before proves nothing.

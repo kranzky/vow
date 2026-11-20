@@ -496,6 +496,7 @@ SMT-LIB. The divisor must be provably non-zero.
 | `args() -> List<String>` | `uses proc`; excludes the program name |
 | `getenv(name) -> Option<String>` | `uses proc` |
 | `run(argv: List<String>, input: String) -> Output` | `uses proc`; runs the program `argv[0]` (found on `PATH`) with `input` as its standard input, and waits for it; `out` is what it wrote to standard output, `code` its exit status, 127 if the program was not found, and -1 if it could not be started or was ended by a signal |
+| `run_attached(argv: List<String>) -> Int` | `uses proc`; runs the program `argv[0]` with this program's own standard input, output and error (an editor, a pager, a build whose output should be seen as it comes), waits for it, and gives its exit status, with 127 and -1 as for `run`. While it waits, this program ignores the interrupt and quit signals, so Ctrl-C ends the command and not the program that is waiting to clean up after it |
 | `exit(code)` | `uses proc`; never returns |
 | `value_or(opt: o, default: d) -> T` | the `Some` value, or `d` |
 | `is_some(o) -> Bool`, `is_none(o) -> Bool` | |
@@ -695,6 +696,10 @@ standard output`. Running out of stack or memory is a failure of the same kind:
 proof rules these out: a measure bounds how long a recursion runs, not how deep the
 stack is. The default stack (8 MB on Linux and macOS) holds a recursion tens of
 thousands of calls deep; write a loop for anything that can go deeper.
+
+`vowc run` builds the program and runs it with `vowc`'s own standard input, output and
+error, so it behaves as the built executable does in a pipeline or at a terminal;
+`vowc` then exits with the program's status.
 
 `--check-contracts` (with `build`, `run` or `test`) also checks at runtime what the
 verifier proves: preconditions and parameter refinements on entry; postconditions,

@@ -1397,4 +1397,45 @@ static V vrun(V argv, V input) {
     return out;
 }
 
+// run_attached(argv): the command runs with this program's standard input, output and
+// error, and this program waits for it. While it waits it ignores the interrupt and
+// quit signals, which a terminal sends to both (as C's system() does), so that it
+// outlives the command and can clean up after it. The result is the command's exit
+// status: 127 when it was not found, -1 when it could not be started or was ended by a
+// signal.
+static V vrun_attached(V argv) {
+    int64_t n = VL(argv)->len;
+    if (n == 0) return (V)(int64_t)-1;
+    char **av = (char **)vow_xmalloc(sizeof(char *) * (size_t)(n + 1));
+    for (int64_t i = 0; i < n; i++) av[i] = VS(VB(VL(argv)->buf)->items[i])->data;
+    av[n] = 0;
+    fflush(stdout);
+    struct sigaction ignore, old_int, old_quit;
+    memset(&ignore, 0, sizeof ignore);
+    ignore.sa_handler = SIG_IGN;
+    sigemptyset(&ignore.sa_mask);
+    sigaction(SIGINT, &ignore, &old_int);
+    sigaction(SIGQUIT, &ignore, &old_quit);
+    pid_t pid = fork();
+    if (pid == 0) {
+        sigaction(SIGINT, &old_int, 0);
+        sigaction(SIGQUIT, &old_quit, 0);
+        execvp(av[0], av);
+        _exit(127);
+    }
+    free(av);
+    int64_t code = -1;
+    if (pid > 0) {
+        int status = 0;
+        pid_t done;
+        do {
+            done = waitpid(pid, &status, 0);
+        } while (done < 0 && errno == EINTR);
+        if (done == pid && WIFEXITED(status)) code = WEXITSTATUS(status);
+    }
+    sigaction(SIGINT, &old_int, 0);
+    sigaction(SIGQUIT, &old_quit, 0);
+    return (V)code;
+}
+
 #endif

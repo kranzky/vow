@@ -15,7 +15,7 @@ skip() { [ -n "$VOW_FROZEN" ] && grep -q '^// language:' "$1"; }
 for f in run/*.vow; do
   skip "$f" && continue
   exp="${f%.vow}.out"
-  got=$("$VOWC" run "$f" $VOWFLAGS 2>&1)
+  got=$("$VOWC" run "$f" $VOWFLAGS 2>&1 < /dev/null)
   if [ "$got" = "$(cat "$exp")" ]; then
     pass=$((pass + 1))
   else
@@ -215,6 +215,32 @@ status 2"
     pass=$((pass + 1))
   else
     fail=$((fail + 1)); echo "FAIL building a source file with no extension: $got"
+  fi
+  rm -rf "$odir"
+fi
+# vowc run gives the program vowc's own standard input and its exit status.
+if [ -z "$VOW_FROZEN" ]; then
+  odir=$(mktemp -d)
+  cat > "$odir/in.vow" <<'VOW'
+fn main() uses console, proc do
+  match read_line()
+  case Some(value: l) then
+    print("got " ++ l ++ "\n")
+    exit(7)
+  case None then
+    print("no input\n")
+  end match
+end fn main
+VOW
+  got=$(echo hello | "$VOWC" run "$odir/in.vow" 2>&1; echo "status $?"; "$VOWC" run "$odir/in.vow" 2>&1 < /dev/null; echo "status $?")
+  want="got hello
+status 7
+no input
+status 0"
+  if [ "$got" = "$want" ]; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1)); echo "FAIL vowc run with piped input: $got"
   fi
   rm -rf "$odir"
 fi

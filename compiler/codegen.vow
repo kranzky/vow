@@ -2284,6 +2284,8 @@ fn gen_builtin(g: inout Gen, e: Expr, name: String, p: List<Val>, pe: List<Expr>
     return owned_tmp(g: inout g, rhs: "vread_bytes(" ++ v0.c ++ ")", heap: true)
   case "run" then
     return owned_tmp(g: inout g, rhs: "vrun(" ++ v0.c ++ ", " ++ v1.c ++ ")", heap: true)
+  case "run_attached" then
+    return plain_val(bind(g: inout g, rhs: "vrun_attached(" ++ v0.c ++ ")"))
   case "is_some" then
     return plain_val(bind(g: inout g, rhs: "(V)(VP(" ++ v0.c ++ ")[0] == 1)"))
   case "is_none" then

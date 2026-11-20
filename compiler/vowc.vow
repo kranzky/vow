@@ -4,6 +4,7 @@ import "codegen.vow"
 import "pipeline.vow"
 import "fmt.vow"
 import "runtime_h.vow"
+import "attached.vow"
 
 fn vow_version() -> String do
   return "0.9.9"
@@ -458,12 +459,12 @@ fn main() uses console, fs, proc do
       exit(1)
     end if
     if cmd == "run" then
-      let o = run(argv: [exe] ++ run_args, input: "")
-      print(o.out)
+      // The program reads what vowc was given to read, and writes as it runs.
+      let status = run_program([exe] ++ run_args)
       if len(tmp) > 0 then
         let _ = run(argv: ["rm", "-rf", tmp], input: "")
       end if
-      exit(o.code)
+      exit(status)
     end if
   elif cmd == "test" then
     run_tests(code: code, tests: tests, json: json)

@@ -1,0 +1,12 @@
+// language: 0.9
+// run_attached: the command writes straight to this program's standard output, in
+// order with what the program prints, and its exit status comes back.
+fn main() uses console, proc do
+  print("before\n")
+  let status = run_attached(["sh", "-c", "echo from the command; exit 3"])
+  print("status " ++ int_to_str(status) ++ "\n")
+  print("missing " ++ int_to_str(run_attached(["/no/such/program"])) ++ "\n")
+  print("signal " ++ int_to_str(run_attached(["sh", "-c", "kill -9 $$"])) ++ "\n")
+  let none: List<String> = []
+  print("empty argv " ++ int_to_str(run_attached(none)) ++ "\n")
+end fn main

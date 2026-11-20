@@ -1,0 +1,10 @@
+// The one place the compiler uses a built-in newer than the v0.3 language, in which the
+// rest of its source is written so that the frozen bootstrap verifier can read it.
+// tests/differential.sh gives that verifier tests/v03/attached.vow in place of this
+// file.
+
+// Runs a built program with the compiler's own standard input, output and error, and
+// gives its exit status (see run_attached in docs/SPEC.md).
+fn run_program(argv: List<String>) -> Int uses proc do
+  return run_attached(argv)
+end fn run_program

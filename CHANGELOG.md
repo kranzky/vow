@@ -39,6 +39,13 @@
   `check` and failed in the C compiler.
 - `vowc build prog`, for a source file with no extension, refuses to write the
   executable over the source; name one with `-o`.
+- `run_attached(argv) -> Int` (`uses proc`): runs a command with the program's own
+  standard input, output and error, waits, and gives its exit status. For an editor, a
+  pager, or a build whose output should appear as it is written; `run` still captures
+  output and supplies input.
+- `vowc run` gives the program `vowc`'s standard input and shows its output as it is
+  written, so `echo 3 | vowc run double.vow` works as the built executable does. The
+  program got empty input before, and its output appeared when it ended.
 - Release binaries are tested before they are attached: the whole test suite runs with
   the packaged `vowc` and `vow-lsp` on each platform.
 

@@ -603,6 +603,12 @@ No crash or hang in 30,000 fuzzed edits, and malformed framing is survived.
 - **Why it matters:** the 1.0 benchmark judges command-line programs by their input
   and output.
 - **Fix:** run the program with inherited stdin, stdout and stderr.
+- **Done:** a new built-in, `run_attached(argv) -> Int` (`uses proc`), runs a command
+  with the program's own standard input, output and error and gives its exit status.
+  `vowc run` uses it. It is the one built-in the compiler uses that is newer than
+  v0.3, so the call is alone in `compiler/attached.vow`, and `tests/differential.sh`
+  gives both verifiers `tests/v03/attached.vow` in its place. Tests:
+  `tests/run/run_attached.vow`, and `tests/run.sh` pipes input through `vowc run`.
 
 ## T. Tests, CI and releases
 
