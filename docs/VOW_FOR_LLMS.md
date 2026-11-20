@@ -525,9 +525,10 @@ never compiles, so it can't be shipped by accident.
 
 **Runtime panics** name the source line: `vow: panic at calc.vow:12: integer overflow
 in '*'` (exit status 101). In a verified program the only runtime failures are integer
-overflow, `panic(msg)`, a failed `check`, and running out of stack or memory (`vow:
-panic: stack overflow (recursion too deep)`, `vow: panic: out of memory`); bounds and
-division are proved. A recursion more than tens of thousands of calls deep can
+overflow, `panic(msg)`, a failed `check`, running out of stack or memory (`vow:
+panic: stack overflow (recursion too deep)`, `vow: panic: out of memory`) and standard
+output that cannot be written (`vow: panic: cannot write to standard output`); bounds
+and division are proved. A recursion more than tens of thousands of calls deep can
 overflow the stack even when its measure is proved, so walk long data with a loop.
 `vowc check file.vow --totality` lists the functions not proved to terminate, with the
 reason.

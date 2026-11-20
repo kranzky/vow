@@ -115,6 +115,14 @@ runtime failures are integer overflow, `panic` and a failed `check`. Fix these f
 - **Also from reading:** `malloc`/`realloc` results are unchecked at
   `vow_rt.h:1008, 1058, 1081, 1085, 1171, 1180, 1182`; every other allocation panics
   with "out of memory". Route them through one checked helper.
+- **Done:** `vrun` gives code -1 when `fork` fails, when the input cannot be staged,
+  or when the child did not exit by itself; `read`, `write` and `waitpid` are retried
+  after a signal; the temporary file goes in `$TMPDIR` and is not made for empty input
+  (`/dev/null` is used); the argument vector is built before the fork. Every
+  allocation in the built-ins goes through `vow_xmalloc`/`vow_xrealloc`. Test:
+  `tests/run/run_codes.vow`; the `fork` case was checked by hand with `ulimit -u 1`.
+- **Still open, seen while testing:** with standard output closed, `pipe` can hand
+  `run()` descriptor 1, and the child's output is lost.
 
 ### A7. Write errors on standard output are ignored (reproduced by one reviewer)
 
@@ -122,6 +130,9 @@ runtime failures are integer overflow, `panic` and a failed `check`. Fix these f
   emitted `main`.
 - **What:** a program whose every write fails (`./prog >&-`, or a full disk) exits 0.
 - **Fix:** check `fflush` and `ferror(stdout)` at exit and panic with a write error.
+- **Done:** `print` panics when its write fails, and the end of `main` and `exit` panic
+  when the flush fails: `vow: panic: cannot write to standard output`, status 101.
+  `tests/run.sh` checks it with `>&-`.
 
 ### A8. A proof cached under `VOW_SMT_V03=1` is reused by a normal run (reproduced)
 
@@ -148,6 +159,8 @@ runtime failures are integer overflow, `panic` and a failed `check`. Fix these f
 - **Reproduce:** `fn main<T>() uses console do print("hi\n") end fn main`: `vowc check`
   prints `ok`; `vowc run` prints `call to undeclared function 'f_main'`.
 - **Fix:** "'main' must not have type parameters".
+- **Done:** "'main' must not have type parameters". Test:
+  `tests/fail/main_generic.vow`.
 
 ### A10. `vowc build prog` overwrites a source file that has no extension (reproduced)
 
@@ -155,6 +168,9 @@ runtime failures are integer overflow, `panic` and a failed `check`. Fix these f
 - **Reproduce:** `cp echo.vow prog; vowc build prog; file prog` says `Mach-O 64-bit
   executable`.
 - **Fix:** refuse an output path equal to the input.
+- **Done:** `build` refuses an executable path equal to the source path (leading `./`
+  ignored), with or without `-o`, and exits 2. `tests/run.sh` checks both and that
+  the source is unchanged.
 
 ## B. Compiler robustness
 

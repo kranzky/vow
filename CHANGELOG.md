@@ -30,6 +30,15 @@
 - A run with `VOW_SMT_V03` set (a testing switch) no longer reads or writes the
   verification cache: a proof it cached could make a normal run accept a program it
   must reject.
+- `run()` gives code -1 when the command could not be started (it gave 0 when `fork`
+  failed) or was ended by a signal. Its temporary input file goes in `$TMPDIR`, and
+  none is made for empty input.
+- A program that cannot write its standard output panics (`vow: panic: cannot write to
+  standard output`, status 101), where it exited 0.
+- `fn main<T>()` is an error ("'main' must not have type parameters"); it passed
+  `check` and failed in the C compiler.
+- `vowc build prog`, for a source file with no extension, refuses to write the
+  executable over the source; name one with `-o`.
 
 ## v0.9.9
 

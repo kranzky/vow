@@ -139,13 +139,14 @@ Wrong behaviour in programs the compiler accepts (first):
       generated equality and rank functions no longer recurse
 - [x] A5: stack overflow from deep recursion was a segfault; it is a panic ("stack
       overflow (recursion too deep)"), documented as a way a verified program can fail
-- [ ] A6: `run()` reports success when `fork` fails; unchecked allocations in the I/O
-      built-ins
-- [ ] A7: write errors on standard output are ignored and the program exits 0
+- [x] A6: `run()` reported success when `fork` failed; allocations in the I/O
+      built-ins were unchecked
+- [x] A7: write errors on standard output were ignored and the program exited 0; they
+      are a panic
 - [x] A8: a proof cached under `VOW_SMT_V03=1` was reused by a normal run, which then
       accepted a program it must reject; such a run no longer uses the cache
-- [ ] A9: `fn main<T>()` passes `check` and fails in the C compiler
-- [ ] A10: `vowc build prog` overwrites a source file that has no extension
+- [x] A9: `fn main<T>()` passed `check` and failed in the C compiler
+- [x] A10: `vowc build prog` overwrote a source file that has no extension
 
 Compiler robustness:
 - [ ] B1: 25,000 nested parentheses or terms of one `++` chain segfault the compiler;

@@ -495,7 +495,7 @@ SMT-LIB. The divisor must be provably non-zero.
 | `list_dir(path) -> Option<List<String>>` | `uses fs`; sorted names, without `.` and `..` |
 | `args() -> List<String>` | `uses proc`; excludes the program name |
 | `getenv(name) -> Option<String>` | `uses proc` |
-| `run(argv: List<String>, input: String) -> Output` | `uses proc`; runs a subprocess |
+| `run(argv: List<String>, input: String) -> Output` | `uses proc`; runs the program `argv[0]` (found on `PATH`) with `input` as its standard input, and waits for it; `out` is what it wrote to standard output, `code` its exit status, 127 if the program was not found, and -1 if it could not be started or was ended by a signal |
 | `exit(code)` | `uses proc`; never returns |
 | `value_or(opt: o, default: d) -> T` | the `Some` value, or `d` |
 | `is_some(o) -> Bool`, `is_none(o) -> Bool` | |
@@ -687,8 +687,10 @@ to `.vow` lines (`--no-line-directives` leaves them out). A runtime failure prin
 `vow: panic at <file>:<line>: <message>` to stderr and exits with status 101: integer
 overflow, `panic(msg)`, a failed `check`, and, in programs built with `--no-verify`,
 out-of-bounds indexes, slices and `set_at`, division by zero and `char` codes out of
-range (verified programs cannot fail these, so the checks are compiled out). Running
-out of stack or memory is a failure of the same kind, with no line to name:
+range (verified programs cannot fail these, so the checks are compiled out). A program
+that cannot write its standard output (it is closed, or the disk is full) fails the
+same way, when `print` finds out or when the program ends: `vow: panic: cannot write to
+standard output`. Running out of stack or memory is a failure of the same kind:
 `vow: panic: stack overflow (recursion too deep)` and `vow: panic: out of memory`. No
 proof rules these out: a measure bounds how long a recursion runs, not how deep the
 stack is. The default stack (8 MB on Linux and macOS) holds a recursion tens of

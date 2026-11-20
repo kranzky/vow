@@ -205,7 +205,7 @@ fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool, 
       set kw = "else if"
     end for
     set c = push(list: c, item: "        else return 2;")
-    set c = push(list: c, item: "        fflush(stdout);")
+    set c = push(list: c, item: "        vow_flush_stdout();")
     set c = push(list: c, item: "        vow_report_leaks();")
     set c = push(list: c, item: "        return 0;")
     set c = push(list: c, item: "    }")
@@ -213,7 +213,7 @@ fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool, 
   if is_some(get_fn(info: info, name: "main")) then
     set c = push(list: c, item: "    f_main();")
   end if
-  set c = push(list: c, item: "    fflush(stdout);")
+  set c = push(list: c, item: "    vow_flush_stdout();")
   set c = push(list: c, item: "    vow_report_leaks();")
   set c = push(list: c, item: "    return 0;")
   set c = push(list: c, item: "}")

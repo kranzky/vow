@@ -30,6 +30,7 @@ fn runtime_header() -> String do
     "#endif\n" ++
     "#include <ctype.h>\n" ++
     "#include <dirent.h>\n" ++
+    "#include <errno.h>\n" ++
     "#include <math.h>\n" ++
     "#include <fcntl.h>\n" ++
     "#include <stdint.h>\n" ++
@@ -74,6 +75,19 @@ fn runtime_header() -> String do
     "        if (!(cond)) vow_panic_at(vow_f, vow_l, msg); \\\n" ++
     "    } while (0)\n" ++
     "#endif\n" ++
+    "\n" ++
+    "// Memory for the runtime's own buffers: running out is a panic, as it is for objects.\n" ++
+    "static void *vow_xmalloc(size_t n) {\n" ++
+    "    void *p = malloc(n > 0 ? n : 1);\n" ++
+    "    if (!p) vow_panic(\"out of memory\");\n" ++
+    "    return p;\n" ++
+    "}\n" ++
+    "\n" ++
+    "static void *vow_xrealloc(void *old, size_t n) {\n" ++
+    "    void *p = realloc(old, n > 0 ? n : 1);\n" ++
+    "    if (!p) vow_panic(\"out of memory\");\n" ++
+    "    return p;\n" ++
+    "}\n" ++
     "\n" ++
     "// ---- objects ----\n" ++
     "\n" ++
@@ -630,8 +644,7 @@ fn runtime_header() -> String do
     "    if (k < 0) k = 0;\n" ++
     "    if (k > 40) k = 40;\n" ++
     "    int n = snprintf(NULL, 0, \"%.*f\", (int)k, VD(x));\n" ++
-    "    char *buf = malloc((size_t)n + 1);\n" ++
-    "    if (!buf) vow_panic(\"out of memory\");\n" ++
+    "    char *buf = (char *)vow_xmalloc((size_t)n + 1);\n" ++
     "    snprintf(buf, (size_t)n + 1, \"%.*f\", (int)k, VD(x));\n" ++
     "    V s = vstr_new(buf, n);\n" ++
     "    free(buf);\n" ++
@@ -1082,7 +1095,7 @@ fn runtime_header() -> String do
     "    V l = vlist_empty(flags & VN_KEY_HEAP);\n" ++
     "    if (!h) return l;\n" ++
     "    int64_t n = 0;\n" ++
-    "    V *ks = (V *)malloc(sizeof(V) * (size_t)(VHM(h)->count + 1));\n" ++
+    "    V *ks = (V *)vow_xmalloc(sizeof(V) * (size_t)(VHM(h)->count + 1));\n" ++
     "    for (int64_t i = 0; i < VHM(h)->cap; i++)\n" ++
     "        if (vhm_hashes(h)[i]) ks[n++] = vhm_keyarr(h)[i];\n" ++
     "    qsort(ks, (size_t)n, sizeof(V), (flags & VN_STR_KEYS) ? vow_name_cmp : vow_int_cmp);\n" ++
@@ -1143,10 +1156,23 @@ fn runtime_header() -> String do
     "#endif\n" ++
     "}\n" ++
     "\n" ++
+    "// A program whose output is lost has failed: a write to standard output that fails is\n" ++
+    "// a panic, when it is made or, for buffered output, when the program ends.\n" ++
+    "static __attribute__((noreturn, cold)) void vow_stdout_failed(void) {\n" ++
+    "    fprintf(stderr, \"vow: panic: cannot write to standard output\\n\");\n" ++
+    "    _exit(101);\n" ++
+    "}\n" ++
+    "\n" ++
+    "static void vow_flush_stdout(void) {\n" ++
+    "    if (fflush(stdout) != 0 || ferror(stdout)) vow_stdout_failed();\n" ++
+    "}\n" ++
+    "\n" ++
     "static V vprint(V s) {\n" ++
+    "    size_t n = (size_t)VS(s)->len;\n" ++
     "    vow_stdout_busy = 1;\n" ++
-    "    fwrite(VS(s)->data, 1, (size_t)VS(s)->len, stdout);\n" ++
+    "    size_t w = fwrite(VS(s)->data, 1, n, stdout);\n" ++
     "    vow_stdout_busy = 0;\n" ++
+    "    if (w != n) vow_stdout_failed();\n" ++
     "    return 0;\n" ++
     "}\n" ++
     "\n" ++
@@ -1168,16 +1194,14 @@ fn runtime_header() -> String do
     "    }\n" ++
     "    size_t cap = 4096, n = 0;\n" ++
     "    if (S_ISREG(st.st_mode) && st.st_size > 0) cap = (size_t)st.st_size + 1;\n" ++
-    "    char *buf = (char *)malloc(cap);\n" ++
-    "    if (!buf) vow_panic(\"out of memory\");\n" ++
+    "    char *buf = (char *)vow_xmalloc(cap);\n" ++
     "    for (;;) {\n" ++
     "        size_t k = fread(buf + n, 1, cap - n, f);\n" ++
     "        n += k;\n" ++
     "        if (k == 0) break;\n" ++
     "        if (n == cap) {\n" ++
     "            cap *= 2;\n" ++
-    "            buf = (char *)realloc(buf, cap);\n" ++
-    "            if (!buf) vow_panic(\"out of memory\");\n" ++
+    "            buf = (char *)vow_xrealloc(buf, cap);\n" ++
     "        }\n" ++
     "    }\n" ++
     "    int failed = ferror(f);\n" ++
@@ -1206,7 +1230,7 @@ fn runtime_header() -> String do
     "static V vmake_dir(V path) {\n" ++
     "    int64_t n = VS(path)->len;\n" ++
     "    if (n == 0) return 0;\n" ++
-    "    char *p = (char *)malloc((size_t)n + 1);\n" ++
+    "    char *p = (char *)vow_xmalloc((size_t)n + 1);\n" ++
     "    memcpy(p, VS(path)->data, (size_t)n + 1);\n" ++
     "    for (int64_t i = 1; i < n; i++) {\n" ++
     "        if (p[i] == '/') {\n" ++
@@ -1229,11 +1253,11 @@ fn runtime_header() -> String do
     "    DIR *d = opendir(VS(path)->data);\n" ++
     "    if (!d) return vnone();\n" ++
     "    int64_t cap = 16, n = 0;\n" ++
-    "    V *names = (V *)malloc(sizeof(V) * (size_t)cap);\n" ++
+    "    V *names = (V *)vow_xmalloc(sizeof(V) * (size_t)cap);\n" ++
     "    struct dirent *e;\n" ++
     "    while ((e = readdir(d)) != 0) {\n" ++
     "        if (strcmp(e->d_name, \".\") == 0 || strcmp(e->d_name, \"..\") == 0) continue;\n" ++
-    "        if (n == cap) names = (V *)realloc(names, sizeof(V) * (size_t)(cap *= 2));\n" ++
+    "        if (n == cap) names = (V *)vow_xrealloc(names, sizeof(V) * (size_t)(cap *= 2));\n" ++
     "        names[n++] = vstr_new(e->d_name, (int64_t)strlen(e->d_name));\n" ++
     "    }\n" ++
     "    closedir(d);\n" ++
@@ -1272,8 +1296,7 @@ fn runtime_header() -> String do
     "static V vread_bytes(V n) {\n" ++
     "    fflush(stdout);\n" ++
     "    size_t want = VI(n) > 0 ? (size_t)VI(n) : 0;\n" ++
-    "    char *buf = malloc(want > 0 ? want : 1);\n" ++
-    "    if (!buf) vow_panic(\"out of memory\");\n" ++
+    "    char *buf = (char *)vow_xmalloc(want);\n" ++
     "    size_t got = fread(buf, 1, want, stdin);\n" ++
     "    V s = vstr_new(buf, (int64_t)got);\n" ++
     "    free(buf);\n" ++
@@ -1287,30 +1310,56 @@ fn runtime_header() -> String do
     "}\n" ++
     "\n" ++
     "static __attribute__((noreturn)) void vexit(V code) {\n" ++
-    "    fflush(stdout);\n" ++
+    "    vow_flush_stdout();\n" ++
     "    exit((int)VI(code));\n" ++
     "}\n" ++
     "\n" ++
-    "// run(argv, input): stdin comes from a temporary file so that large inputs and outputs\n" ++
-    "// cannot deadlock on full pipes; stdout is captured, stderr is inherited.\n" ++
+    "// run(argv, input): stdin comes from a temporary file (in $TMPDIR, or /tmp) so that\n" ++
+    "// large inputs and outputs cannot deadlock on full pipes, or from /dev/null when there\n" ++
+    "// is no input; stdout is captured, stderr is inherited. The code is -1 when the\n" ++
+    "// command could not be started or did not exit by itself.\n" ++
     "static V vrun(V argv, V input) {\n" ++
     "    int64_t n = VL(argv)->len;\n" ++
     "    V out = vow_fields(2, 2);\n" ++
     "    VP(out)[0] = (V)(int64_t)-1;\n" ++
-    "    char tmpl[] = \"/tmp/vow-run-XXXXXX\";\n" ++
-    "    int in_fd = n == 0 ? -1 : mkstemp(tmpl);\n" ++
-    "    if (in_fd < 0) {\n" ++
-    "        VP(out)[1] = vstr_new(\"\", 0);\n" ++
-    "        return out;\n" ++
+    "    int in_fd = -1;\n" ++
+    "    if (n > 0 && VS(input)->len == 0) {\n" ++
+    "        in_fd = open(\"/dev/null\", O_RDONLY);\n" ++
+    "    } else if (n > 0) {\n" ++
+    "        const char *dir = getenv(\"TMPDIR\");\n" ++
+    "        if (!dir || !*dir) dir = \"/tmp\";\n" ++
+    "        size_t dlen = strlen(dir);\n" ++
+    "        char *tmpl = (char *)vow_xmalloc(dlen + 32);\n" ++
+    "        snprintf(tmpl, dlen + 32, \"%s/vow-run-XXXXXX\", dir);\n" ++
+    "        in_fd = mkstemp(tmpl);\n" ++
+    "        if (in_fd >= 0) {\n" ++
+    "            unlink(tmpl);\n" ++
+    "            const char *data = VS(input)->data;\n" ++
+    "            size_t left = (size_t)VS(input)->len;\n" ++
+    "            while (left > 0) {\n" ++
+    "                ssize_t w = write(in_fd, data, left);\n" ++
+    "                if (w < 0 && errno == EINTR) continue;\n" ++
+    "                if (w <= 0) break;\n" ++
+    "                data += w;\n" ++
+    "                left -= (size_t)w;\n" ++
+    "            }\n" ++
+    "            if (left > 0 || lseek(in_fd, 0, SEEK_SET) != 0) {\n" ++
+    "                close(in_fd);\n" ++
+    "                in_fd = -1;\n" ++
+    "            }\n" ++
+    "        }\n" ++
+    "        free(tmpl);\n" ++
     "    }\n" ++
-    "    unlink(tmpl);\n" ++
     "    int pfd[2];\n" ++
-    "    if (write(in_fd, VS(input)->data, (size_t)VS(input)->len) != (ssize_t)VS(input)->len || pipe(pfd) != 0) {\n" ++
-    "        close(in_fd);\n" ++
+    "    if (in_fd < 0 || pipe(pfd) != 0) {\n" ++
+    "        if (in_fd >= 0) close(in_fd);\n" ++
     "        VP(out)[1] = vstr_new(\"\", 0);\n" ++
     "        return out;\n" ++
     "    }\n" ++
-    "    lseek(in_fd, 0, SEEK_SET);\n" ++
+    "    // Before the fork: the child must not allocate.\n" ++
+    "    char **av = (char **)vow_xmalloc(sizeof(char *) * (size_t)(n + 1));\n" ++
+    "    for (int64_t i = 0; i < n; i++) av[i] = VS(VB(VL(argv)->buf)->items[i])->data;\n" ++
+    "    av[n] = 0;\n" ++
     "    fflush(stdout);\n" ++
     "    pid_t pid = fork();\n" ++
     "    if (pid == 0) {\n" ++
@@ -1319,26 +1368,33 @@ fn runtime_header() -> String do
     "        close(pfd[0]);\n" ++
     "        close(pfd[1]);\n" ++
     "        close(in_fd);\n" ++
-    "        char **av = (char **)malloc(sizeof(char *) * (size_t)(n + 1));\n" ++
-    "        for (int64_t i = 0; i < n; i++) av[i] = VS(VB(VL(argv)->buf)->items[i])->data;\n" ++
-    "        av[n] = 0;\n" ++
     "        execvp(av[0], av);\n" ++
     "        _exit(127);\n" ++
     "    }\n" ++
+    "    free(av);\n" ++
     "    close(pfd[1]);\n" ++
     "    close(in_fd);\n" ++
+    "    if (pid < 0) {\n" ++
+    "        close(pfd[0]);\n" ++
+    "        VP(out)[1] = vstr_new(\"\", 0);\n" ++
+    "        return out;\n" ++
+    "    }\n" ++
     "    size_t cap = 4096, len = 0;\n" ++
-    "    char *buf = (char *)malloc(cap);\n" ++
+    "    char *buf = (char *)vow_xmalloc(cap);\n" ++
     "    for (;;) {\n" ++
-    "        if (len == cap) buf = (char *)realloc(buf, cap *= 2);\n" ++
+    "        if (len == cap) buf = (char *)vow_xrealloc(buf, cap *= 2);\n" ++
     "        ssize_t k = read(pfd[0], buf + len, cap - len);\n" ++
+    "        if (k < 0 && errno == EINTR) continue;\n" ++
     "        if (k <= 0) break;\n" ++
     "        len += (size_t)k;\n" ++
     "    }\n" ++
     "    close(pfd[0]);\n" ++
     "    int status = 0;\n" ++
-    "    waitpid(pid, &status, 0);\n" ++
-    "    VP(out)[0] = (V)(int64_t)(WIFEXITED(status) ? WEXITSTATUS(status) : -1);\n" ++
+    "    pid_t done;\n" ++
+    "    do {\n" ++
+    "        done = waitpid(pid, &status, 0);\n" ++
+    "    } while (done < 0 && errno == EINTR);\n" ++
+    "    if (done == pid && WIFEXITED(status)) VP(out)[0] = (V)(int64_t)WEXITSTATUS(status);\n" ++
     "    VP(out)[1] = vstr_new(buf, (int64_t)len);\n" ++
     "    free(buf);\n" ++
     "    return out;\n" ++

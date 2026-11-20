@@ -27,6 +27,7 @@
 #endif
 #include <ctype.h>
 #include <dirent.h>
+#include <errno.h>
 #include <math.h>
 #include <fcntl.h>
 #include <stdint.h>
@@ -71,6 +72,19 @@ static __attribute__((noreturn, cold)) void vow_panic_at(const char *file, int l
         if (!(cond)) vow_panic_at(vow_f, vow_l, msg); \
     } while (0)
 #endif
+
+// Memory for the runtime's own buffers: running out is a panic, as it is for objects.
+static void *vow_xmalloc(size_t n) {
+    void *p = malloc(n > 0 ? n : 1);
+    if (!p) vow_panic("out of memory");
+    return p;
+}
+
+static void *vow_xrealloc(void *old, size_t n) {
+    void *p = realloc(old, n > 0 ? n : 1);
+    if (!p) vow_panic("out of memory");
+    return p;
+}
 
 // ---- objects ----
 
@@ -627,8 +641,7 @@ static V vfloat_to_fixed(V x, V digits) {
     if (k < 0) k = 0;
     if (k > 40) k = 40;
     int n = snprintf(NULL, 0, "%.*f", (int)k, VD(x));
-    char *buf = malloc((size_t)n + 1);
-    if (!buf) vow_panic("out of memory");
+    char *buf = (char *)vow_xmalloc((size_t)n + 1);
     snprintf(buf, (size_t)n + 1, "%.*f", (int)k, VD(x));
     V s = vstr_new(buf, n);
     free(buf);
@@ -1079,7 +1092,7 @@ static V vhm_keys(V h, int flags) {
     V l = vlist_empty(flags & VN_KEY_HEAP);
     if (!h) return l;
     int64_t n = 0;
-    V *ks = (V *)malloc(sizeof(V) * (size_t)(VHM(h)->count + 1));
+    V *ks = (V *)vow_xmalloc(sizeof(V) * (size_t)(VHM(h)->count + 1));
     for (int64_t i = 0; i < VHM(h)->cap; i++)
         if (vhm_hashes(h)[i]) ks[n++] = vhm_keyarr(h)[i];
     qsort(ks, (size_t)n, sizeof(V), (flags & VN_STR_KEYS) ? vow_name_cmp : vow_int_cmp);
@@ -1140,10 +1153,23 @@ static void vow_guard_stack(void *top) {
 #endif
 }
 
+// A program whose output is lost has failed: a write to standard output that fails is
+// a panic, when it is made or, for buffered output, when the program ends.
+static __attribute__((noreturn, cold)) void vow_stdout_failed(void) {
+    fprintf(stderr, "vow: panic: cannot write to standard output\n");
+    _exit(101);
+}
+
+static void vow_flush_stdout(void) {
+    if (fflush(stdout) != 0 || ferror(stdout)) vow_stdout_failed();
+}
+
 static V vprint(V s) {
+    size_t n = (size_t)VS(s)->len;
     vow_stdout_busy = 1;
-    fwrite(VS(s)->data, 1, (size_t)VS(s)->len, stdout);
+    size_t w = fwrite(VS(s)->data, 1, n, stdout);
     vow_stdout_busy = 0;
+    if (w != n) vow_stdout_failed();
     return 0;
 }
 
@@ -1165,16 +1191,14 @@ static V vread_file(V path) {
     }
     size_t cap = 4096, n = 0;
     if (S_ISREG(st.st_mode) && st.st_size > 0) cap = (size_t)st.st_size + 1;
-    char *buf = (char *)malloc(cap);
-    if (!buf) vow_panic("out of memory");
+    char *buf = (char *)vow_xmalloc(cap);
     for (;;) {
         size_t k = fread(buf + n, 1, cap - n, f);
         n += k;
         if (k == 0) break;
         if (n == cap) {
             cap *= 2;
-            buf = (char *)realloc(buf, cap);
-            if (!buf) vow_panic("out of memory");
+            buf = (char *)vow_xrealloc(buf, cap);
         }
     }
     int failed = ferror(f);
@@ -1203,7 +1227,7 @@ static V vwrite_file(V path, V contents) {
 static V vmake_dir(V path) {
     int64_t n = VS(path)->len;
     if (n == 0) return 0;
-    char *p = (char *)malloc((size_t)n + 1);
+    char *p = (char *)vow_xmalloc((size_t)n + 1);
     memcpy(p, VS(path)->data, (size_t)n + 1);
     for (int64_t i = 1; i < n; i++) {
         if (p[i] == '/') {
@@ -1226,11 +1250,11 @@ static V vlist_dir(V path) {
     DIR *d = opendir(VS(path)->data);
     if (!d) return vnone();
     int64_t cap = 16, n = 0;
-    V *names = (V *)malloc(sizeof(V) * (size_t)cap);
+    V *names = (V *)vow_xmalloc(sizeof(V) * (size_t)cap);
     struct dirent *e;
     while ((e = readdir(d)) != 0) {
         if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
-        if (n == cap) names = (V *)realloc(names, sizeof(V) * (size_t)(cap *= 2));
+        if (n == cap) names = (V *)vow_xrealloc(names, sizeof(V) * (size_t)(cap *= 2));
         names[n++] = vstr_new(e->d_name, (int64_t)strlen(e->d_name));
     }
     closedir(d);
@@ -1269,8 +1293,7 @@ static V vread_line(void) {
 static V vread_bytes(V n) {
     fflush(stdout);
     size_t want = VI(n) > 0 ? (size_t)VI(n) : 0;
-    char *buf = malloc(want > 0 ? want : 1);
-    if (!buf) vow_panic("out of memory");
+    char *buf = (char *)vow_xmalloc(want);
     size_t got = fread(buf, 1, want, stdin);
     V s = vstr_new(buf, (int64_t)got);
     free(buf);
@@ -1284,30 +1307,56 @@ static V vgetenv(V name) {
 }
 
 static __attribute__((noreturn)) void vexit(V code) {
-    fflush(stdout);
+    vow_flush_stdout();
     exit((int)VI(code));
 }
 
-// run(argv, input): stdin comes from a temporary file so that large inputs and outputs
-// cannot deadlock on full pipes; stdout is captured, stderr is inherited.
+// run(argv, input): stdin comes from a temporary file (in $TMPDIR, or /tmp) so that
+// large inputs and outputs cannot deadlock on full pipes, or from /dev/null when there
+// is no input; stdout is captured, stderr is inherited. The code is -1 when the
+// command could not be started or did not exit by itself.
 static V vrun(V argv, V input) {
     int64_t n = VL(argv)->len;
     V out = vow_fields(2, 2);
     VP(out)[0] = (V)(int64_t)-1;
-    char tmpl[] = "/tmp/vow-run-XXXXXX";
-    int in_fd = n == 0 ? -1 : mkstemp(tmpl);
-    if (in_fd < 0) {
-        VP(out)[1] = vstr_new("", 0);
-        return out;
+    int in_fd = -1;
+    if (n > 0 && VS(input)->len == 0) {
+        in_fd = open("/dev/null", O_RDONLY);
+    } else if (n > 0) {
+        const char *dir = getenv("TMPDIR");
+        if (!dir || !*dir) dir = "/tmp";
+        size_t dlen = strlen(dir);
+        char *tmpl = (char *)vow_xmalloc(dlen + 32);
+        snprintf(tmpl, dlen + 32, "%s/vow-run-XXXXXX", dir);
+        in_fd = mkstemp(tmpl);
+        if (in_fd >= 0) {
+            unlink(tmpl);
+            const char *data = VS(input)->data;
+            size_t left = (size_t)VS(input)->len;
+            while (left > 0) {
+                ssize_t w = write(in_fd, data, left);
+                if (w < 0 && errno == EINTR) continue;
+                if (w <= 0) break;
+                data += w;
+                left -= (size_t)w;
+            }
+            if (left > 0 || lseek(in_fd, 0, SEEK_SET) != 0) {
+                close(in_fd);
+                in_fd = -1;
+            }
+        }
+        free(tmpl);
     }
-    unlink(tmpl);
     int pfd[2];
-    if (write(in_fd, VS(input)->data, (size_t)VS(input)->len) != (ssize_t)VS(input)->len || pipe(pfd) != 0) {
-        close(in_fd);
+    if (in_fd < 0 || pipe(pfd) != 0) {
+        if (in_fd >= 0) close(in_fd);
         VP(out)[1] = vstr_new("", 0);
         return out;
     }
-    lseek(in_fd, 0, SEEK_SET);
+    // Before the fork: the child must not allocate.
+    char **av = (char **)vow_xmalloc(sizeof(char *) * (size_t)(n + 1));
+    for (int64_t i = 0; i < n; i++) av[i] = VS(VB(VL(argv)->buf)->items[i])->data;
+    av[n] = 0;
     fflush(stdout);
     pid_t pid = fork();
     if (pid == 0) {
@@ -1316,26 +1365,33 @@ static V vrun(V argv, V input) {
         close(pfd[0]);
         close(pfd[1]);
         close(in_fd);
-        char **av = (char **)malloc(sizeof(char *) * (size_t)(n + 1));
-        for (int64_t i = 0; i < n; i++) av[i] = VS(VB(VL(argv)->buf)->items[i])->data;
-        av[n] = 0;
         execvp(av[0], av);
         _exit(127);
     }
+    free(av);
     close(pfd[1]);
     close(in_fd);
+    if (pid < 0) {
+        close(pfd[0]);
+        VP(out)[1] = vstr_new("", 0);
+        return out;
+    }
     size_t cap = 4096, len = 0;
-    char *buf = (char *)malloc(cap);
+    char *buf = (char *)vow_xmalloc(cap);
     for (;;) {
-        if (len == cap) buf = (char *)realloc(buf, cap *= 2);
+        if (len == cap) buf = (char *)vow_xrealloc(buf, cap *= 2);
         ssize_t k = read(pfd[0], buf + len, cap - len);
+        if (k < 0 && errno == EINTR) continue;
         if (k <= 0) break;
         len += (size_t)k;
     }
     close(pfd[0]);
     int status = 0;
-    waitpid(pid, &status, 0);
-    VP(out)[0] = (V)(int64_t)(WIFEXITED(status) ? WEXITSTATUS(status) : -1);
+    pid_t done;
+    do {
+        done = waitpid(pid, &status, 0);
+    } while (done < 0 && errno == EINTR);
+    if (done == pid && WIFEXITED(status)) VP(out)[0] = (V)(int64_t)WEXITSTATUS(status);
     VP(out)[1] = vstr_new(buf, (int64_t)len);
     free(buf);
     return out;

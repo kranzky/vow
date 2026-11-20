@@ -217,6 +217,20 @@ fn run_tests(code: String, tests: List<String>, json: Bool) uses console, fs, pr
   end if
 end fn run_tests
 
+// Whether two paths as written name the same file: equal once any leading "./" is
+// dropped.
+fn same_path(a: String, b: String) -> Bool do
+  return plain_path(a) == plain_path(b)
+end fn same_path
+
+fn plain_path(path: String) -> String do
+  var rest = path
+  while starts_with(s: rest, p: "./") and (len(rest) >= 2) do
+    set rest = slice(of: rest, from: 2, to: len(rest))
+  end while
+  return rest
+end fn plain_path
+
 fn basename_stem(path: String) -> String do
   var base = path
   let slash = find_last_byte(s: path, c: '/')
@@ -433,6 +447,10 @@ fn main() uses console, fs, proc do
         set tmp = make_temp_dir()
         set exe = tmp ++ "/program"
       end if
+    end if
+    if same_path(a: exe, b: file) then
+      eprint("vowc: the executable would overwrite the source file '" ++ file ++ "': name it with -o\n")
+      exit(2)
     end if
     let e = compile_c(c: code, exe: exe)
     if len(e) > 0 then

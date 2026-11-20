@@ -1,0 +1,8 @@
+echo: 0 [hello
+]
+cat: 0 [piped in]
+no input: 0 []
+status: 3 [partial]
+signal: -1 []
+missing: 127 []
+empty argv: -1 []

@@ -178,6 +178,37 @@ if [ -z "$VOW_FROZEN" ]; then
   fi
   rm -rf "$cdir"
 fi
+# A program that cannot write its standard output panics instead of exiting 0.
+if [ -z "$VOW_FROZEN" ]; then
+  odir=$(mktemp -d)
+  printf 'fn main() uses console do\n  print("lost\\n")\nend fn main\n' > "$odir/out.vow"
+  "$VOWC" build "$odir/out.vow" -o "$odir/out" >/dev/null 2>&1
+  got=$("$odir/out" 2>&1 >&-; echo "status $?")
+  if [ "$got" = "$(printf 'vow: panic: cannot write to standard output\nstatus 101')" ]; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1)); echo "FAIL a closed standard output: $got"
+  fi
+  rm -rf "$odir"
+fi
+# build refuses to write the executable over its source: a source file with no
+# extension is also the default name of its executable.
+if [ -z "$VOW_FROZEN" ]; then
+  odir=$(mktemp -d)
+  printf 'fn main() uses console do\n  print("kept\\n")\nend fn main\n' > "$odir/prog"
+  cp "$odir/prog" "$odir/before"
+  got=$(cd "$odir" && "$VOWC" build prog 2>&1; echo "status $?"; "$VOWC" build ./prog -o prog 2>&1; echo "status $?")
+  want="vowc: the executable would overwrite the source file 'prog': name it with -o
+status 2
+vowc: the executable would overwrite the source file './prog': name it with -o
+status 2"
+  if [ "$got" = "$want" ] && cmp -s "$odir/prog" "$odir/before" && (cd "$odir" && "$VOWC" build prog -o out >/dev/null 2>&1 && [ "$(./out)" = kept ]); then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1)); echo "FAIL building a source file with no extension: $got"
+  fi
+  rm -rf "$odir"
+fi
 # The pinned Z3 version must be the same in the compiler and the installer.
 pinned=$(sed -n 's/^VERSION=//p' ../tools/install-z3.sh)
 if grep -A1 'fn tested_z3_version' ../compiler/verify.vow | grep -q "\"$pinned\""; then

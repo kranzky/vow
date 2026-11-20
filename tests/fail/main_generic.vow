@@ -1,0 +1,6 @@
+// error: 'main' must not have type parameters
+// language: 0.9
+// Nothing calls main, so no instance of it would exist to run.
+fn main<T>() uses console do
+  print("hi\n")
+end fn main

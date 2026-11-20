@@ -1,0 +1,18 @@
+// language: 0.9
+// What run() reports: the command's output and exit status; 127 when there is no such
+// program; -1 when it was ended by a signal. (The bootstrap compiler is skipped because
+// its frozen runtime differs here.)
+fn show(label: String, r: Output) uses console do
+  print(label ++ ": " ++ int_to_str(r.code) ++ " [" ++ r.out ++ "]\n")
+end fn show
+
+fn main() uses console, proc do
+  show(label: "echo", r: run(argv: ["echo", "hello"], input: ""))
+  show(label: "cat", r: run(argv: ["cat"], input: "piped in"))
+  show(label: "no input", r: run(argv: ["cat"], input: ""))
+  show(label: "status", r: run(argv: ["sh", "-c", "printf partial; exit 3"], input: ""))
+  show(label: "signal", r: run(argv: ["sh", "-c", "kill -9 $$"], input: ""))
+  show(label: "missing", r: run(argv: ["/no/such/program"], input: ""))
+  let none: List<String> = []
+  show(label: "empty argv", r: run(argv: none, input: ""))
+end fn main

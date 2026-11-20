@@ -1709,6 +1709,16 @@ fn check_program(items: List<Item>, files: List<String>, next_id: Int) -> Checke
     if (len(m.params) > 0) or (ty_show(m.ret.ty) != "Unit") then
       err(c: inout c, pos: m.pos, msg: "'main' must take no parameters and return Unit")
     end if
+    // Nothing calls main, so nothing would choose its type arguments.
+    for item in items do
+      match item
+      case FnItem(decl: f) then
+        if (f.name == "main") and (len(f.tparams) > 0) then
+          err(c: inout c, pos: f.pos, msg: "'main' must not have type parameters")
+        end if
+      else
+      end match
+    end for
   end match
   // An instance can repeat an error in its generic declaration.
   var unique: List<Diag> = []
