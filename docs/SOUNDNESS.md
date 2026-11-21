@@ -398,10 +398,11 @@ irrational) satisfies these facts.
 ## The cache
 
 A function's queries are not sent to Z3 again when its verification key is in the
-program's cache file. The key is a hash of the verifier version and of exactly what the
-proof sends: the function's definitions, each obligation with the facts of its path,
-and the declarations of the shared symbols they name. The queries are generated on
-every run, so nothing has to list what a proof depends on: a change to a callee's
+user's proof store (`~/.cache/vow`, or `$VOW_CACHE`). The key is a hash of the verifier
+version and of exactly what the proof sends: the function's definitions, each
+obligation with the facts of its path, and the declarations of the shared symbols
+they name. The queries are generated on every run, so nothing has to list what a
+proof depends on: a change to a callee's
 contract, a type's refinement, a specification function's body or the function's
 recursive group changes the queries, and so the key. Earlier keys hashed a list of
 such dependencies, and twice the list missed one (see the history below). What the key
@@ -413,7 +414,16 @@ may have had a bug since fixed, is proved again. `tests/cache/` edits programs b
 two checks with the cache on, and `tests/run.sh` checks which functions are proved
 again after each of a series of edits to `tests/reuse/main.vow`. A run with
 `VOW_SMT_V03` set (the v0.3 encoding, kept for `tests/differential.sh`) neither reads
-the cache nor writes it.
+the store nor adds to it.
+
+The store is trusted: a file in it says that a query was proved, and vowc believes it.
+It belongs to the user and is written only after Z3 has proved every obligation of a
+function. Until v0.9.9 the keys were kept in a file beside each program, so a
+repository could carry, and a clone would believe, keys that nothing had proved; no
+file in a source tree is read now. One store for every program means many more keys
+are compared, so a key is 128 bits (it was 64). Two different queries with the same
+key would share a proof; the hash is not cryptographic, and nothing defends against
+queries built to collide, which is the same trust as writing to the store.
 
 ## Known limits
 

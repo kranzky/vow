@@ -33,7 +33,8 @@ fn usage() -> String do
     "  --no-verify   skip the Z3 verifier (unsafe: contracts are not checked)\n" ++
     "  --check-contracts  with build, run and test: also check contracts, refinements,\n" ++
     "                loop invariants, measures and bounds while the program runs\n" ++
-    "  --no-cache    ignore and do not update the verification cache\n" ++
+    "  --no-cache    prove everything again: neither read the proof store nor add to it\n" ++
+    "                (the store is $VOW_CACHE, or else ~/.cache/vow)\n" ++
     "  --totality    with check: also report which functions are proved to terminate\n" ++
     "  --no-line-directives  emit C without #line directives (errors, debuggers and\n" ++
     "                panics then refer to the C rather than the .vow source)\n" ++
@@ -415,7 +416,7 @@ fn main() uses console, fs, proc do
   // verifier runs even when there are holes.
   var verified = false
   if (not no_verify) or (len(c.info.holes) > 0) then
-    let vr = verify_source(src: src, c: c, file: file, no_cache: no_cache, v03: is_some(getenv("VOW_SMT_V03")))
+    let vr = verify_source(src: src, c: c, no_cache: no_cache, v03: is_some(getenv("VOW_SMT_V03")))
     if len(vr.error) > 0 then
       eprint("vowc: " ++ vr.error ++ "\n")
       exit(1)

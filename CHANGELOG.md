@@ -64,6 +64,13 @@
   function again, and adding a struct none. The key cannot miss something a proof
   depends on, as hand-listed keys did twice. `vowc hash` prints the new key. With every
   proof cached, Z3 is not started.
+- Proofs are kept in one store for all of a user's programs, `~/.cache/vow` (or
+  `$XDG_CACHE_HOME/vow`, or the directory `$VOW_CACHE`), where each program had a
+  `<file>.vowcache` beside it. A function is proved once however many programs import
+  it: the language server no longer proves the compiler's functions again, and the
+  standard library is proved once per machine. Keys are 128 bits. The `.vowcache`
+  files are no longer read or written and can be deleted; a repository can no longer
+  carry keys that a clone would trust.
 - `vowc add lib <url> main` pins the branch `main`. It could pin `feature/main`: git
   matches a short name against the end of every ref. A short name is now the branch or
   the tag of exactly that name, an annotated tag pins its commit (it could not be

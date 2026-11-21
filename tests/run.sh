@@ -9,6 +9,12 @@ cd "$(dirname "$0")" || exit 1
 VOWC=${VOWC:-"$(pwd)/../bootstrap/target/debug/vowc"}
 pass=0
 fail=0
+# Proofs are kept in a store shared by every program (see "Content addressing" in
+# docs/SPEC.md). The tests use an empty one of their own, so that what they prove does
+# not depend on what was proved before.
+VOW_CACHE=$(mktemp -d)
+export VOW_CACHE
+trap 'rm -rf "$VOW_CACHE"' EXIT
 # With VOW_FROZEN set (the Rust bootstrap compiler), skip programs that use language
 # features added after v0.3; they say so in a "// language: ..." line.
 skip() { [ -n "$VOW_FROZEN" ] && grep -q '^// language:' "$1"; }
@@ -169,8 +175,8 @@ if [ -z "$VOW_FROZEN" ] && command -v git >/dev/null 2>&1; then
     fail=$((fail + 1)); echo "FAIL packages"
   fi
 fi
-# The verification cache reuses a proof only while everything it relied on is
-# unchanged: each tests/cache/<case>/before/ verifies (filling the cache), then the
+# The proof store reuses a proof only while everything it relied on is
+# unchanged: each tests/cache/<case>/before/ verifies (adding to the store), then the
 # files in after/ replace them, and main.vow must be rejected with the message on the
 # first line of whichever main.vow is in use.
 if [ -z "$VOW_FROZEN" ]; then
@@ -194,17 +200,24 @@ fi
 # ... and it reuses every proof whose queries are unchanged: after an edit, only the
 # functions whose proofs the edit reaches are sent to Z3 (VOW_SMT_DUMP holds what is
 # sent). Each step edits reuse/main.vow and names the functions that must be proved.
+# The store is shared: a second program with the same functions proves nothing.
 if [ -z "$VOW_FROZEN" ]; then
   rdir=$(mktemp -d)
   cp reuse/main.vow "$rdir/"
   reuse_ok=true
+  # proved <what was done> <the functions that must be sent to Z3> [file] [options]
   proved() {
-    VOW_SMT_DUMP="$rdir/dump" "$VOWC" check "$rdir/main.vow" >/dev/null 2>&1 || { reuse_ok=false; echo "reuse: $1: does not verify"; }
+    VOW_CACHE="$rdir/store" VOW_SMT_DUMP="$rdir/dump" "$VOWC" check "${3:-$rdir/main.vow}" $4 >/dev/null 2>&1 ||
+      { reuse_ok=false; echo "reuse: $1: does not verify"; }
     got=$(sed -n 's/^(push 1) ; fn //p' "$rdir/dump" | tr '\n' ' ')
     [ "$got" = "$2" ] || { reuse_ok=false; echo "reuse: $1: proved [$got], expected [$2]"; }
   }
-  proved "the first check" "clamp twice capped origin main "
+  all="clamp twice capped origin main "
+  proved "--no-cache" "$all" "" --no-cache
+  proved "the first check (--no-cache keeps nothing)" "$all"
   proved "no edit" ""
+  mkdir "$rdir/elsewhere" && cp "$rdir/main.vow" "$rdir/elsewhere/other.vow"
+  proved "the same functions in another program" "" "$rdir/elsewhere/other.vow"
   printf '\n// A comment.\nstruct Unused\n  a: Int,\nend struct Unused\n' >> "$rdir/main.vow"
   proved "an unused struct" ""
   sed -i.bak 's/return n + n/return n * 2/' "$rdir/main.vow"
@@ -215,8 +228,23 @@ if [ -z "$VOW_FROZEN" ]; then
   proved "a field refinement" "origin "
   sed -i.bak 's/ensures result >= 0/ensures (result >= 0) and (result >= n)/' "$rdir/main.vow"
   proved "a contract" "clamp origin main "
-  # With every proof cached, Z3 is not needed at all.
-  VOW_Z3=/nonexistent/z3 "$VOWC" check "$rdir/main.vow" >/dev/null 2>&1 || { reuse_ok=false; echo "reuse: a cached check ran Z3"; }
+  # A proof that failed is not kept: the function is sent again.
+  sed -i.bak 's/return n \* 2/return n - 1/' "$rdir/main.vow"
+  for again in 1 2; do
+    VOW_CACHE="$rdir/store" VOW_SMT_DUMP="$rdir/dump" "$VOWC" check "$rdir/main.vow" >/dev/null 2>&1 &&
+      { reuse_ok=false; echo "reuse: a false postcondition verified"; }
+    grep -q '^(push 1) ; fn twice$' "$rdir/dump" || { reuse_ok=false; echo "reuse: a failed proof was kept"; }
+  done
+  sed -i.bak 's/return n - 1/return n * 2/' "$rdir/main.vow"
+  # With every proof in the store, Z3 is not needed at all.
+  VOW_CACHE="$rdir/store" VOW_Z3=/nonexistent/z3 "$VOWC" check "$rdir/main.vow" >/dev/null 2>&1 ||
+    { reuse_ok=false; echo "reuse: a check with every proof kept ran Z3"; }
+  # A proof is one file in $VOW_CACHE/proofs/<verifier version>/<two characters>/.
+  [ "$(find "$rdir/store/proofs" -type f | wc -l)" -gt 4 ] || { reuse_ok=false; echo "reuse: the store is not where it should be"; }
+  [ -z "$(find "$rdir" -name '*.vowcache')" ] || { reuse_ok=false; echo "reuse: a .vowcache file was written"; }
+  # Without a home there is no store, and checking works.
+  env -u VOW_CACHE -u XDG_CACHE_HOME -u HOME "$VOWC" check "$rdir/main.vow" >/dev/null 2>&1 ||
+    { reuse_ok=false; echo "reuse: a check without a home failed"; }
   rm -rf "$rdir"
   if $reuse_ok; then
     pass=$((pass + 1))

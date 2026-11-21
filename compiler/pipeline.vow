@@ -76,13 +76,53 @@ end struct Verified
 // A function's verification key: a hash of the verifier version and of exactly what
 // its proof sends to Z3 (the shared declarations it names, and its part of the script).
 // So the key changes when anything the proof depends on does, wherever in the program
-// that is, and only then.
+// that is, and only then. Keys from every program share one store, so a key is two
+// 64-bit hashes of the text, begun differently: 128 bits.
 fn query_key(vc: FnVc) -> String do
   let globals = join(parts: vc.globals, sep: "\n")
   let none: Option<Ob> = Option.None
   let block = join(parts: fn_block(vc: vc, model: none), sep: "\n")
-  return hash(verifier_version() ++ "\n" ++ globals ++ "\n\n" ++ block)
+  let text = verifier_version() ++ "\n" ++ globals ++ "\n\n" ++ block
+  return hash("a\n" ++ text) ++ hash("b\n" ++ text)
 end fn query_key
+
+fn env_or_empty(name: String) -> String uses proc do
+  match getenv(name)
+  case Some(value: x) then
+    return x
+  case None then
+    return ""
+  end match
+end fn env_or_empty
+
+// The directory that holds this verifier version's proofs, shared by every program the
+// user checks: $VOW_CACHE, or else vow/ in $XDG_CACHE_HOME, or else ~/.cache/vow. ""
+// when none of those is set: then nothing is kept.
+fn proof_store() -> String uses proc do
+  var base = env_or_empty("VOW_CACHE")
+  if len(base) == 0 then
+    let xdg = env_or_empty("XDG_CACHE_HOME")
+    let home = env_or_empty("HOME")
+    if len(xdg) > 0 then
+      set base = xdg ++ "/vow"
+    elif len(home) > 0 then
+      set base = home ++ "/.cache/vow"
+    else
+      return ""
+    end if
+  end if
+  return base ++ "/proofs/" ++ verifier_version()
+end fn proof_store
+
+// A proof is an empty file named by its key, in a directory named by the key's first
+// two characters. A file is made only after Z3 proved every obligation of the query,
+// and never changed, so programs running at once need no lock.
+fn proof_dir(store: String, key: String) -> String do
+  if len(key) < 2 then
+    return store ++ "/00"
+  end if
+  return store ++ "/" ++ slice(of: key, from: 0, to: 2)
+end fn proof_dir
 
 struct FnKey
   name: String,
@@ -105,44 +145,34 @@ fn query_keys(src: Source, c: Checker) -> List<FnKey> do
 end fn query_keys
 
 // Verifies a checked program. Every function's queries are generated, which is quick;
-// those whose verification key is in the cache next to file are not sent to Z3, and
-// the keys of those proved are recorded. v03 (VOW_SMT_V03, for tests/differential.sh)
-// proves with the v0.3 encoding, which lacks facts later found to be needed: such a
-// run neither reads the cache nor writes it.
-fn verify_source(src: Source, c: Checker, file: String, no_cache: Bool, v03: Bool) -> Verified uses fs, proc do
+// those whose verification key is in the proof store are not sent to Z3, and the keys
+// of those proved are added to it. v03 (VOW_SMT_V03, for tests/differential.sh) proves
+// with the v0.3 encoding, which lacks facts later found to be needed: such a run
+// neither reads the store nor adds to it.
+fn verify_source(src: Source, c: Checker, no_cache: Bool, v03: Bool) -> Verified uses fs, proc do
   let none: List<Diag> = []
-  let uncached = no_cache or v03
-  let cache_path = file ++ ".vowcache"
-  var cached: Map<String, Bool> = {}
-  if not uncached then
-    match read_file(cache_path)
-    case Some(value: text) then
-      for l in split(s: text, sep: '\n') do
-        let parts = split(s: l, sep: ' ')
-        if (len(parts) > 0) and (len(parts[0]) > 0) then
-          set cached = insert(map: cached, key: parts[0], value: true)
-        end if
-      end for
-    case None then
-    end match
+  var store = ""
+  if not (no_cache or v03) then
+    set store = proof_store()
   end if
   var v = new_verifier(c.info)
   if v03 then
     set v = v with (hyps: false)
   end if
   var vcs: List<FnVc> = []
-  var fn_keys: List<FnKey> = []
+  // The functions sent to Z3 whose proofs can be kept.
+  var asked: List<FnKey> = []
   for item in src.items do
     match item
     case FnItem(decl: f) then
       let vc = verify_fn(v: inout v, f: f)
-      if uncached then
+      if (len(store) == 0) or (len(vc.obs) == 0) then
         set vcs = push(list: vcs, item: vc)
       else
         let key = query_key(vc)
-        set fn_keys = push(list: fn_keys, item: FnKey(name: f.name, key: key))
-        if not has(map: cached, key: key) then
+        if is_none(read_file(proof_dir(store: store, key: key) ++ "/" ++ key)) then
           set vcs = push(list: vcs, item: vc)
+          set asked = push(list: asked, item: FnKey(name: f.name, key: key))
         end if
       end if
     else
@@ -155,19 +185,18 @@ fn verify_source(src: Source, c: Checker, file: String, no_cache: Bool, v03: Boo
   if len(r.error) > 0 then
     return Verified(diags: none, error: r.error, undecided: false)
   end if
-  if not uncached then
-    var failed: Map<String, Bool> = {}
-    for f in r.failures do
-      set failed = insert(map: failed, key: f.fn_name, value: true)
-    end for
-    var lines: List<String> = []
-    for h in fn_keys do
-      if not has(map: failed, key: h.name) then
-        set lines = push(list: lines, item: h.key ++ " " ++ h.name ++ "\n")
-      end if
-    end for
-    let ok = write_file(path: cache_path, contents: join(parts: lines, sep: ""))
-  end if
+  var failed: Map<String, Bool> = {}
+  for f in r.failures do
+    set failed = insert(map: failed, key: f.fn_name, value: true)
+  end for
+  for h in asked do
+    if not has(map: failed, key: h.name) then
+      // Failing to write is no error: the proof is made again next time.
+      let dir = proof_dir(store: store, key: h.key)
+      let made = make_dir(dir)
+      let kept = write_file(path: dir ++ "/" ++ h.key, contents: "")
+    end if
+  end for
   var diags: List<Diag> = []
   var undecided = false
   for f in r.failures do

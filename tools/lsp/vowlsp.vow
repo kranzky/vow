@@ -254,7 +254,7 @@ fn diagnose(s: inout Server, path: String, prove: Bool) uses console, fs, proc d
     let ck = check_source(src: src, test_mode: true)
     set diags = ck.errs
     if (len(diags) == 0) and (prove or (len(ck.c.info.holes) > 0)) then
-      let vr = verify_source(src: src, c: ck.c, file: path, no_cache: false, v03: false)
+      let vr = verify_source(src: src, c: ck.c, no_cache: false, v03: false)
       set diags = vr.diags
       if len(vr.error) > 0 then
         set diags = push(list: diags, item: diag(pos: Pos(file: 0, line: 1, col: 1), msg: vr.error))

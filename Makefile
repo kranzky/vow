@@ -15,10 +15,14 @@
 #   make site       build vowsite (tools/vowsite) and generate public/ from site/
 #
 # Verification needs Z3 on the PATH (or VOW_Z3=/path/to/z3).
+#
+# vowc keeps the proofs it has made in a store shared by every program (~/.cache/vow).
+# Here it keeps them in build/cache instead, unless VOW_CACHE is already set.
 
 CC ?= cc
 CFLAGS ?= -O2 -std=c11 -w
 RUST_VOWC = bootstrap/target/release/vowc
+export VOW_CACHE ?= $(CURDIR)/build/cache
 
 all: build/vowc
 

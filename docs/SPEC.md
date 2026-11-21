@@ -636,8 +636,20 @@ For each function the compiler computes:
   The verifier version changes whenever the SMT the verifier emits does, so a result
   is reused only by the verifier that proved it.
 
-Verified keys are stored in `<file>.vowcache`. Every function's queries are generated
-on each run, which is quick; those whose key is stored are not sent to Z3.
+Proved keys are kept in one store for all of a user's programs: the directory
+`$VOW_CACHE` if that is set, or else `$XDG_CACHE_HOME/vow`, or else `~/.cache/vow`.
+Every function's queries are generated on each run, which is quick; those whose key is
+in the store are not sent to Z3. So a function is proved once however many programs
+import it, the standard library included. A key is 128 bits (two FNV-1a hashes begun
+differently), written as 32 hexadecimal digits.
+
+A proof is an empty file, `proofs/<verifier version>/<first two digits>/<key>`, created
+after Z3 has proved every obligation of the function and never changed, so programs
+running at once need no lock. The store is only a cache: any part of it can be deleted
+at any time, and the directories of older verifier versions are never read again.
+`--no-cache` neither reads the store nor adds to it. Nothing is kept beside the source
+files (the `<file>.vowcache` files of earlier versions are not read and can be
+deleted).
 `vowc hash file.vow` prints each function's hashes.
 
 ## Testing

@@ -366,9 +366,11 @@ obligation, so "incremental solving" in the usual sense is done.
   `tests/cache/field_refine`, `spec_refine` and `alias_refine` (a proof must not be
   reused), and the edits to `tests/reuse/main.vow` in `tests/run.sh` (exactly the
   functions an edit reaches are proved again).
-- **Not done:** the cache is still one file per root file. The keys no longer depend on
-  the program around a function, so one store could serve every program (and prove the
-  standard library once per machine); where it lives is a design decision.
+- **Done too:** the per-file caches are gone. Proofs are kept in one store for every
+  program, `~/.cache/vow` (or `$XDG_CACHE_HOME/vow`, or `$VOW_CACHE`): an empty file
+  per proved key, so programs running at once need no lock. Checking `vowlsp.vow`
+  after `vowc.vow` proves 26 functions, not 185. Keys are 128 bits. Nothing prunes the
+  store; the directories of older verifier versions are dead and can be deleted.
 
 ### V6. A script's size is quadratic in the facts on a path (measured by one reviewer)
 
