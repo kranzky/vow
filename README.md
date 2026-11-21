@@ -179,7 +179,11 @@ Emacs (Eglot):
 
 ## Status
 
-The current release is **v0.9.9**, which adds the bound `Ord` on type parameters (`<` on
+The current release is **v0.9.10**, which adds lexicographic termination measures
+(`decreases a, b`), verifies large programs much faster (the compiler checks itself in
+1.9 s, from 33.5 s), keeps proofs in one store shared by every program, appends to
+strings in place, and fixes the findings of five independent reviews of v0.9.9.
+v0.9.9 added the bound `Ord` on type parameters (`<` on
 `T`), order on strings, and bounds on generic structs and enums (`struct Range<T: Ord>`).
 v0.9.8 added the bound `Eq` on type parameters
 (required for `==` on `T`) and generic functions in specifications. v0.9.7 fixed the

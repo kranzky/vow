@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.9.10
 
 - Lexicographic termination measures: `decreases a, b` (no parentheses, as in Dafny)
   is smaller when some part is smaller and was non-negative and every part before it
