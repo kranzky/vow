@@ -623,6 +623,13 @@ No crash or hang in 30,000 fuzzed edits, and malformed framing is survived.
   is read as an option. No way to run a command was found.
 - `import "@lib/../../outside.vow"` reads a file outside the package
   (`packages.vow:237`).
+- **Done**, all four. `vowc add` fetches before it writes. A relative path is relative
+  to its `vow.pkg` (and refused in a fetched package's `vow.pkg`, whose directory is
+  the store). URLs follow `--`, and one starting with `-` is refused: contrary to the
+  note above, `vowc add x "--upload-pack=touch <file>"` did run the command. An
+  `@name` import with a `..` part is an error, and so is a relative import in a
+  package's file that ends outside the package (the same escape from the other side,
+  not in the review). Tests: the package block of `tests/run.sh`.
 
 ### G3. `vowc run` gives the program empty stdin and holds its output until it exits (reproduced)
 

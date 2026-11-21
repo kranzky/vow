@@ -144,7 +144,7 @@ if [ -z "$VOW_FROZEN" ] && command -v git >/dev/null 2>&1; then
   cp packages/main.vow "$pdir/proj/src/"
   got=$(cd "$pdir/proj" && "$VOWC" add shapes "$pdir/shapes" | sed 's/ [0-9a-f]\{7\} / C /; s| from .*||; s| to .* in | in |'
     "$VOWC" run src/main.vow --no-cache 2>&1 && cd src && "$VOWC" run main.vow 2>&1)
-  want=$(printf 'created vow.pkg (commit it; the fetched packages in .vow/ need not be)\npinned shapes in vow.pkg\nfetched shapes C\nfetched units C\n12 300\n12 300')
+  want=$(printf 'fetched shapes C\ncreated vow.pkg (commit it; the fetched packages in .vow/ need not be)\npinned shapes in vow.pkg\nfetched units C\n12 300\n12 300')
   [ "$got" = "$want" ] || { pkg_ok=false; echo "packages: got"; echo "$got" | head -10; }
   printf 'import "@nope/x.vow" as x\nfn main() do\nend fn main\n' > "$pdir/proj/e.vow"
   (cd "$pdir/proj" && "$VOWC" check e.vow 2>&1 | grep -qF "the package 'nope' is not listed in vow.pkg") || pkg_ok=false
@@ -168,6 +168,41 @@ if [ -z "$VOW_FROZEN" ] && command -v git >/dev/null 2>&1; then
   done
   (cd "$pdir/pin" && "$VOWC" add lib "$pdir/refs" both 2>&1 | grep -qF "'both' is both a branch and a tag") || pkg_ok=false
   (cd "$pdir/pin" && grep -q "^lib .* $one\$" vow.pkg) || pkg_ok=false
+  # A pin that cannot be fetched is not written over one that can.
+  cp "$pdir/pin/vow.pkg" "$pdir/pin.before"
+  (cd "$pdir/pin" && "$VOWC" add lib "$pdir/refs" 0123456789012345678901234567890123456789 2>&1 |
+    grep -qF "has no commit 0123456789012345678901234567890123456789") || pkg_ok=false
+  cmp -s "$pdir/pin/vow.pkg" "$pdir/pin.before" || { pkg_ok=false; echo "packages: a pin that cannot be fetched was written"; }
+  # git would read a URL that starts with '-' as an option (this one runs a command).
+  (cd "$pdir/pin" && "$VOWC" add x "--upload-pack=touch $pdir/ran" 2>&1 | grep -qF "is not a git URL") || pkg_ok=false
+  [ ! -e "$pdir/ran" ] || { pkg_ok=false; echo "packages: a URL was read as an option to git"; }
+  printf 'x -uecho %s\n' "$one" > "$pdir/dash.pkg"
+  (mkdir "$pdir/dash" && cd "$pdir/dash" && cp ../dash.pkg vow.pkg && "$VOWC" fetch 2>&1 | grep -qF "'-uecho' is not a git URL") || pkg_ok=false
+  # A relative path in vow.pkg is relative to vow.pkg, wherever vowc runs; given to
+  # `vowc add` it is relative to the working directory.
+  mkdir -p "$pdir/rel/deep" && (cd "$pdir/rel" && "$VOWC" add units ../units >/dev/null 2>&1 &&
+    grep -q '^units \.\./units ' vow.pkg && rm -rf .vow && cd deep && "$VOWC" fetch >/dev/null 2>&1 &&
+    "$VOWC" add again ../../units >/dev/null 2>&1 && grep -q "^again $pdir/units " ../vow.pkg) ||
+    { pkg_ok=false; echo "packages: relative paths"; }
+  # ... but not in a fetched package's own vow.pkg, which is in the store.
+  mkdir "$pdir/nest" && (cd "$pdir/nest" && cp ../rel/vow.pkg . && cp ../units/units.vow . && git init -q . && git add -A &&
+    git -c user.email=t@example.com -c user.name=t commit -qm nest) || pkg_ok=false
+  (mkdir "$pdir/outer" && cd "$pdir/outer" && "$VOWC" add nest "$pdir/nest" 2>&1 | grep -qF "must give a URL") || pkg_ok=false
+  # Imports do not leave a package: neither "@name/../..." nor, from a file in a
+  # package, a relative path that ends outside it. Inside it, "../" is fine.
+  mkdir -p "$pdir/wild/in" && (cd "$pdir/wild" &&
+    printf 'fn two() -> Int do\n  return 2\nend fn two\n' > b.vow &&
+    printf 'import "../b.vow" as b\n\nfn four() -> Int do\n  return b.two() + b.two()\nend fn four\n' > in/a.vow &&
+    printf 'import "../../../../secret.vow" as s\n\nfn leak() -> Int do\n  return s.secret()\nend fn leak\n' > esc.vow &&
+    git init -q . && git add -A && git -c user.email=t@example.com -c user.name=t commit -qm wild) || pkg_ok=false
+  mkdir "$pdir/app" && (cd "$pdir/app" && "$VOWC" add wild "$pdir/wild" >/dev/null 2>&1 &&
+    printf 'fn secret() -> Int do\n  return 42\nend fn secret\n' > secret.vow &&
+    printf 'import "@wild/in/a.vow" as a\n\nfn main() uses console do\n  print(int_to_str(a.four()) ++ "\\n")\nend fn main\n' > ok.vow &&
+    printf 'import "@wild/../../../../secret.vow" as s\n\nfn main() uses console do\n  print(int_to_str(s.secret()) ++ "\\n")\nend fn main\n' > up.vow &&
+    printf 'import "@wild/esc.vow" as e\n\nfn main() uses console do\n  print(int_to_str(e.leak()) ++ "\\n")\nend fn main\n' > out.vow &&
+    [ "$("$VOWC" run ok.vow 2>&1)" = 4 ] &&
+    "$VOWC" check up.vow 2>&1 | grep -qF "leaves the package" &&
+    "$VOWC" check out.vow 2>&1 | grep -qF "is outside the package") || { pkg_ok=false; echo "packages: imports that leave a package"; }
   rm -rf "$pdir"
   if $pkg_ok; then
     pass=$((pass + 1))

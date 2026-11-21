@@ -230,7 +230,7 @@ Standard library:
 
 Packages and running programs:
 - [x] G1: `vowc add lib <url> main` can pin the branch `feature/main`
-- [ ] G2: packages: a pin to a missing commit is written before it fails; relative
+- [x] G2: packages: a pin to a missing commit is written before it fails; relative
       URLs; `--` before URLs passed to git; `@lib/../` escapes the package
 - [x] G3: `vowc run` passes stdin through and streams output (the program got empty
       input, and its output appeared when it exited), with the new built-in

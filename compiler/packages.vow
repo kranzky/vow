@@ -64,6 +64,26 @@ fn fields(line: String) -> List<String> do
   return out
 end fn fields
 
+// Whether url names a repository by a path relative to some directory: it has no
+// scheme, is not host:path (as in git@github.com:someone/repo), and is not absolute.
+fn is_relative_url(url: String) -> Bool do
+  if starts_with(s: url, p: "/") or (find(s: url, p: "://", from: 0) >= 0) then
+    return false
+  end if
+  let colon = find_byte(s: url, c: ':', from: 0)
+  let slash = find_byte(s: url, c: '/', from: 0)
+  if (colon >= 0) and ((slash < 0) or (colon < slash)) then
+    return false
+  end if
+  return true
+end fn is_relative_url
+
+// git would read a URL that starts with '-' as an option, and some options run
+// commands. Every URL is also passed after "--".
+fn is_git_url(url: String) -> Bool do
+  return (len(url) > 0) and not starts_with(s: url, p: "-")
+end fn is_git_url
+
 fn parse_manifest(text: String) -> Manifest do
   var deps: List<PkgDep> = []
   var errs: List<String> = []
@@ -81,6 +101,8 @@ fn parse_manifest(text: String) -> Manifest do
       set errs = push(list: errs, item: at ++ "expected a name, a git URL and a commit")
     elif not is_pkg_name(cols[0]) then
       set errs = push(list: errs, item: at ++ "'" ++ cols[0] ++ "' is not a package name (letters, digits, '_' and '-')")
+    elif not is_git_url(cols[1]) then
+      set errs = push(list: errs, item: at ++ "'" ++ cols[1] ++ "' is not a git URL")
     elif not is_commit(cols[2]) then
       set errs = push(list: errs, item: at ++ "'" ++ cols[2] ++ "' is not a commit: give all 40 hex digits")
     elif contains_str(xs: names, x: cols[0]) then
@@ -159,7 +181,14 @@ struct PkgContext
   store: String,
 end struct PkgContext
 
-fn pkg_context(file: String) -> PkgContext uses fs do
+// For a file in a fetched package, the store it is in and the package's directory
+// there (<store>/<url>/<commit>); both "" for any other file.
+struct PkgHome
+  store: String,
+  root: String,
+end struct PkgHome
+
+fn package_home(file: String) -> PkgHome do
   var at = -1
   if starts_with(s: file, p: ".vow/pkg/") then
     set at = 0
@@ -170,13 +199,20 @@ fn pkg_context(file: String) -> PkgContext uses fs do
     end if
   end if
   if (at >= 0) and ((at + 9) <= len(file)) then
-    // A file in a package: the package's own vow.pkg, and the same store.
     let store = slice(of: file, from: 0, to: at + 8)
     let rest = split(s: slice(of: file, from: at + 9, to: len(file)), sep: '/')
     if len(rest) >= 2 then
-      let root = store ++ "/" ++ rest[0] ++ "/" ++ rest[1]
-      return PkgContext(manifest: root ++ "/vow.pkg", store: store)
+      return PkgHome(store: store, root: store ++ "/" ++ rest[0] ++ "/" ++ rest[1])
     end if
+  end if
+  return PkgHome(store: "", root: "")
+end fn package_home
+
+fn pkg_context(file: String) -> PkgContext uses fs do
+  let home = package_home(file)
+  if len(home.root) > 0 then
+    // A file in a package: the package's own vow.pkg, and the same store.
+    return PkgContext(manifest: home.root ++ "/vow.pkg", store: home.store)
   end if
   let m = find_manifest(dirname(file))
   if len(m) == 0 then
@@ -219,6 +255,12 @@ fn resolve_package(file: String, rel: String where len(it) >= 1, pos: Pos) -> Pk
   end if
   let name = slice(of: rest, from: 0, to: slash)
   let sub = slice(of: rest, from: slash + 1, to: len(rest))
+  for part in split(s: sub, sep: '/') do
+    if part == ".." then
+      let why = "'" ++ sub ++ "' leaves the package"
+      return pkg_fail(pos: pos, msg: "an import from the package '" ++ name ++ "' names a file inside it: " ++ why, note: "")
+    end if
+  end for
   let add = "add it with: vowc add " ++ name ++ " <git URL>"
   let ctx = pkg_context(file)
   if len(ctx.manifest) == 0 then
@@ -251,16 +293,25 @@ fn git(argv: List<String>) -> Output uses proc do
   return run(argv: ["git"] ++ argv, input: "")
 end fn git
 
-// Clones one package into the store. The clone is made beside its final place and
-// moved there only once it holds the right commit, so a package directory in the store
-// is always complete.
-fn fetch_one(dep: PkgDep, store: String) -> Bool uses console, fs, proc do
+// What git is given for a package's URL: a relative path is relative to dir, the
+// directory of the vow.pkg that lists it.
+fn clone_source(url: String, dir: String) -> String do
+  if is_relative_url(url) then
+    return in_dir(dir: dir, name: url)
+  end if
+  return url
+end fn clone_source
+
+// Clones one package from source into the store. The clone is made beside its final
+// place and moved there only once it holds the right commit, so a package directory in
+// the store is always complete.
+fn fetch_one(dep: PkgDep, store: String, source: String) -> Bool uses console, fs, proc do
   let root = pkg_root(store: store, dep: dep)
   let tmp = root ++ ".partial"
   let _ = make_dir(store ++ "/" ++ url_key(dep.url))
   let _ = run(argv: ["rm", "-rf", tmp], input: "")
   var problem = ""
-  if git(["clone", "--quiet", dep.url, tmp]).code != 0 then
+  if git(["clone", "--quiet", "--", source, tmp]).code != 0 then
     set problem = "cannot clone " ++ dep.url
   elif git(["-C", tmp, "checkout", "--quiet", dep.commit]).code != 0 then
     set problem = dep.url ++ " has no commit " ++ dep.commit
@@ -298,8 +349,15 @@ fn fetch_packages(manifest: String) -> Bool uses console, fs, proc do
         continue
       end if
       set done = push(list: done, item: root)
+      if (src != manifest) and is_relative_url(dep.url) then
+        // A fetched package's files are in the store, which its path is not relative to.
+        let why = "is at the relative path '" ++ dep.url ++ "': a package's own vow.pkg must give a URL"
+        eprint(src ++ ": the package '" ++ dep.name ++ "' " ++ why ++ "\n")
+        set ok = false
+        continue
+      end if
       if is_none(list_dir(root)) then
-        if not fetch_one(dep: dep, store: store) then
+        if not fetch_one(dep: dep, store: store, source: clone_source(url: dep.url, dir: dirname(src))) then
           set ok = false
           continue
         end if
@@ -353,7 +411,7 @@ fn resolve_ref(url: String, ref: String) -> PinnedRef uses proc do
   if full then
     set names = [ref, ref ++ "^{}"]
   end if
-  let o = git(["ls-remote", url] ++ names)
+  let o = git(["ls-remote", "--", url] ++ names)
   if o.code != 0 then
     return PinnedRef(commit: "", problem: "cannot list the branches and tags of " ++ url)
   end if
@@ -386,6 +444,10 @@ fn add_package(name: String, url: String, ref: String) -> Bool uses console, fs,
     eprint("vowc: '" ++ name ++ "' is not a package name (letters, digits, '_' and '-')\n")
     return false
   end if
+  if not is_git_url(url) then
+    eprint("vowc: '" ++ url ++ "' is not a git URL\n")
+    return false
+  end if
   let resolved = resolve_ref(url: url, ref: ref)
   if len(resolved.commit) == 0 then
     eprint("vowc: " ++ resolved.problem ++ "\n")
@@ -394,13 +456,34 @@ fn add_package(name: String, url: String, ref: String) -> Bool uses console, fs,
   let commit = resolved.commit
   var manifest = find_manifest(".")
   var text = "# Packages, imported as \"@name/file.vow\". `vowc fetch` fetches them into .vow/pkg/.\n"
-  if len(manifest) == 0 then
+  let created = len(manifest) == 0
+  if created then
     set manifest = "vow.pkg"
-    print("created vow.pkg (commit it; the fetched packages in .vow/ need not be)\n")
   else
     set text = value_or(opt: read_file(manifest), default: "")
   end if
-  let entry = name ++ " " ++ url ++ " " ++ commit
+  let dir = dirname(manifest)
+  // A relative path in vow.pkg is relative to vow.pkg's directory, and the one given
+  // here to the working directory: when those differ, the absolute path is listed.
+  var listed = url
+  if is_relative_url(url) and (len(dir) > 0) then
+    let cwd = trim(run(argv: ["pwd"], input: "").out)
+    if not starts_with(s: cwd, p: "/") then
+      eprint("vowc: cannot find the working directory, to list '" ++ url ++ "' in " ++ manifest ++ "\n")
+      return false
+    end if
+    set listed = in_dir(dir: cwd, name: url)
+  end if
+  // Fetched before it is listed: a pin that cannot be fetched (a commit the repository
+  // does not have, say) must not replace one that can.
+  let dep = PkgDep(name: name, url: listed, commit: commit)
+  let store = in_dir(dir: dir, name: ".vow/pkg")
+  if is_none(list_dir(pkg_root(store: store, dep: dep))) then
+    if not fetch_one(dep: dep, store: store, source: clone_source(url: listed, dir: dir)) then
+      return false
+    end if
+  end if
+  let entry = name ++ " " ++ listed ++ " " ++ commit
   var out: List<String> = []
   var replaced = false
   for line in lines(text) do
@@ -418,6 +501,9 @@ fn add_package(name: String, url: String, ref: String) -> Bool uses console, fs,
   if not write_file(path: manifest, contents: join(parts: out, sep: "\n") ++ "\n") then
     eprint("vowc: cannot write " ++ manifest ++ "\n")
     return false
+  end if
+  if created then
+    print("created vow.pkg (commit it; the fetched packages in .vow/ need not be)\n")
   end if
   print("pinned " ++ name ++ " to " ++ short(commit) ++ " in " ++ manifest ++ "\n")
   return fetch_packages(manifest)

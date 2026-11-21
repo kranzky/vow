@@ -124,16 +124,26 @@ file named `vow.pkg`, one per line: a name, a git URL, and the commit to use, in
 shapes  https://github.com/someone/vow-shapes  0123456789abcdef0123456789abcdef01234567
 ```
 
+The URL is anything `git clone` accepts that does not start with `-`. A relative path
+(`../shapes`) names a repository relative to the directory of the `vow.pkg` it is
+written in, and is allowed only in a project's own `vow.pkg`: a package that others
+fetch must give a URL.
+
 A file imports a package's files as `"@name/path.vow"`, usually as a module:
 `import "@shapes/shapes.vow" as shapes`. The `vow.pkg` that applies to a file is the
-nearest one in the file's directory or a directory above it.
+nearest one in the file's directory or a directory above it. The path names a file
+inside the package: it has no `..` part. A file in a fetched package likewise imports
+only that package's files, the standard library and other packages; a relative import
+that ends outside the package is an error.
 
 - `vowc add <name> <git URL> [ref]` pins the package to the commit that `ref` (a
   branch, a tag, a commit, or `HEAD` when omitted) names now, in the nearest `vow.pkg`
   (creating `./vow.pkg` if there is none), and fetches it. A short name is the branch
   or the tag of exactly that name: `main` is never `feature/main`. A name that is both
   a branch and a tag with different commits is refused; write `refs/heads/<name>` or
-  `refs/tags/<name>`.
+  `refs/tags/<name>`. The package is fetched before `vow.pkg` is written, so a pin
+  that cannot be fetched changes nothing. A relative path is relative to the working
+  directory; if `vow.pkg` is in another directory, the absolute path is written.
 - `vowc fetch` fetches every package listed in the nearest `vow.pkg`, and the packages
   those list in their own `vow.pkg`, into `.vow/pkg/` beside it. Each package is
   stored by URL and commit, so two versions of a package can be used side by side.

@@ -167,7 +167,17 @@ fn load_with(root: String, overrides: Map<String, String>) -> Source uses fs do
                   set raw = push(list: raw, item: RawImport(path: pp.path, imp: imp))
                 end match
               else
-                set raw = push(list: raw, item: RawImport(path: join_path(dir: dir, rel: imp.path), imp: imp))
+                // A file in a fetched package imports the package's own files (and the
+                // standard library), not whatever lies around it in the store.
+                let target = join_path(dir: dir, rel: imp.path)
+                let home = package_home(top.path).root
+                let inside = starts_with(s: target, p: home ++ "/") or starts_with(s: imp.path, p: "std/")
+                if (len(home) > 0) and not inside then
+                  let why = "'" ++ imp.path ++ "' is outside the package"
+                  set errs = push(list: errs, item: diag(pos: imp.pos, msg: "a file in a package imports files of that package: " ++ why))
+                else
+                  set raw = push(list: raw, item: RawImport(path: target, imp: imp))
+                end if
               end if
             end for
             // Push in reverse so imports are processed in source order.

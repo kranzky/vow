@@ -76,6 +76,19 @@
   the tag of exactly that name, an annotated tag pins its commit (it could not be
   pinned at all: the fetch failed), and a name that is both a branch and a tag is
   refused until it is written as `refs/heads/<name>` or `refs/tags/<name>`.
+- Packages, hardened:
+  - `vowc add` fetches the package before it writes `vow.pkg`, so a pin that cannot be
+    fetched (a commit the repository does not have) no longer replaces a good one.
+    The lines it prints are in that order: fetched, then pinned.
+  - A URL that starts with `-` is refused, in `vowc add` and in `vow.pkg`. git read
+    it as an option, and `vowc add x "--upload-pack=<command>"` ran the command.
+  - A relative path in `vow.pkg` is relative to `vow.pkg`'s directory, where it was
+    relative to wherever `vowc` ran. `vowc add` with a relative path writes the
+    absolute path when `vow.pkg` is in another directory. A fetched package's own
+    `vow.pkg` must give URLs.
+  - `import "@lib/../../file.vow"` is an error, where it read a file outside the
+    package; so is a relative import in a package's file that ends outside the
+    package.
 
 ## v0.9.9
 

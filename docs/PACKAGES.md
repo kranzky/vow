@@ -36,7 +36,8 @@ so read the `uses` clauses of what you call.
 1. Put your `.vow` files in a git repository. Files that only the package uses can
    mark their helpers `private`.
 2. If the package uses other packages, add them with `vowc add` in the repository's
-   root, and commit the `vow.pkg` it writes (but not `.vow/`).
+   root, and commit the `vow.pkg` it writes (but not `.vow/`). Give each a URL: a
+   relative path such as `../units` works only in a project's own `vow.pkg`.
 3. Check that every file verifies: `vowc check file.vow`.
 4. Tag a release (`git tag v1.0.0`) and push the tag, so users can pin it by name.
 
