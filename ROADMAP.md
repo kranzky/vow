@@ -151,11 +151,11 @@ Wrong behaviour in programs the compiler accepts (first):
 Compiler robustness:
 - [x] B1: 25,000 nested parentheses or terms of one `++` chain segfault the compiler;
       limit depth in the parser and iterate over operator chains
-- [ ] B2: lexer: a newline inside a character literal (wrong line numbers, and `fmt`
+- [x] B2: lexer: a newline inside a character literal (wrong line numbers, and `fmt`
       fails), a byte order mark, non-ASCII bytes that make `--json` output invalid,
       `0x1F` and `1e5` split into two tokens, float literals out of range, the minimum
       integer literal
-- [ ] B3: a directory is read as an empty source file; one file reached by two names
+- [x] B3: a directory is read as an empty source file; one file reached by two names
       (case, symlink, absolute path) is loaded twice
 - [ ] B4: `compute_inline` is cubic: 2,000 one-line functions take 5 s to check, 10,000
       over a minute

@@ -229,6 +229,25 @@ structured inputs.
   show the whole UTF-8 sequence and escape invalid bytes in JSON; lex a number with its
   trailing letters and report "malformed number"; check float literals; accept the
   minimum integer.
+- **Done** (`1_000` was already accepted when this was taken up):
+  - a control character in a character literal is an error;
+  - a byte order mark at the start is skipped, and `vowc fmt` keeps it;
+  - an unexpected character outside ASCII is shown whole if it is UTF-8 and as
+    `unexpected byte 0x..` if not (`utf8_len` in `compiler/util.vow`), and `json_str`
+    writes any byte that is not UTF-8 as U+FFFD;
+  - a number followed by a letter or digit is `malformed number '...'`;
+  - a `Float` literal that would be infinity, or `0.0` without being zero, is an error
+    (`float_literal_range`; `decimal_of` moved from the verifier to `util.vow`). The
+    second kind was unsound: the verifier orders literals by their decimal values, so
+    it proved `1.5e-400 > 0.0`;
+  - `9223372036854775808` straight after a unary `-` is the smallest `Int`: the lexer
+    gives the token that value, and the parser accepts it only there (an expression
+    or a pattern). The generated C says `INT64_MIN`;
+  - a carriage return with no line feed after it is an error, rather than a line end:
+    nothing is written with such line ends now, and the error says what to do.
+  Tests: `tests/fail/lex_*.vow`, `float_literal_*.vow`, `int_literal_*.vow`;
+  `tests/run/int_min.vow`, `float_limits.vow`, `byte_order_mark.vow`; the `--json`
+  case in `tests/run.sh`.
 
 ### B3. Files: a directory is an empty source file, and one file can load twice (reproduced)
 
@@ -239,6 +258,18 @@ structured inputs.
   symlink, or by an absolute and a relative path is loaded twice: "function 'one' is
   already declared at lib.vow:1", reported inside the library.
 - **Fix:** report "cannot open ... (it is a directory)"; identify files by `realpath`.
+- **Done.** `read_file` already gave `None` for a directory (R1); the loader now adds
+  `: it is a directory` when `list_dir` succeeds on the path. A file is known by its
+  real path (`keys` in `load_with`), and another path to a file already loaded is
+  recorded in `same` and linked to it, so it is loaded once. That needed a built-in,
+  `real_path`, which is newer than the v0.3 language: the compiler calls it through
+  `file_identity` in `compiler/attached.vow`, and the stand-in in
+  `tests/v03/attached.vow` gives the path back. An import spelled in another case than
+  the file is an error (`case_mismatch`), where `realpath` shows the file's own
+  spelling: the import would fail on a case-sensitive file system, so it fails
+  everywhere. A part that is in its directory as spelled (a link whose name differs
+  from its target only in case) is not taken for one. Tests: the "loaded once" block
+  in `tests/run.sh`, and `tests/run/real_path.vow`.
 
 ### B4. `compute_inline` is cubic in the number of small pure functions (reproduced by one reviewer)
 

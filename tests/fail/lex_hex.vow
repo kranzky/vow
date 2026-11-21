@@ -1,0 +1,6 @@
+// error: malformed number '0x1F'
+// language: 0.9
+// There are no hexadecimal literals; this was read as 0 and then x1F.
+fn main() do
+  let x = 0x1F
+end fn main

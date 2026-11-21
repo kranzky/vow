@@ -175,7 +175,8 @@ end fn main
 ```
 
 Built-ins: `len push slice join int_to_str str_to_int char insert lookup has keys hash
-panic print eprint read_line read_bytes read_file write_file args getenv run run_attached exit
+panic print eprint read_line read_bytes read_file write_file make_dir list_dir real_path args
+getenv run run_attached exit
 int_to_float float_to_int float_to_str float_to_fixed str_to_float floor ceil round sqrt abs_float
 is_nan`. Signatures are in the
 spec. `print` adds no newline.
@@ -742,14 +743,16 @@ every loop stops naturally.
 
 **Effects.** Declare the smallest set you need: `uses console` for
 `print`/`eprint`, `uses fs` for files and directories (`read_file`, `write_file`,
-`make_dir`, `list_dir`), `uses proc` for `args`, `getenv`, `run`, `run_attached` and
+`make_dir`, `list_dir`, `real_path`), `uses proc` for `args`, `getenv`, `run`, `run_attached` and
 `exit`. A pure function needs no `uses` clause, and that is checkable by anyone reading
 its signature.
 
 **A command-line tool without `proc`.** Keep every function pure except `main`, and
 end on errors with `panic`, which needs no effect. `exit` and `args` need `proc`, so
 a tool limited to `fs` and `console` uses fixed paths or reads its inputs from a file.
-`make_dir` creates missing parents like `mkdir -p`; `list_dir` returns sorted names.
+`make_dir` creates missing parents like `mkdir -p`; `list_dir` returns sorted names;
+`real_path` gives the absolute path of a file that exists (two paths name one file
+exactly when their real paths are equal).
 From `examples/mkindex.vow`:
 
 ```

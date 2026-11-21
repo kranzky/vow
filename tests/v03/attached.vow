@@ -1,6 +1,10 @@
 // What the frozen bootstrap verifier reads in place of compiler/attached.vow, which
-// calls run_attached, a built-in newer than the v0.3 language (tests/differential.sh).
-// Only the signature matters: nothing is run.
+// calls run_attached and real_path, built-ins newer than the v0.3 language
+// (tests/differential.sh). Only the signatures matter: nothing is run.
 fn run_program(argv: List<String>) -> Int uses proc do
   return run(argv: argv, input: "").code
 end fn run_program
+
+fn file_identity(path: String) -> Option<String> uses fs do
+  return Option.Some(value: path)
+end fn file_identity

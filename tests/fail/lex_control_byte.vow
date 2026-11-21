@@ -1,0 +1,6 @@
+// error: unexpected byte 0x0c
+// language: 0.9
+// A control character outside a string (here a form feed).
+fn main() do
+  let x =  1
+end fn main

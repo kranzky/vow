@@ -2,6 +2,7 @@
 
 import "modules.vow"
 import "packages.vow"
+import "attached.vow"
 import "std_text.vow"
 import "std_json.vow"
 
@@ -94,6 +95,44 @@ fn tparam_name(base: String, taken: List<String>) -> String do
   return base ++ int_to_str(k)
 end fn tparam_name
 
+// The name on disk of the first part of path, from its end, that is spelled in another
+// case than it is in real, the real path of the same file; "" if there is none. Such a
+// path finds the file only where file names ignore case. The parts are compared from
+// the end for as long as they are the same name (before that the paths differ for
+// other reasons: where the program is, a '..' or a symbolic link), and a part that is
+// in its directory as spelled is a link, not another spelling.
+fn case_mismatch(path: String, real: String) -> String uses fs do
+  let a = split(s: path, sep: '/')
+  let b = split(s: real, sep: '/')
+  var i = len(a) - 1
+  var j = len(b) - 1
+  while (i >= 0) and (j >= 0) invariant (i < len(a)) and (j < len(b)) do
+    if a[i] != b[j] then
+      if to_lower(a[i]) != to_lower(b[j]) then
+        return ""
+      end if
+      var parent = join(parts: slice(of: a, from: 0, to: i), sep: "/")
+      if len(parent) == 0 then
+        set parent = "."
+        if starts_with(s: path, p: "/") then
+          set parent = "/"
+        end if
+      end if
+      match list_dir(parent)
+      case Some(value: names) then
+        if contains_str(xs: names, x: a[i]) then
+          return ""
+        end if
+      case None then
+      end match
+      return b[j]
+    end if
+    set i = i - 1
+    set j = j - 1
+  end while
+  return ""
+end fn case_mismatch
+
 struct Pending
   path: String,
   from: Pos,
@@ -113,19 +152,46 @@ end fn load
 // instead of what is on disk: an editor's unsaved buffer.
 fn load_with(root: String, overrides: Map<String, String>) -> Source uses fs do
   var files: List<String> = []
+  // For each file, what tells it from every other: its real path, or its path if it
+  // is not on disk. And the other paths that name a file already loaded, each with the
+  // path that file was loaded by: a file is loaded once however it is reached (through
+  // a symbolic link, or by an absolute path and a relative one).
+  var keys: List<String> = []
+  var same: Map<String, String> = {}
   var mods: List<ModFile> = []
   var raws: List<List<RawImport>> = []
   var errs: List<Diag> = []
   var next_id = 0
   var queue: List<Pending> = [Pending(path: normalize(root), from: no_pos())]
-  while len(queue) > 0 do
+  while len(queue) > 0 invariant len(keys) == len(files) do
     let top = queue[len(queue) - 1]
     set queue = slice(of: queue, from: 0, to: len(queue) - 1)
-    if contains_str(xs: files, x: top.path) then
+    if contains_str(xs: files, x: top.path) or has(map: same, key: top.path) then
+      continue
+    end if
+    let on_disk = not starts_with(s: top.path, p: "<std>/")
+    var key = top.path
+    if on_disk then
+      match file_identity(top.path)
+      case Some(value: real) then
+        set key = real
+        // An import spelled in another case than the file's name.
+        let named = case_mismatch(path: top.path, real: real)
+        if (len(files) > 0) and (len(named) > 0) then
+          let d = diag(pos: top.from, msg: "cannot open '" ++ top.path ++ "': the name on disk is '" ++ named ++ "'")
+          set errs = push(list: errs, item: with_note(d: d, note: "where file names are case-sensitive, this import finds nothing"))
+        end if
+      case None then
+      end match
+    end if
+    let known = index_of_str(xs: keys, x: key)
+    if known >= 0 then
+      set same = insert(map: same, key: top.path, value: files[known])
       continue
     end if
     let file_id = len(files)
     set files = push(list: files, item: top.path)
+    set keys = push(list: keys, item: key)
     var mf = ModFile(path: top.path, items: [], imports: [], privates: [], loaded: false)
     var raw: List<RawImport> = []
     var source: Option<String> = Option.None
@@ -141,6 +207,9 @@ fn load_with(root: String, overrides: Map<String, String>) -> Source uses fs do
     end if
     match source
     case None then
+      if on_disk and is_some(list_dir(top.path)) then
+        set missing = missing ++ ": it is a directory"
+      end if
       set errs = push(list: errs, item: diag(pos: top.from, msg: missing))
     case Some(value: src) then
       let lx = lex(src: src, file: file_id)
@@ -200,7 +269,10 @@ fn load_with(root: String, overrides: Map<String, String>) -> Source uses fs do
     var imps: List<ModImport> = []
     if i < len(raws) then
       for ri in raws[i] do
-        let t = index_of_str(xs: files, x: ri.path)
+        var t = index_of_str(xs: files, x: ri.path)
+        if t < 0 then
+          set t = index_of_str(xs: files, x: value_or(opt: lookup(map: same, key: ri.path), default: ""))
+        end if
         set imps = push(list: imps, item: ModImport(target: t, alias: ri.imp.alias, names: ri.imp.names, pos: ri.imp.pos))
       end for
     end if

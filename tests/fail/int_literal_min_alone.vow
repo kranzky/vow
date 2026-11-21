@@ -1,0 +1,6 @@
+// error: integer literal does not fit in 64 bits
+// language: 0.9
+// 9223372036854775808 is a literal only after a unary '-'; here the '-' is binary.
+fn main() do
+  let x = 1 - 9223372036854775808
+end fn main

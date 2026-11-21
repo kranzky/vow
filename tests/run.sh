@@ -448,6 +448,61 @@ $head$tail"
   fi
   rm -rf "$ddir"
 fi
+# A file is loaded once however it is reached: here by its path, through a linked
+# directory, through a link to the file and by an absolute path (it was loaded once
+# for each, and its functions were "already declared"). An import that names a
+# directory says so, and one spelled in another case than the file is an error where
+# file names ignore case too (elsewhere the file is simply not found).
+if [ -z "$VOW_FROZEN" ]; then
+  ldir=$(mktemp -d)
+  mkdir -p "$ldir/real" "$ldir/sub"
+  printf 'fn one() -> Int do\n  return 1\nend fn one\n' > "$ldir/real/lib.vow"
+  ln -s real "$ldir/link"
+  ln -s real/lib.vow "$ldir/also.vow"
+  printf 'import "real/lib.vow"\nimport "link/lib.vow"\nimport "also.vow" as also\nimport "%s/real/lib.vow" as full\nfn main() uses console do\n  print(int_to_str(one() + also.one() + full.one()))\nend fn main\n' "$ldir" > "$ldir/main.vow"
+  got=$(cd "$ldir" && "$VOWC" run main.vow $VOWFLAGS 2>&1)
+  if [ "$got" = 3 ]; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1)); echo "FAIL one file imported by four names: $got"
+  fi
+  printf 'import "sub"\nfn main() do\nend fn main\n' > "$ldir/dir.vow"
+  got=$(cd "$ldir" && "$VOWC" check dir.vow 2>&1; "$VOWC" check sub 2>&1)
+  want="dir.vow:1:1: error: cannot open 'sub': it is a directory
+sub:0:0: error: cannot open 'sub': it is a directory"
+  if [ "$got" = "$want" ]; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1)); echo "FAIL a directory in place of a source file: $got"
+  fi
+  printf 'import "real/LIB.vow"\nfn main() do\n  let x = one()\nend fn main\n' > "$ldir/case.vow"
+  got=$(cd "$ldir" && "$VOWC" check case.vow 2>&1)
+  want="case.vow:1:1: error: cannot open 'real/LIB.vow'"
+  if [ -e "$ldir/real/LIB.vow" ]; then
+    want="case.vow:1:1: error: cannot open 'real/LIB.vow': the name on disk is 'lib.vow'
+    where file names are case-sensitive, this import finds nothing"
+  fi
+  if [ "$got" = "$want" ]; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1)); echo "FAIL an import in another case than the file: $got"
+  fi
+  rm -rf "$ldir"
+fi
+# --json output is JSON whatever bytes the source has: a byte that is not UTF-8 in a
+# message becomes U+FFFD (it was copied, and a JSON parser rejected the line).
+if [ -z "$VOW_FROZEN" ]; then
+  jdir=$(mktemp -d)
+  printf 'fn main() do\n  let s = "\\\351"\nend fn main\n' > "$jdir/bytes.vow"
+  got=$(cd "$jdir" && "$VOWC" check bytes.vow --json 2>&1)
+  want='{"kind":"error","file":"bytes.vow","line":2,"col":12,"message":"unknown escape '"'"'\\\ufffd'"'"'","notes":[]}'
+  if [ "$got" = "$want" ]; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1)); echo "FAIL --json with a byte that is not UTF-8: $got"
+  fi
+  rm -rf "$jdir"
+fi
 # The pinned Z3 version must be the same in the compiler and the installer.
 pinned=$(sed -n 's/^VERSION=//p' ../tools/install-z3.sh)
 if grep -A1 'fn tested_z3_version' ../compiler/verify.vow | grep -q "\"$pinned\""; then

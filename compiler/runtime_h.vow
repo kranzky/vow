@@ -1396,12 +1396,23 @@ fn runtime_header() -> String do
     "    return (V)ok;\n" ++
     "}\n" ++
     "\n" ++
+    "// real_path(path): the absolute path of an existing file or directory, with symbolic\n" ++
+    "// links followed and \".\" and \"..\" gone; where file names ignore case, in the case the\n" ++
+    "// names have on disk.\n" ++
+    "static V vreal_path(V path) {\n" ++
+    "    char *r = realpath(VS(path)->data, 0);\n") ++
+    ("    if (!r) return vnone();\n" ++
+    "    V s = vstr_new(r, (int64_t)strlen(r));\n" ++
+    "    free(r);\n" ++
+    "    return vsome(s, 1);\n" ++
+    "}\n" ++
+    "\n" ++
     "static int vow_name_cmp(const void *a, const void *b) { return vstr_cmp(*(const V *)a, *(const V *)b); }\n" ++
     "\n" ++
     "// list_dir(path): the names in a directory, sorted, without \".\" and \"..\".\n" ++
     "static V vlist_dir(V path) {\n" ++
-    "    DIR *d = opendir(VS(path)->data);\n") ++
-    ("    if (!d) return vnone();\n" ++
+    "    DIR *d = opendir(VS(path)->data);\n" ++
+    "    if (!d) return vnone();\n" ++
     "    int64_t cap = 16, n = 0;\n" ++
     "    V *names = (V *)vow_xmalloc(sizeof(V) * (size_t)cap);\n" ++
     "    struct dirent *e;\n" ++
@@ -1589,8 +1600,8 @@ fn runtime_header() -> String do
     "    sigaction(SIGINT, &old_int, 0);\n" ++
     "    sigaction(SIGQUIT, &old_quit, 0);\n" ++
     "    return (V)code;\n" ++
-    "}\n" ++
-    "\n" ++
+    "}\n") ++
+    ("\n" ++
     "#endif\n" ++
     "")
 end fn runtime_header

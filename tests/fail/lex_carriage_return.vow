@@ -1,0 +1,5 @@
+// error: a carriage return that is not followed by a line feed
+// language: 0.9
+// With carriage returns alone as line ends, a file was one line (and its first
+// comment hid the rest of it).
+fn main() do  let x = 1end fn main

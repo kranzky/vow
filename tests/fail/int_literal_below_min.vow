@@ -1,0 +1,6 @@
+// error: integer literal does not fit in 64 bits
+// language: 0.9
+// One below the smallest Int.
+fn main() do
+  let x = -9223372036854775809
+end fn main

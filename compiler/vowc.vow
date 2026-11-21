@@ -41,11 +41,25 @@ fn usage() -> String do
     "  -o <path>     output executable for build\n"
 end fn usage
 
+// Bytes that are not well-formed UTF-8 (from a source file or a file name) become
+// U+FFFD, so that the output is always JSON.
 fn json_str(s: String) -> String do
   var parts: List<String> = ["\""]
+  var skip = 0
   for i in 0..len(s) do
     let c = s[i]
-    if c == '"' then
+    if skip > 0 then
+      set skip = skip - 1
+      set parts = push(list: parts, item: char(c))
+    elif c >= 128 then
+      let w = utf8_len(s: s, at: i)
+      if w == 0 then
+        set parts = push(list: parts, item: "\\ufffd")
+      else
+        set skip = w - 1
+        set parts = push(list: parts, item: char(c))
+      end if
+    elif c == '"' then
       set parts = push(list: parts, item: "\\\"")
     elif c == '\\' then
       set parts = push(list: parts, item: "\\\\")

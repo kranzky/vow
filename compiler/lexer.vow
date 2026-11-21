@@ -32,6 +32,19 @@ fn lex_fail(toks: List<Token>, d: Diag) -> Lexed do
   return Lexed(toks: toks, err: Option.Some(value: d))
 end fn lex_fail
 
+// The error for a number that runs on into letters or digits (0x1F, 1e5, 12abc): the
+// number began at start and was read up to at.
+fn malformed_number(src: String, start: Int, at: Int, pos: Pos) -> Diag
+  requires (0 <= start) and (start <= at) and (at <= len(src))
+do
+  var j = at
+  while (j < len(src)) and is_alnum(src[j]) invariant (at <= j) and (j <= len(src)) decreases len(src) - j do
+    set j = j + 1
+  end while
+  let d = diag(pos: pos, msg: "malformed number '" ++ slice(of: src, from: start, to: j) ++ "'")
+  return with_note(d: d, note: "an Int literal is decimal digits (1000 or 1_000); a Float literal has digits on both sides of a '.', as in 1.0e5")
+end fn malformed_number
+
 fn lex(src: String, file: Int) -> Lexed do
   let kws = keywords()
   let syms = symbols()
@@ -40,6 +53,10 @@ fn lex(src: String, file: Int) -> Lexed do
   var line = 1
   var col = 1
   let n = len(src)
+  // A UTF-8 byte order mark at the start of the file is skipped.
+  if (n >= 3) and (src[0] == 239) and (src[1] == 187) and (src[2] == 191) then
+    set i = 3
+  end if
   while i < n invariant i >= 0 decreases n - i do
     let c = src[i]
     let pos = Pos(file: file, line: line, col: col)
@@ -49,6 +66,10 @@ fn lex(src: String, file: Int) -> Lexed do
       set col = 1
       continue
     end if
+    if (c == '\r') and (((i + 1) >= n) or (src[i + 1] != '\n')) then
+      let d = diag(pos: pos, msg: "a carriage return that is not followed by a line feed")
+      return lex_fail(toks: toks, d: with_note(d: d, note: "a line ends with a line feed, or with a carriage return and a line feed"))
+    end if
     if (c == ' ') or (c == '\t') or (c == '\r') then
       set i = i + 1
       set col = col + 1
@@ -57,7 +78,7 @@ fn lex(src: String, file: Int) -> Lexed do
     if (c == '/') and ((i + 1) < n) and (src[i + 1] == '/') then
       let comment = i
       set i = i + 2
-      while (i < n) and (src[i] != '\n') invariant i > comment decreases n - i do
+      while (i < n) and (src[i] != '\n') and (src[i] != '\r') invariant i > comment decreases n - i do
         set i = i + 1
       end while
       continue
@@ -114,12 +135,31 @@ fn lex(src: String, file: Int) -> Lexed do
             end while
           end if
         end if
+        if (i < n) and is_alnum(src[i]) then
+          return lex_fail(toks: toks, d: malformed_number(src: src, start: start, at: i, pos: pos))
+        end if
         set col = col + (i - start)
         let ftext = replace(s: slice(of: src, from: start, to: i), old: "_", new: "")
+        let range = float_literal_range(ftext)
+        if range == "large" then
+          let d = diag(pos: pos, msg: "the Float literal " ++ ftext ++ " is too large")
+          return lex_fail(toks: toks, d: with_note(d: d, note: "the largest Float is about 1.797e308"))
+        end if
+        if range == "small" then
+          let d = diag(pos: pos, msg: "the Float literal " ++ ftext ++ " is too small: it would be 0.0")
+          return lex_fail(toks: toks, d: with_note(d: d, note: "the smallest Float above zero is about 4.94e-324"))
+        end if
         set toks = push(list: toks, item: Token(kind: "float", text: ftext, num: 0, pos: pos))
         continue
       end if
+      if (i < n) and is_alpha(src[i]) then
+        return lex_fail(toks: toks, d: malformed_number(src: src, start: start, at: i, pos: pos))
+      end if
+      // 9223372036854775808 is one more than the largest Int, and is a literal only
+      // after a '-' (the smallest Int): its token has that negative value as num, which
+      // the parser accepts only there.
       var v = 0
+      var smallest = false
       for k in start..i do
         let b = src[k]
         if b != '_' then
@@ -127,12 +167,19 @@ fn lex(src: String, file: Int) -> Lexed do
           if (d < 0) or (d > 9) then
             continue
           end if
-          if v > ((9223372036854775807 - d) / 10) then
+          if (v == 922337203685477580) and (d == 8) and (not smallest) then
+            set smallest = true
+            continue
+          end if
+          if smallest or (v > ((9223372036854775807 - d) / 10)) then
             return lex_fail(toks: toks, d: diag(pos: pos, msg: "integer literal does not fit in 64 bits"))
           end if
           set v = (v * 10) + d
         end if
       end for
+      if smallest then
+        set v = (0 - 9223372036854775807) - 1
+      end if
       set col = col + (i - start)
       let text = slice(of: src, from: start, to: i)
       set toks = push(list: toks, item: Token(kind: "int", text: text, num: v, pos: pos))
@@ -165,6 +212,10 @@ fn lex(src: String, file: Int) -> Lexed do
       elif (i + 1) < n then
         set v = src[i + 1]
         set k = 3
+        if v < 32 then
+          let d = diag(pos: pos, msg: "a control character (byte " ++ int_to_str(v) ++ ") in a character literal")
+          return lex_fail(toks: toks, d: with_note(d: d, note: "write an escape, like '\\n', or the number of the byte"))
+        end if
       else
         return lex_fail(toks: toks, d: diag(pos: pos, msg: "unterminated character literal"))
       end if
@@ -240,6 +291,15 @@ fn lex(src: String, file: Int) -> Lexed do
       end if
     end for
     if len(matched) == 0 then
+      // A character outside ASCII is shown whole, and a byte that is not text as a number.
+      let w = utf8_len(s: src, at: i)
+      if (c >= 128) and (w > 0) then
+        let d = diag(pos: pos, msg: "unexpected character '" ++ slice(of: src, from: i, to: i + w) ++ "'")
+        return lex_fail(toks: toks, d: with_note(d: d, note: "outside strings and comments, a program is ASCII"))
+      end if
+      if (c < 32) or (c >= 127) then
+        return lex_fail(toks: toks, d: diag(pos: pos, msg: "unexpected byte 0x" ++ hex_digit(c / 16) ++ hex_digit(c % 16)))
+      end if
       return lex_fail(toks: toks, d: diag(pos: pos, msg: "unexpected character '" ++ char(c) ++ "'"))
     end if
     set i = i + len(matched)

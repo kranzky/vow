@@ -26,12 +26,21 @@ SMT solver, and nothing depends on counting or on context far away.
 - Comments: `//` to end of line.
 - Identifiers: `[A-Za-z_][A-Za-z0-9_]*`. Types, structs, enums and variants are
   capitalised by convention; this is not enforced.
-- Integers: decimal digits, `_` allowed as separator. No negative literals (use unary `-`).
+- Integers: decimal digits, `_` allowed as separator. No negative literals (use unary
+  `-`); the digits `9223372036854775808`, one more than the largest `Int`, are a
+  literal only straight after a unary `-`, which makes the smallest `Int`. Other bases
+  are not literals: `0x1F` is `malformed number '0x1F'`.
 - Floats: digits, `.`, digits, then optionally `e`, a sign and digits: `1.5`, `0.0`,
   `2.5e-3`. Both sides of the `.` need a digit (`1.` and `.5` are not literals), so
-  `0..n` is still a range.
+  `0..n` is still a range; `1e5` is a malformed number (`1.0e5`). The value must be one
+  a `Float` can hold: at most 1.7976931348623157e308, and not so small that it would
+  be `0.0` without being zero (below about 2.47e-324).
 - Strings: `"..."` with escapes `\n \t \r \\ \" \0`.
-- Characters: `'a'`, `'\n'`, `'\''` are `Int` literals holding one byte.
+- Characters: `'a'`, `'\n'`, `'\''` are `Int` literals holding one byte. A control
+  character is written as an escape or as its number, not as it is.
+- A source file is bytes: outside strings, character literals and comments it is
+  ASCII. A UTF-8 byte order mark at its start is skipped. A line ends with a line
+  feed, or with a carriage return and a line feed.
 - Holes: `?name`.
 - Newlines are insignificant everywhere.
 
@@ -50,7 +59,10 @@ name variables, parameters or binders.
 ## Program structure
 
 A program is a sequence of declarations, which may appear in any order. Import paths
-are resolved relative to the importing file, and each file is loaded once. Paths
+are resolved relative to the importing file, and each file is loaded once, however it
+is reached: two paths to one file (through a symbolic link, or one absolute and one
+relative) are the same file. An import names a file as it is named on disk: one that
+differs in case is an error, also where file names ignore case. Paths
 beginning with `std/` name standard library modules built into the compiler, such as
 `std/text.vow`. There are three forms of import:
 
@@ -513,6 +525,7 @@ SMT-LIB. The divisor must be provably non-zero.
 | `write_file(path: p, contents: c) -> Bool` | `uses fs` |
 | `make_dir(path) -> Bool` | `uses fs`; creates missing parents; true if the directory exists afterwards |
 | `list_dir(path) -> Option<List<String>>` | `uses fs`; sorted names, without `.` and `..` |
+| `real_path(path) -> Option<String>` | `uses fs`; the absolute path of a file or directory that exists, with symbolic links followed and `.` and `..` gone (where file names ignore case, spelled as on disk); `None` if there is none. Two paths name the same file exactly when their real paths are equal |
 | `args() -> List<String>` | `uses proc`; excludes the program name |
 | `getenv(name) -> Option<String>` | `uses proc` |
 | `run(argv: List<String>, input: String) -> Output` | `uses proc`; runs the program `argv[0]` (found on `PATH`) with `input` as its standard input, and waits for it; `out` is what it wrote to standard output, `code` its exit status, 127 if the program was not found, and -1 if it could not be started or was ended by a signal |

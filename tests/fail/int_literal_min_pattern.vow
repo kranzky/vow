@@ -1,0 +1,13 @@
+// error: integer literal does not fit in 64 bits
+// language: 0.9
+// ... and likewise in a pattern.
+fn f(n: Int) -> Int do
+  match n
+  case 9223372036854775808 then
+    return 1
+  else
+    return 0
+  end match
+end fn f
+fn main() do
+end fn main

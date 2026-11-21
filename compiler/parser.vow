@@ -728,15 +728,27 @@ fn expr_stmt(p: inout Parser) -> SK do
   end match
 end fn expr_stmt
 
+// The error for 9223372036854775808 anywhere but after a '-' (see lex).
+fn too_big(pos: Pos) -> Diag do
+  let d = diag(pos: pos, msg: "integer literal does not fit in 64 bits")
+  return with_note(d: d, note: "9223372036854775808 can only follow a '-': -9223372036854775808 is the smallest Int")
+end fn too_big
+
 fn parse_pattern(p: inout Parser) -> Pat do
   let t = peek(p)
   if t.kind == "int" then
     let k = advance(inout p)
+    if t.num < 0 then
+      fail(p: inout p, d: too_big(t.pos))
+    end if
     return Pat.PInt(value: t.num)
   end if
   if (t.kind == "sym") and (t.text == "-") and (peek_at(p: p, k: 1).kind == "int") then
     let k = advance(inout p)
     let n = advance(inout p)
+    if n.num < 0 then
+      return Pat.PInt(value: n.num)
+    end if
     return Pat.PInt(value: -n.num)
   end if
   if t.kind == "str" then
@@ -809,7 +821,14 @@ fn parse_unary(p: inout Parser) -> Expr do
   end if
   set p = p with (depth: p.depth + 1)
   var e = Expr(id: -1, pos: t.pos, kind: EK.IntLit(value: 0))
-  if ((t.kind == "sym") and (t.text == "-")) or ((t.kind == "keyword") and (t.text == "not")) then
+  let nx = peek_at(p: p, k: 1)
+  if (t.kind == "sym") and (t.text == "-") and (nx.kind == "int") and (nx.num < 0) then
+    // The smallest Int: its magnitude is not an Int, so it is one literal (see lex).
+    let _ = advance(inout p)
+    let _ = advance(inout p)
+    set e = mk(p: inout p, pos: t.pos, kind: EK.IntLit(value: nx.num))
+    set p = p with (high: 1)
+  elif ((t.kind == "sym") and (t.text == "-")) or ((t.kind == "keyword") and (t.text == "not")) then
     let _ = advance(inout p)
     let x = parse_unary(inout p)
     set e = mk(p: inout p, pos: t.pos, kind: EK.Unary(op: t.text, x: x))
@@ -898,6 +917,9 @@ fn parse_primary(p: inout Parser) -> Expr do
   let pos = t.pos
   set p = p with (high: 1)
   if t.kind == "int" then
+    if t.num < 0 then
+      fail(p: inout p, d: too_big(pos))
+    end if
     return mk(p: inout p, pos: pos, kind: EK.IntLit(value: t.num))
   elif t.kind == "float" then
     return mk(p: inout p, pos: pos, kind: EK.FloatLit(text: t.text))

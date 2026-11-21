@@ -1,0 +1,29 @@
+// language: 0.9
+// The smallest Int as a literal: its magnitude is not an Int, so the literal is the
+// '-' and the digits together. It was "integer literal does not fit in 64 bits".
+fn name(n: Int) -> String do
+  match n
+  case -9223372036854775808 then
+    return "smallest"
+  case 9223372036854775807 then
+    return "largest"
+  case -1 then
+    return "minus one"
+  else
+    return "other"
+  end match
+end fn name
+
+fn main() uses console do
+  let lo = -9223372036854775808
+  let spaced = -9_223_372_036_854_775_808
+  assert lo < 0
+  assert lo == spaced
+  assert (lo + 9223372036854775807) == -1
+  print(int_to_str(lo) ++ "\n")
+  print(int_to_str(lo + 1) ++ "\n")
+  print(name(lo) ++ " " ++ name(9223372036854775807) ++ " " ++ name(lo + 9223372036854775807) ++ " " ++ name(0) ++ "\n")
+  if (lo / 2) == -4611686018427387904 then
+    print("half\n")
+  end if
+end fn main

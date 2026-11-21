@@ -126,7 +126,9 @@ ones the verifier depends on most also have must-fail tests.
   option value (whose rank is defined) and calls no function of its own function's
   recursive group (see Termination).
 - **Literals mean what the verifier says.** An integer literal must fit in 64 bits, so
-  its runtime value is the number the verifier reasons with. String and character
+  its runtime value is the number the verifier reasons with. A `Float` literal must be
+  a value a `Float` can hold: one that would be infinity, or `0.0` without being zero,
+  is an error, since the verifier orders literals by their decimal values. String and character
   literals have a fixed set of escapes, and the code generator writes every byte back
   explicitly with the string's length, so a literal's bytes (a NUL among them) and
   length are the same at runtime as in the verifier.

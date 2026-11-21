@@ -80,3 +80,165 @@ fn octal3(b: Int where (0 <= it) and (it < 256)) -> String do
   let d2 = b % 8
   return char('0' + d0) ++ char('0' + d1) ++ char('0' + d2)
 end fn octal3
+
+// A decimal value as digits D, without leading or trailing zeros ("" for zero), and an
+// exponent E: the value is D * 10^E.
+struct Decimal
+  digits: String,
+  exp: Int,
+end struct Decimal
+
+fn decimal_of(text: String) -> Decimal do
+  var mant = text
+  var e = 0
+  let cut = find_byte(s: text, c: 'e', from: 0)
+  var cut2 = find_byte(s: text, c: 'E', from: 0)
+  var at = cut
+  if (at < 0) or ((cut2 >= 0) and (cut2 < at)) then
+    set at = cut2
+  end if
+  if (at >= 0) and (at < len(text)) then
+    set mant = slice(of: text, from: 0, to: at)
+    var digits = slice(of: text, from: at + 1, to: len(text))
+    var neg = false
+    if starts_with(s: digits, p: "-") or starts_with(s: digits, p: "+") then
+      set neg = starts_with(s: digits, p: "-")
+      set digits = slice(of: digits, from: 1, to: len(digits))
+    end if
+    // The exponent's value, not its length: leading zeros don't count. One beyond 18
+    // digits is capped at 10^18, which keeps the value far outside the range of doubles
+    // (no source file has 10^17 mantissa digits), where it is only ordered non-strictly.
+    var z = 0
+    while (z < len(digits)) and (digits[z] == '0') invariant (0 <= z) and (z <= len(digits)) do
+      set z = z + 1
+    end while
+    set digits = slice(of: digits, from: z, to: len(digits))
+    if len(digits) > 18 then
+      set e = 1000000000000000000
+    else
+      set e = value_or(opt: str_to_int(digits), default: 0)
+    end if
+    if neg then
+      set e = -e
+    end if
+  end if
+  var parts: List<String> = []
+  var frac = 0
+  var point = false
+  for i in 0..len(mant) do
+    let ch = mant[i]
+    if ch == '.' then
+      set point = true
+    elif is_digit(ch) then
+      set parts = push(list: parts, item: char(ch))
+      if point then
+        set frac = frac + 1
+      end if
+    end if
+  end for
+  var ds = join(parts: parts, sep: "")
+  var exp = e - frac
+  var a = 0
+  while (a < len(ds)) and (ds[a] == '0') invariant (0 <= a) and (a <= len(ds)) do
+    set a = a + 1
+  end while
+  set ds = slice(of: ds, from: a, to: len(ds))
+  if len(ds) == 0 then
+    return Decimal(digits: "", exp: 0)
+  end if
+  var b = len(ds)
+  while (b > 0) and (ds[b - 1] == '0') invariant (0 <= b) and (b <= len(ds)) do
+    set b = b - 1
+    set exp = exp + 1
+  end while
+  return Decimal(digits: slice(of: ds, from: 0, to: b), exp: exp)
+end fn decimal_of
+
+// True if the digits a, read as the fraction 0.a, are at least 0.b. Neither ends in a
+// zero.
+fn digits_at_least(a: String, b: String) -> Bool do
+  var i = 0
+  while (i < len(a)) and (i < len(b)) invariant i >= 0 do
+    if a[i] != b[i] then
+      return a[i] > b[i]
+    end if
+    set i = i + 1
+  end while
+  return len(a) >= len(b)
+end fn digits_at_least
+
+// Whether a Float can hold the value of a Float literal: "" if so, "large" if it would
+// be infinity, and "small" if it is not zero but would be 0.0. The largest Float is
+// 1.7976931348623157e308; a value below half the smallest one above zero (which is
+// 4.9406564584124654e-324) is rounded to zero. Both bounds are a digit in the last
+// place on the safe side.
+fn float_literal_range(text: String) -> String do
+  let d = decimal_of(text)
+  if len(d.digits) == 0 then
+    return ""
+  end if
+  let mag = (len(d.digits) - 1) + d.exp
+  if (mag > 308) or ((mag == 308) and digits_at_least(a: d.digits, b: "17976931348623158")) then
+    return "large"
+  end if
+  if (mag < -324) or ((mag == -324) and (not digits_at_least(a: d.digits, b: "24703282292062328"))) then
+    return "small"
+  end if
+  return ""
+end fn float_literal_range
+
+// True if s has a UTF-8 continuation byte at i that is between lo and hi.
+fn utf8_tail(s: String, i: Int, lo: Int, hi: Int) -> Bool
+  ensures result implies ((0 <= i) and (i < len(s)))
+do
+  if (i < 0) or (i >= len(s)) then
+    return false
+  end if
+  return (s[i] >= lo) and (s[i] <= hi)
+end fn utf8_tail
+
+// The number of bytes in the UTF-8 character that starts at s[at]: 1 to 4, or 0 if
+// the bytes there are not well-formed UTF-8 (a stray continuation byte, a sequence
+// that is cut short or longer than it need be, a surrogate, or a value past U+10FFFF).
+fn utf8_len(s: String, at: Int) -> Int
+  requires (0 <= at) and (at < len(s))
+  ensures (0 <= result) and ((at + result) <= len(s))
+do
+  let c = s[at]
+  if c < 128 then
+    return 1
+  end if
+  if (c >= 194) and (c <= 223) then
+    if utf8_tail(s: s, i: at + 1, lo: 128, hi: 191) then
+      return 2
+    end if
+    return 0
+  end if
+  if (c >= 224) and (c <= 239) then
+    var lo = 128
+    var hi = 191
+    if c == 224 then
+      set lo = 160
+    elif c == 237 then
+      set hi = 159
+    end if
+    if utf8_tail(s: s, i: at + 1, lo: lo, hi: hi) and utf8_tail(s: s, i: at + 2, lo: 128, hi: 191) then
+      return 3
+    end if
+    return 0
+  end if
+  if (c >= 240) and (c <= 244) then
+    var lo4 = 128
+    var hi4 = 191
+    if c == 240 then
+      set lo4 = 144
+    elif c == 244 then
+      set hi4 = 143
+    end if
+    if utf8_tail(s: s, i: at + 1, lo: lo4, hi: hi4) and utf8_tail(s: s, i: at + 2, lo: 128, hi: 191) and utf8_tail(s: s, i: at + 3, lo: 128, hi: 191) then
+      return 4
+    end if
+    return 0
+  end if
+  return 0
+end fn utf8_len

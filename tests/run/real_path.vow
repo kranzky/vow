@@ -1,0 +1,25 @@
+// language: 0.9
+// real_path gives one absolute path for a file, however it is named.
+import "std/text.vow"
+
+fn main() uses console, fs do
+  let base = "/tmp/vow-test-real"
+  let made = make_dir(base ++ "/a/b")
+  let wrote = write_file(path: base ++ "/c.txt", contents: "hi")
+  let plain = value_or(opt: real_path(base ++ "/c.txt"), default: "none")
+  let round = value_or(opt: real_path(base ++ "/a/b/../.././c.txt"), default: "missing")
+  if made and wrote and (plain == round) and starts_with(s: plain, p: "/") and ends_with(s: plain, p: "/vow-test-real/c.txt") then
+    print("one path\n")
+  end if
+  match real_path(".")
+  case Some(value: here) then
+    if starts_with(s: here, p: "/") and (not ends_with(s: here, p: ".")) then
+      print("absolute\n")
+    end if
+  case None then
+    print("no current directory\n")
+  end match
+  if is_none(real_path(base ++ "/nope.txt")) and is_none(real_path("")) then
+    print("none for a file that is not there\n")
+  end if
+end fn main

@@ -1,0 +1,6 @@
+// error: unexpected byte 0xe9
+// language: 0.9
+// A byte that is not UTF-8 is shown as a number.
+fn main() do
+  let x = é
+end fn main

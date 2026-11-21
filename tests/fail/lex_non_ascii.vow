@@ -1,0 +1,6 @@
+// error: unexpected character 'é'
+// language: 0.9
+// A character outside ASCII is shown whole (it was shown as its first byte).
+fn main() do
+  let café = 1
+end fn main

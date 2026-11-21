@@ -1,0 +1,6 @@
+// error: the Float literal 1.7976931348623158e308 is too large
+// language: 0.9
+// One digit past the largest Float, 1.7976931348623157e308.
+fn main() do
+  let x = 1.7976931348623158e308
+end fn main

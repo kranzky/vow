@@ -11,6 +11,33 @@
   1000 levels deep`. A longer chain is written with parentheses around groups of
   terms, which `tools/embed.vow` now does (in groups of 200 lines), so it can embed a
   file of 160,000 lines; it could embed about 6,000.
+- The smallest `Int` can be written: `-9223372036854775808` was "integer literal does
+  not fit in 64 bits". Its digits are a literal only straight after a unary `-`, in an
+  expression or a pattern.
+- A `Float` literal must be a value a `Float` can hold. `1.5e400` was infinity when the
+  program ran, and `1.5e-400` was `0.0` while the verifier took it to be above zero;
+  both are now errors (`the Float literal 1.5e400 is too large`).
+- A number that runs on into letters is one error, `malformed number '0x1F'` (also
+  `1e5`, `12abc`, `1.5e`), with a note on how literals are written. It was read as two
+  tokens, and the error was about a statement.
+- More lexer errors in place of surprises. A character literal with a raw control
+  character in it (a line end, most often) is an error; it was accepted, and the lines
+  after it were numbered one too low. A UTF-8 byte order mark at the start of a file is
+  skipped (`vowc fmt` keeps it). A character outside ASCII where none can be is shown
+  whole (`unexpected character 'é'`) and a byte that is not text as a number
+  (`unexpected byte 0x0c`). A carriage return with no line feed after it is an error:
+  a file with such line ends was one line, and a comment hid the rest of it.
+- `--json` output is always JSON: a byte in a message that is not UTF-8 is written as
+  U+FFFD, where it was copied and a JSON parser rejected the line.
+- A source file is loaded once however it is reached. Imported through a symbolic link,
+  or by an absolute path and a relative one, it was loaded once for each, and every
+  function in it was "already declared". An import spelled in another case than the
+  file (`import "LIB.vow"` for `lib.vow`) is an error on every system, where it worked
+  on a Mac and failed on Linux: `cannot open 'LIB.vow': the name on disk is 'lib.vow'`.
+  An import that names a directory says `it is a directory`.
+- New built-in `real_path(path) -> Option<String>` (`uses fs`): the absolute path of a
+  file or directory that exists, with symbolic links followed and `.` and `..` gone.
+  A function of your own named `real_path` needs another name.
 - Programs with many string literals build much faster. The literals are made from a
   table when the program starts, where there was a statement for each, on which a C
   compiler spends time that grows with the square of their number: 5,000 literals

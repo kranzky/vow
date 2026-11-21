@@ -274,7 +274,14 @@ fn format_source(src: String) -> String do
   var trailing_op = false
   // Whether the last code line ended a top-level item: the next one gets a blank line.
   var item_ended = false
-  for line in split(s: src, sep: '\n') do
+  // A byte order mark stays where it is, before the first line.
+  var text = src
+  var mark = ""
+  if (len(src) >= 3) and (src[0] == 239) and (src[1] == 187) and (src[2] == 191) then
+    set mark = slice(of: src, from: 0, to: 3)
+    set text = slice(of: src, from: 3, to: len(src))
+  end if
+  for line in split(s: text, sep: '\n') do
     let toks = raw_tokens(line)
     if len(toks) == 0 then
       let k = len(pending)
@@ -363,7 +370,7 @@ fn format_source(src: String) -> String do
   while (len(out) > 0) and (out[len(out) - 1] == "") do
     set out = slice(of: out, from: 0, to: len(out) - 1)
   end while
-  return join(parts: out, sep: "\n") ++ "\n"
+  return mark ++ join(parts: out, sep: "\n") ++ "\n"
 end fn format_source
 
 // Whether two sources lex to the same tokens (whitespace and comments aside).

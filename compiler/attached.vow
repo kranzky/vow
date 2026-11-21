@@ -1,4 +1,4 @@
-// The one place the compiler uses a built-in newer than the v0.3 language, in which the
+// The one place the compiler uses built-ins newer than the v0.3 language, in which the
 // rest of its source is written so that the frozen bootstrap verifier can read it.
 // tests/differential.sh gives that verifier tests/v03/attached.vow in place of this
 // file.
@@ -8,3 +8,9 @@
 fn run_program(argv: List<String>) -> Int uses proc do
   return run_attached(argv)
 end fn run_program
+
+// What tells a file from every other, however it is named: its real path (see
+// real_path in docs/SPEC.md). None if there is no such file.
+fn file_identity(path: String) -> Option<String> uses fs do
+  return real_path(path)
+end fn file_identity

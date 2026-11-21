@@ -1,0 +1,12 @@
+// language: 0.9
+// The largest Float and the smallest above zero are literals; one digit beyond
+// either is an error (tests/fail/float_literal_*.vow).
+fn main() uses console do
+  let big = 1.7976931348623157e308
+  let tiny = 4.9e-324
+  let zero = 0.0e-999
+  if (tiny > 0.0) and (zero == 0.0) and (big > 1.0e308) then
+    print("in range\n")
+  end if
+  print(float_to_str(big) ++ " " ++ float_to_str(1_000.5) ++ "\n")
+end fn main

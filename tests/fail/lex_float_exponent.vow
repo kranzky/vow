@@ -1,0 +1,6 @@
+// error: malformed number '1.5e'
+// language: 0.9
+// An exponent needs digits.
+fn main() do
+  let x = 1.5e
+end fn main

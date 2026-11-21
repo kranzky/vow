@@ -1,0 +1,9 @@
+// error: a control character (byte 10) in a character literal
+// language: 0.9
+// A character literal with a line end in it was accepted, and the lines after it
+// were numbered one too low.
+fn main() do
+  let c = '
+'
+  let d = c
+end fn main

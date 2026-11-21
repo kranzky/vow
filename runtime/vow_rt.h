@@ -1393,6 +1393,17 @@ static V vmake_dir(V path) {
     return (V)ok;
 }
 
+// real_path(path): the absolute path of an existing file or directory, with symbolic
+// links followed and "." and ".." gone; where file names ignore case, in the case the
+// names have on disk.
+static V vreal_path(V path) {
+    char *r = realpath(VS(path)->data, 0);
+    if (!r) return vnone();
+    V s = vstr_new(r, (int64_t)strlen(r));
+    free(r);
+    return vsome(s, 1);
+}
+
 static int vow_name_cmp(const void *a, const void *b) { return vstr_cmp(*(const V *)a, *(const V *)b); }
 
 // list_dir(path): the names in a directory, sorted, without "." and "..".

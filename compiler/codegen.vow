@@ -106,6 +106,14 @@ fn c_string(s: String) -> String do
   return join(parts: parts, sep: "")
 end fn c_string
 
+// An Int as a C constant. The smallest has no literal in C either.
+fn c_int(n: Int) -> String do
+  if n == ((0 - 9223372036854775807) - 1) then
+    return "INT64_MIN"
+  end if
+  return "INT64_C(" ++ int_to_str(n) ++ ")"
+end fn c_int
+
 fn c_params(f: FnDecl) -> String do
   if len(f.params) == 0 then
     return "void"
@@ -1670,7 +1678,7 @@ fn gen_match(g: inout Gen, scrut: Expr, cases: List<Case>, els: Option<List<Stmt
     var cond = ""
     match cs.pat
     case PInt(value: n) then
-      set cond = "VI(" ++ tag ++ ") == INT64_C(" ++ int_to_str(n) ++ ")"
+      set cond = "VI(" ++ tag ++ ") == " ++ c_int(n)
     case PStr(value: s) then
       let l = str_lit(g: inout g, s: s)
       set cond = "vstr_eq(" ++ tag ++ ", " ++ l ++ ")"
@@ -1853,7 +1861,7 @@ end fn bit_at
 fn gen_expr(g: inout Gen, e: Expr) -> Val do
   match e.kind
   case IntLit(value: n) then
-    return plain_val("(V)INT64_C(" ++ int_to_str(n) ++ ")")
+    return plain_val("(V)" ++ c_int(n))
   case FloatLit(text: t) then
     return plain_val("DV(" ++ t ++ ")")
   case StrLit(value: s) then
@@ -2618,6 +2626,8 @@ fn gen_builtin(g: inout Gen, e: Expr, name: String, p: List<Val>, pe: List<Expr>
     return plain_val(bind(g: inout g, rhs: "vmake_dir(" ++ v0.c ++ ")"))
   case "list_dir" then
     return owned_tmp(g: inout g, rhs: "vlist_dir(" ++ v0.c ++ ")", heap: true)
+  case "real_path" then
+    return owned_tmp(g: inout g, rhs: "vreal_path(" ++ v0.c ++ ")", heap: true)
   case "getenv" then
     return owned_tmp(g: inout g, rhs: "vgetenv(" ++ v0.c ++ ")", heap: true)
   case "read_line" then
