@@ -1,0 +1,49 @@
+// language: 0.9
+// `set xs = slice(of: xs, from: 0, to: len(xs) - 1)` takes the last element off where
+// the list is, when nothing else refers to it; otherwise it copies, as before. Either
+// way no other value changes.
+fn total(xs: List<Int>) -> Int do
+  var t = 0
+  for x in xs do
+    set t = t + x
+  end for
+  return t
+end fn total
+
+fn main() uses console do
+  // A stack: 200,000 pushes and pops (each pop copied the list).
+  var stack: List<Int> = []
+  for i in 0..200000 do
+    set stack = push(list: stack, item: i)
+  end for
+  var sum = 0
+  while len(stack) > 0 do
+    set sum = sum + stack[len(stack) - 1]
+    set stack = slice(of: stack, from: 0, to: len(stack) - 1)
+  end while
+  print(int_to_str(sum) ++ "\n")
+  // Another name for the list keeps all of it.
+  var xs = [1, 2, 3, 4]
+  let whole = xs
+  set xs = slice(of: xs, from: 0, to: len(xs) - 1)
+  set xs = push(list: xs, item: 9)
+  print(int_to_str(total(xs)) ++ " " ++ int_to_str(total(whole)) ++ "\n")
+  // A longer list made from this one keeps its own end.
+  var ys = [1, 2, 3]
+  let longer = push(list: ys, item: 4)
+  set ys = slice(of: ys, from: 0, to: 1)
+  set ys = push(list: ys, item: 7)
+  print(int_to_str(total(ys)) ++ " " ++ int_to_str(total(longer)) ++ "\n")
+  // Strings in the list are released as they are taken off, and the rest stay.
+  var names = ["a" ++ int_to_str(1), "b" ++ int_to_str(2), "c" ++ int_to_str(3)]
+  let last = names[2]
+  set names = slice(of: names, from: 0, to: 2)
+  set names = push(list: names, item: "d" ++ int_to_str(4))
+  set names = slice(of: names, from: 1, to: 3)
+  print(join(parts: names, sep: " ") ++ " " ++ last ++ "\n")
+  // Taking everything off, and a slice of an empty list.
+  set names = slice(of: names, from: 0, to: 0)
+  set names = slice(of: names, from: 0, to: 0)
+  set names = push(list: names, item: "e")
+  print(int_to_str(len(names)) ++ " " ++ names[0] ++ "\n")
+end fn main

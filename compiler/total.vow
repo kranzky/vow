@@ -177,81 +177,6 @@ fn type_edges(fields: List<FieldInfo>, info: Info, out: inout List<String>) do
   end for
 end fn type_edges
 
-fn out_edges(edges: Map<String, List<String>>, n: String) -> List<String> do
-  match lookup(map: edges, key: n)
-  case Some(value: es) then
-    return es
-  case None then
-    let none: List<String> = []
-    return none
-  end match
-end fn out_edges
-
-// The strongly connected components (Kosaraju): each name's component number.
-fn components(names: List<String>, edges: Map<String, List<String>>) -> Map<String, Int> do
-  // Pass 1: the order in which depth-first searches finish.
-  var visited: Map<String, Bool> = {}
-  var order: List<String> = []
-  for root in names do
-    if has(map: visited, key: root) then
-      continue
-    end if
-    set visited = insert(map: visited, key: root, value: true)
-    var stack = [root]
-    var pos = [0]
-    while len(stack) > 0 invariant len(pos) == len(stack) do
-      let k = len(stack) - 1
-      let n = stack[k]
-      let es = out_edges(edges: edges, n: n)
-      let p = pos[k]
-      if (p >= 0) and (p < len(es)) then
-        set pos = set_at(list: pos, at: k, value: p + 1)
-        let m = es[p]
-        if not has(map: visited, key: m) then
-          set visited = insert(map: visited, key: m, value: true)
-          set stack = push(list: stack, item: m)
-          set pos = push(list: pos, item: 0)
-        end if
-      else
-        set order = push(list: order, item: n)
-        set stack = slice(of: stack, from: 0, to: k)
-        set pos = slice(of: pos, from: 0, to: k)
-      end if
-    end while
-  end for
-  // Pass 2: search the reversed graph in reverse finishing order.
-  var rev: Map<String, List<String>> = {}
-  for n in names do
-    for m in out_edges(edges: edges, n: n) do
-      set rev = insert(map: rev, key: m, value: push(list: out_edges(edges: rev, n: m), item: n))
-    end for
-  end for
-  var comp: Map<String, Int> = {}
-  var next = 0
-  var i = len(order)
-  while i > 0 invariant i <= len(order) do
-    set i = i - 1
-    let root = order[i]
-    if has(map: comp, key: root) then
-      continue
-    end if
-    set comp = insert(map: comp, key: root, value: next)
-    var stack = [root]
-    while len(stack) > 0 do
-      let n = stack[len(stack) - 1]
-      set stack = slice(of: stack, from: 0, to: len(stack) - 1)
-      for m in out_edges(edges: rev, n: n) do
-        if not has(map: comp, key: m) then
-          set comp = insert(map: comp, key: m, value: next)
-          set stack = push(list: stack, item: m)
-        end if
-      end for
-    end while
-    set next = next + 1
-  end while
-  return comp
-end fn components
-
 struct Recursion
   edges: Map<String, List<String>>,
   scc: Map<String, Int>,
@@ -261,10 +186,12 @@ end struct Recursion
 
 fn recursion(items: List<Item>, info: Info) -> Recursion do
   var names: List<String> = []
+  var is_fn: Map<String, Bool> = {}
   for item in items do
     match item
     case FnItem(decl: f) then
       set names = push(list: names, item: f.name)
+      set is_fn = insert(map: is_fn, key: f.name, value: true)
     else
     end match
   end for
@@ -298,10 +225,10 @@ fn recursion(items: List<Item>, info: Info) -> Recursion do
       var es: List<String> = []
       var fs: List<String> = []
       for g in proof_callees(f: f, info: info) do
-        if contains_str(xs: names, x: g) then
+        if has(map: is_fn, key: g) then
           set es = push(list: es, item: g)
           set fs = push(list: fs, item: g)
-        elif contains_str(xs: tnames, x: g) then
+        elif has(map: tedges, key: g) then
           set es = push(list: es, item: g)
         end if
       end for
@@ -313,7 +240,7 @@ fn recursion(items: List<Item>, info: Info) -> Recursion do
   for tn in tnames do
     var es: List<String> = []
     for g in out_edges(edges: tedges, n: tn) do
-      if contains_str(xs: names, x: g) or contains_str(xs: tnames, x: g) then
+      if has(map: is_fn, key: g) or has(map: tedges, key: g) then
         set es = push(list: es, item: g)
       end if
     end for

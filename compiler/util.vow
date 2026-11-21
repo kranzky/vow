@@ -242,3 +242,97 @@ do
   end if
   return 0
 end fn utf8_len
+
+fn out_edges(edges: Map<String, List<String>>, n: String) -> List<String> do
+  match lookup(map: edges, key: n)
+  case Some(value: es) then
+    return es
+  case None then
+    let none: List<String> = []
+    return none
+  end match
+end fn out_edges
+
+// The strongly connected components (Kosaraju): each name's component number.
+fn components(names: List<String>, edges: Map<String, List<String>>) -> Map<String, Int> do
+  // Pass 1: the order in which depth-first searches finish.
+  var visited: Map<String, Bool> = {}
+  var order: List<String> = []
+  for root in names do
+    if has(map: visited, key: root) then
+      continue
+    end if
+    set visited = insert(map: visited, key: root, value: true)
+    var stack = [root]
+    var pos = [0]
+    while len(stack) > 0 invariant len(pos) == len(stack) do
+      let k = len(stack) - 1
+      let n = stack[k]
+      let es = out_edges(edges: edges, n: n)
+      let p = pos[k]
+      if (p >= 0) and (p < len(es)) then
+        set pos = set_at(list: pos, at: k, value: p + 1)
+        let m = es[p]
+        if not has(map: visited, key: m) then
+          set visited = insert(map: visited, key: m, value: true)
+          set stack = push(list: stack, item: m)
+          set pos = push(list: pos, item: 0)
+        end if
+      else
+        set order = push(list: order, item: n)
+        set stack = slice(of: stack, from: 0, to: k)
+        set pos = slice(of: pos, from: 0, to: k)
+      end if
+    end while
+  end for
+  // Pass 2: search the reversed graph in reverse finishing order.
+  var rev: Map<String, List<String>> = {}
+  for n in names do
+    for m in out_edges(edges: edges, n: n) do
+      set rev = insert(map: rev, key: m, value: push(list: out_edges(edges: rev, n: m), item: n))
+    end for
+  end for
+  var comp: Map<String, Int> = {}
+  var next = 0
+  var i = len(order)
+  while i > 0 invariant i <= len(order) do
+    set i = i - 1
+    let root = order[i]
+    if has(map: comp, key: root) then
+      continue
+    end if
+    set comp = insert(map: comp, key: root, value: next)
+    var stack = [root]
+    while len(stack) > 0 do
+      let n = stack[len(stack) - 1]
+      set stack = slice(of: stack, from: 0, to: len(stack) - 1)
+      for m in out_edges(edges: rev, n: n) do
+        if not has(map: comp, key: m) then
+          set comp = insert(map: comp, key: m, value: next)
+          set stack = push(list: stack, item: m)
+        end if
+      end for
+    end while
+    set next = next + 1
+  end while
+  return comp
+end fn components
+
+// The names that can reach themselves along the edges: those in a component of more
+// than one name, and those with an edge to themselves.
+fn on_cycles(names: List<String>, edges: Map<String, List<String>>) -> Map<String, Bool> do
+  let comp = components(names: names, edges: edges)
+  var size: Map<Int, Int> = {}
+  for n in names do
+    let k = value_or(opt: lookup(map: comp, key: n), default: -1)
+    set size = insert(map: size, key: k, value: value_or(opt: lookup(map: size, key: k), default: 0) + 1)
+  end for
+  var out: Map<String, Bool> = {}
+  for n in names do
+    let k = value_or(opt: lookup(map: comp, key: n), default: -1)
+    if (value_or(opt: lookup(map: size, key: k), default: 0) > 1) or contains_str(xs: out_edges(edges: edges, n: n), x: n) then
+      set out = insert(map: out, key: n, value: true)
+    end if
+  end for
+  return out
+end fn on_cycles

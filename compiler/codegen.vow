@@ -512,6 +512,15 @@ fn gen_top(g: inout Gen, e: Expr) -> Val do
   return v
 end fn gen_top
 
+// Whether the built-in called name consumes its first parameter, given the argument
+// for it: push, set_at and insert do, and slice does of a list (not of a string).
+fn consumes_first(g: Gen, name: String, first: Expr) -> Bool do
+  if name == "slice" then
+    return starts_with(s: ty_show(type_of(info: g.info, e: first)), p: "List<")
+  end if
+  return contains_str(xs: ["push", "set_at", "insert"], x: name)
+end fn consumes_first
+
 // In `set name = value`, the variable read that value's top-level operation consumes,
 // when its old value can be moved there (-1 otherwise).
 fn move_candidate(g: Gen, value: Expr, name: String) -> Int do
@@ -531,9 +540,9 @@ fn move_candidate(g: Gen, value: Expr, name: String) -> Int do
   case Call(callee: c, args: args) then
     match call_info(info: g.info, e: value)
     case Some(value: ci) then
-      if (ci.kind == "builtin") and contains_str(xs: ["push", "set_at", "insert"], x: ci.name) and (len(ci.order) > 0) then
+      if (ci.kind == "builtin") and (len(ci.order) > 0) then
         let i = ci.order[0]
-        if (i >= 0) and (i < len(args)) then
+        if (i >= 0) and (i < len(args)) and consumes_first(g: g, name: ci.name, first: args[i].value) then
           return var_id(e: args[i].value, name: name)
         end if
       end if
@@ -661,9 +670,9 @@ fn consumed_operand(g: Gen, e: Expr) -> Option<Expr> do
   case Call(callee: c, args: args) then
     match call_info(info: g.info, e: e)
     case Some(value: ci) then
-      if (ci.kind == "builtin") and contains_str(xs: ["push", "set_at", "insert"], x: ci.name) and (len(ci.order) > 0) then
+      if (ci.kind == "builtin") and (len(ci.order) > 0) then
         let i = ci.order[0]
-        if (i >= 0) and (i < len(args)) then
+        if (i >= 0) and (i < len(args)) and consumes_first(g: g, name: ci.name, first: args[i].value) then
           return Option.Some(value: args[i].value)
         end if
       end if
@@ -1624,31 +1633,142 @@ fn gen_measure_check(g: inout Gen) do
   set g = g with (inout_vars: io)
 end fn gen_measure_check
 
+// An if with elif arms is a sequence, not a nest: each arm tests its condition and, if
+// it holds, runs its body and jumps past the rest. (With each arm inside the else of
+// the one before, an if of 2,000 arms was nested too deep for a C compiler.)
 fn gen_if(g: inout Gen, arms: List<Arm> where len(it) > 0, els: Option<List<Stmt>>) do
-  let a = arms[0]
-  let cv = gen_top(g: inout g, e: a.cond)
-  flush(inout g)
-  line(g: inout g, s: "if (" ++ cv.c ++ ") {")
-  braced(g: inout g, stmts: a.body)
-  if len(arms) > 1 then
-    line(g: inout g, s: "} else {")
-    indent(inout g)
-    gen_if(g: inout g, arms: slice(of: arms, from: 1, to: len(arms)), els: els)
-    dedent(inout g)
-    line(g: inout g, s: "}")
+  if len(arms) == 1 then
+    let a = arms[0]
+    let cv = gen_top(g: inout g, e: a.cond)
+    flush(inout g)
+    line(g: inout g, s: "if (" ++ cv.c ++ ") {")
+    braced(g: inout g, stmts: a.body)
+    match els
+    case Some(value: b) then
+      line(g: inout g, s: "} else {")
+      braced(g: inout g, stmts: b)
+      line(g: inout g, s: "}")
+    case None then
+      line(g: inout g, s: "}")
+    end match
     return
   end if
+  let done = "done_" ++ fresh_tmp(inout g)
+  line(g: inout g, s: "{")
+  indent(inout g)
+  for a in arms do
+    // A panic in the condition names the condition's line.
+    set g = g with (src: a.cond.pos)
+    let cv = gen_top(g: inout g, e: a.cond)
+    flush(inout g)
+    line(g: inout g, s: "if (" ++ cv.c ++ ") {")
+    braced(g: inout g, stmts: a.body)
+    indent(inout g)
+    line(g: inout g, s: "goto " ++ done ++ ";")
+    dedent(inout g)
+    line(g: inout g, s: "}")
+  end for
   match els
   case Some(value: b) then
-    line(g: inout g, s: "} else {")
-    braced(g: inout g, stmts: b)
-    line(g: inout g, s: "}")
+    gen_scoped(g: inout g, stmts: b)
   case None then
-    line(g: inout g, s: "}")
   end match
+  dedent(inout g)
+  line(g: inout g, s: "}")
+  line(g: inout g, s: done ++ ": ;")
 end fn gen_if
 
+// The match that 'try' is sugar for (see desugar_try in parser.vow): its scrutinee is
+// the variable the parser made for the value tried, named with a digit first, which is
+// the newest owned variable; the first case returns the error, and the second holds
+// the rest of the block. True if this is one, and then it is generated here, with the
+// rest of the block at the same depth and not inside the case, so that a function with
+// hundreds of 'try' statements is not hundreds of levels deep in C; and the value
+// tried is released once its payload is taken out, so that the returns further on do
+// not each have to release it.
+fn gen_try(g: inout Gen, scrut: Expr, cases: List<Case>, els: Option<List<Stmt>>) -> Bool do
+  var name = ""
+  match scrut.kind
+  case Var(name: n) then
+    set name = n
+  else
+  end match
+  if (len(name) == 0) or (len(cases) != 2) or is_some(els) then
+    return false
+  end if
+  if not is_digit(name[0]) then
+    return false
+  end if
+  let v = cvar(g: g, n: name)
+  let no = len(g.owned_vars)
+  if no == 0 then
+    return false
+  end if
+  if g.owned_vars[no - 1] != v then
+    return false
+  end if
+  var variants: List<VariantInfo> = []
+  match variants_of(info: g.info, t: type_of(info: g.info, e: scrut))
+  case Some(value: vs) then
+    set variants = vs
+  case None then
+    return false
+  end match
+  let tag = bind(g: inout g, rhs: "VP(" ++ v ++ ")[0]")
+  // The error: its binder borrows from the value tried, which the return releases.
+  let bad = cases[0]
+  match bad.pat
+  case PVariant(name: vn, binds: binds) then
+    let vi = find_variant(vs: variants, name: vn)
+    line(g: inout g, s: "if (" ++ tag ++ " == " ++ int_to_str(vi) ++ ") {")
+    indent(inout g)
+    if vi >= 0 then
+      for b in binds do
+        let fi = find_field(fields: variants[vi].fields, name: b.field)
+        line(g: inout g, s: "V l_" ++ b.binder ++ " = VP(" ++ v ++ ")[" ++ int_to_str(fi + 1) ++ "];")
+      end for
+    end if
+    gen_scoped(g: inout g, stmts: bad.body)
+    dedent(inout g)
+    line(g: inout g, s: "}")
+  else
+  end match
+  // The value: its binder takes a reference of its own, and the value tried goes.
+  let good = cases[1]
+  var kept: List<String> = []
+  match good.pat
+  case PVariant(name: vn, binds: binds) then
+    let vi = find_variant(vs: variants, name: vn)
+    if vi >= 0 then
+      for b in binds do
+        let fi = find_field(fields: variants[vi].fields, name: b.field)
+        line(g: inout g, s: "V l_" ++ b.binder ++ " = VP(" ++ v ++ ")[" ++ int_to_str(fi + 1) ++ "];")
+        if (fi >= 0) and (fi < len(variants[vi].fields)) then
+          if is_heap(variants[vi].fields[fi].rty.ty) then
+            line(g: inout g, s: "vdup(l_" ++ b.binder ++ ");")
+            set kept = push(list: kept, item: "l_" ++ b.binder)
+          end if
+        end if
+      end for
+    end if
+  else
+  end match
+  line(g: inout g, s: "vdrop(" ++ v ++ ");")
+  let owned = g.owned_vars
+  if len(owned) > 0 then
+    set g = g with (owned_vars: slice(of: owned, from: 0, to: len(owned) - 1))
+  end if
+  for k in kept do
+    declare_owned(g: inout g, c: k)
+  end for
+  gen_block(g: inout g, stmts: good.body)
+  return true
+end fn gen_try
+
 fn gen_match(g: inout Gen, scrut: Expr, cases: List<Case>, els: Option<List<Stmt>>) do
+  if gen_try(g: inout g, scrut: scrut, cases: cases, els: els) then
+    return
+  end if
   let st = type_of(info: g.info, e: scrut)
   enter_scope(inout g)
   let sv = gen_top(g: inout g, e: scrut)
@@ -1673,7 +1793,9 @@ fn gen_match(g: inout Gen, scrut: Expr, cases: List<Case>, els: Option<List<Stmt
   if is_enum then
     set tag = bind(g: inout g, rhs: "VP(" ++ v ++ ")[0]")
   end if
-  var first = true
+  // The cases are a sequence, as the arms of an if are (see gen_if): one that matches
+  // runs its body and jumps past the rest.
+  let done = "done_" ++ fresh_tmp(inout g)
   for cs in cases do
     var cond = ""
     match cs.pat
@@ -1685,12 +1807,7 @@ fn gen_match(g: inout Gen, scrut: Expr, cases: List<Case>, els: Option<List<Stmt
     case PVariant(name: name, binds: binds) then
       set cond = tag ++ " == " ++ int_to_str(find_variant(vs: variants, name: name))
     end match
-    var kw = "} else if"
-    if first then
-      set kw = "if"
-    end if
-    set first = false
-    line(g: inout g, s: kw ++ " (" ++ cond ++ ") {")
+    line(g: inout g, s: "if (" ++ cond ++ ") {")
     indent(inout g)
     match cs.pat
     case PVariant(name: name, binds: binds) then
@@ -1705,24 +1822,21 @@ fn gen_match(g: inout Gen, scrut: Expr, cases: List<Case>, els: Option<List<Stmt
     else
     end match
     gen_scoped(g: inout g, stmts: cs.body)
+    line(g: inout g, s: "goto " ++ done ++ ";")
     dedent(inout g)
+    line(g: inout g, s: "}")
   end for
   match els
   case Some(value: b) then
-    if first then
-      line(g: inout g, s: "{")
-    else
-      line(g: inout g, s: "} else {")
-    end if
+    line(g: inout g, s: "{")
     braced(g: inout g, stmts: b)
     line(g: inout g, s: "}")
   case None then
-    if not first then
-      line(g: inout g, s: "} else {")
-      line(g: inout g, s: "    vow_panic(\"unreachable: corrupt enum tag\");")
-      line(g: inout g, s: "}")
+    if len(cases) > 0 then
+      line(g: inout g, s: "vow_panic(\"unreachable: corrupt enum tag\");")
     end if
   end match
+  line(g: inout g, s: done ++ ": ;")
   leave_scope(inout g)
 end fn gen_match
 
@@ -2572,7 +2686,8 @@ fn gen_builtin(g: inout Gen, e: Expr, name: String, p: List<Val>, pe: List<Expr>
     if s0 == "String" then
       return owned_tmp(g: inout g, rhs: "vstr_slice(" ++ v0.c ++ ", " ++ v1.c ++ ", " ++ v2.c ++ ")", heap: true)
     end if
-    return owned_tmp(g: inout g, rhs: "vlist_slice(" ++ v0.c ++ ", " ++ v1.c ++ ", " ++ v2.c ++ ")", heap: true)
+    let whole = take(g: inout g, v: v0, heap: true)
+    return owned_tmp(g: inout g, rhs: "vlist_cut(" ++ whole ++ ", " ++ v1.c ++ ", " ++ v2.c ++ ")", heap: true)
   case "join" then
     return owned_tmp(g: inout g, rhs: "vjoin(" ++ v0.c ++ ", " ++ v1.c ++ ")", heap: true)
   case "int_to_str" then

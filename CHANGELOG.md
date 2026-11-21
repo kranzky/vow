@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- Taking the last element off a list is constant time: `set xs = slice(of: xs, from: 0,
+  to: len(xs) - 1)` shortens the list where it is when nothing else refers to it (it
+  copied the list). A list used as a stack, with `push` and this, costs time in
+  proportion to the pushes and pops, where it cost the square: 200,000 of each take
+  under 0.01 s, from 3.3 s.
+- Large programs of ordinary shapes compile, and quickly:
+  - an `if` with thousands of `elif` arms and a `match` with thousands of cases: the C
+    for them is a sequence, where each arm was nested in the one before and a C
+    compiler refused 2,048 levels (or crashed at 5,000 cases);
+  - a function with hundreds of `try` statements: the C continues at the same depth
+    after each, and the value tried is released at once. 990 of them build in 0.8 s;
+    200 took 11 s, and 990 made C too large to compile;
+  - many small functions that call each other: 10,000 in a chain check in 0.5 s, from
+    over a minute (and 500 whose last is not a specification function, from 10 s);
+  - a function with 40,000 locals checks in 0.1 s, from 2.7 s, and a chain of 2,000
+    type aliases in 0.03 s, from 2 s.
+- `vowc check` no longer generates C that it does not use: checking the compiler
+  itself takes 0.20 s, from 0.26 s.
+- A panic in an `elif` condition names the condition's line; it named the line of the
+  arm before.
 - Nothing can be more than 1,000 levels deep, and the compiler says so instead of
   overflowing its stack: `this expression is nested more than 1000 levels deep` for
   parentheses, calls, lists and unary operators, `this expression is more than 1000

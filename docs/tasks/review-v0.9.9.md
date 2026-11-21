@@ -283,6 +283,21 @@ structured inputs.
   10 s and 1,000 over 120 s. Profile: 99% in `reaches`.
 - **Fix:** strongly connected components once (as `total.vow` does), then a worklist
   over reverse call edges.
+- **Done.** The loop's rounds are replaced by what they compute. A candidate is dropped
+  in the first round if its body is not specification-safe or it is on a cycle with no
+  measure; after that only "calls a dropped candidate" can drop one (dropping never
+  makes a cycle), so that is a worklist over the callers, and recursion is looked for
+  twice in all (`on_cycles`, with `components` moved from `total.vow` to `util.vow`).
+  `recursion` in `total.vow` looked names up in lists; it uses maps. Measured
+  (`check --no-verify`): the chain of 2,000 takes 0.18 s and 10,000 take 0.5 s; 40,000
+  take 1.7 s, also when the last is not specification-safe.
+- **Found on the way:** popping a stack with `slice` copied the list, which made every
+  deep search in the compiler quadratic. `slice` of a list now consumes it, and a
+  prefix of an unshared list is made in place (`vlist_cut` in the runtime;
+  `consumes_first` in `codegen.vow`). Test: `tests/run/slice_pop.vow`.
+- **Not done:** a chain of N functions that each inline the next is expanded in full
+  for each of them by the verifier, N²/2 expansions in all: 3,000 take 5.6 s to check.
+  Real programs do not have such chains.
 
 ### B5. Other front-end costs that grow faster than the input (measured by one reviewer)
 
@@ -299,6 +314,18 @@ The front end is otherwise linear: the compiler's 17,500 lines check in 0.13 s.
 - **Cache keys and lookup are quadratic in the number of functions**
   (`hash.vow:225-234`, `pipeline.vow:104-109`): 8,000 small functions take 10 s with a
   warm cache, against 0.5 s for `--no-verify`.
+- **Done:**
+  - locals are found through a map from each name to its place in the list
+    (`Checker.local_at`; an entry is trusted only if that place still holds the name,
+    so nothing is removed when a scope ends): 40,000 `let`s take 0.11 s, and 0.28 s
+    when each binds a call;
+  - aliases are resolved in one pass, in the order the rounds gave (`alias_turns`):
+    the 2,000-alias chain takes 0.03 s;
+  - `check` does not generate C: 0.20 s for the compiler, from 0.26 s;
+  - cache keys and lookup were replaced in V5: 8,000 functions with contracts take
+    0.55 s with a warm store, against 0.32 s for `--no-verify`.
+- **Not done:** `ty_eq` still renders types. The depth limit (B1) bounds the case
+  measured: a list literal nested 990 deep checks in 0.1 s.
 
 ### B6. Limits in generated C (reproduced by one reviewer)
 
@@ -310,6 +337,17 @@ The front end is otherwise linear: the compiler's 17,500 lines check in 0.13 s.
 - **A panic in an `elif` condition names the wrong line** (`codegen.vow:1277-1287`
   never resets the source position): an overflow on line 6 is reported at line 5
   (reproduced).
+- **Done.** `gen_if` writes the arms of an if with `elif` as a sequence: each tests
+  its condition and, if it holds, runs its body and jumps past the rest (`goto
+  done_tN`). `gen_match` does the same for cases, which a C compiler also failed on
+  (clang crashed at 5,000). The source position is set to each condition. `gen_try`
+  recognises the match that `try` is sugar for and generates the rest of the block at
+  the same depth, releasing the value tried once its payload is taken out: 200 tries
+  build in 0.25 s (from 11 s) and 990 in 0.8 s. A function can still have at most
+  1,000 (B1: each nests the statements after it for the checker and verifier). A C
+  compiler is still slow on very long chains (17 s for 10,000 `elif` arms, in its
+  optimiser). Tests: the "Large programs" block in `tests/run.sh`,
+  `tests/panic/elif_line.vow`.
 
 ### B7. Diagnostics that mislead (reproduced by one reviewer)
 

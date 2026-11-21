@@ -503,6 +503,55 @@ if [ -z "$VOW_FROZEN" ]; then
   fi
   rm -rf "$jdir"
 fi
+# Large programs of ordinary shapes. The first is 3,000 type aliases, each defined by
+# the next, 3,000 one-line functions, each calling the next (the last is not one that
+# a specification could use, so none of them is), and a function of 20,000 locals:
+# each of these took time that grew with the square or the cube of its size (the
+# aliases 2 s for 2,000, the functions 10 s for 500, the locals 2.5 s for 40,000). The
+# second is an if of 2,500 arms, a match of 5,000 cases and 600 'try' statements in one
+# function, none of which a C compiler accepted: the arms and cases were nested one
+# inside the other, and the tries made C whose size grew with the square of their
+# number.
+if [ -z "$VOW_FROZEN" ]; then
+  sdir=$(mktemp -d)
+  awk 'BEGIN {
+    for (i = 0; i < 3000; i++) printf "type A%d = A%d\n", i, i + 1
+    print "type A3000 = Int"
+    for (i = 0; i < 2999; i++) printf "fn f%d(x: Int) -> Int do\n  return f%d(x) + 1\nend fn f%d\n", i, i + 1, i
+    print "fn f2999(x: Int) -> Int do\n  return x + len(\"a\" ++ \"b\")\nend fn f2999"
+    print "fn locals() -> Int do"
+    for (i = 0; i < 20000; i++) printf "  let v%d = %d\n", i, i
+    print "  return v0 + v19999\nend fn locals"
+    print "fn main() uses console do\n  let a: A0 = 7\n  print(int_to_str(f0(a) + locals()))\nend fn main"
+  }' > "$sdir/front.vow"
+  # Checked, not run: a C compiler is slow on the chain of functions.
+  got=$("$VOWC" check "$sdir/front.vow" 2>&1)
+  if [ "$got" = ok ]; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1)); echo "FAIL a program of many aliases, functions and locals: $(printf '%s' "$got" | head -3 | cut -c1-200)"
+  fi
+  awk 'BEGIN {
+    print "fn one() -> Result<Int, String> do\n  return Result.Ok(value: 1)\nend fn one"
+    print "fn tries() -> Result<Int, String> do"
+    for (i = 0; i < 600; i++) printf "  let v%d = try one()\n", i
+    print "  return Result.Ok(value: v0 + v599)\nend fn tries"
+    print "fn arm(n: Int) -> Int do\n  if n == 0 then\n    return 0"
+    for (i = 1; i < 2500; i++) printf "  elif n == %d then\n    return %d\n", i, i
+    print "  else\n    return -1\n  end if\nend fn arm"
+    print "fn pick(n: Int) -> Int do\n  match n"
+    for (i = 0; i < 5000; i++) printf "  case %d then\n    return %d\n", i, i
+    print "  else\n    return -1\n  end match\nend fn pick"
+    print "fn main() uses console do\n  match tries()\n  case Ok(value: t) then\n    print(int_to_str(arm(2499) + pick(4999) + arm(2500) + pick(5000) + t))\n  case Err(error: e) then\n    print(e)\n  end match\nend fn main"
+  }' > "$sdir/back.vow"
+  got=$("$VOWC" run "$sdir/back.vow" $VOWFLAGS 2>&1)
+  if [ "$got" = 7498 ]; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1)); echo "FAIL a program with a long if, a long match and many tries: $(printf '%s' "$got" | head -3 | cut -c1-200)"
+  fi
+  rm -rf "$sdir"
+fi
 # The pinned Z3 version must be the same in the compiler and the installer.
 pinned=$(sed -n 's/^VERSION=//p' ../tools/install-z3.sh)
 if grep -A1 'fn tested_z3_version' ../compiler/verify.vow | grep -q "\"$pinned\""; then

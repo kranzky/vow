@@ -683,7 +683,7 @@ the parts are already in a list, `join` them.
 
 **Performance: update in place with `set x = op(x, ...)`.** Values are immutable, but
 when a value has only one reference, `push`, `set_at`, `with`, `insert` and `++` update
-it in place. Write updates as `set xs = set_at(list: xs, at: i, value: v)`,
+it in place, and `slice` from 0 shortens a list in place. Write updates as `set xs = set_at(list: xs, at: i, value: v)`,
 `set s = s with (count: s.count + 1)` or `set m = insert(map: m, key: k, value: v)`:
 the old value is moved into the operation, so nothing is copied. A second reference
 (`let copy = xs`) makes the next update copy once, which is what keeps `copy`
@@ -697,8 +697,11 @@ lookup tables that are built up and then read; it is several times faster. Use `
 when you keep old versions around (`let before = m` and then insert), because a shared
 `HashMap` is copied whole on the next insert, while a shared `Map` copies only one path.
 
-**Removing the last list element.** `slice(of: xs, from: 0, to: len(xs) - 1)` after
-checking `len(xs) > 0`.
+**Removing the last list element.** `set xs = slice(of: xs, from: 0, to: len(xs) - 1)`
+after checking `len(xs) > 0`. Written like this, in one `set` of the list to a slice of
+itself from 0, it takes constant time: the list is shortened where it is. A stack is a
+list used with this and `push`. Through a helper function (`set xs = pop(xs)`) the list
+is copied each time.
 
 **A loop with a flag:**
 

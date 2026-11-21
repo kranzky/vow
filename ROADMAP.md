@@ -157,11 +157,11 @@ Compiler robustness:
       integer literal
 - [x] B3: a directory is read as an empty source file; one file reached by two names
       (case, symlink, absolute path) is loaded twice
-- [ ] B4: `compute_inline` is cubic: 2,000 one-line functions take 5 s to check, 10,000
+- [x] B4: `compute_inline` is cubic: 2,000 one-line functions take 5 s to check, 10,000
       over a minute
-- [ ] B5: other costs that grow faster than the input: local lookup, type equality by
+- [x] B5: other costs that grow faster than the input: local lookup, type equality by
       rendering, alias resolution, cache keys and lookup; `check` generates C it discards
-- [ ] B6: generated C: an `if` with over 2,000 `elif` arms does not compile; many `try`
+- [x] B6: generated C: an `if` with over 2,000 `elif` arms does not compile; many `try`
       statements in one function are quadratic; a panic in an `elif` condition names
       the wrong line
 - [ ] B7: misleading diagnostics: a field named `end`, a local named like a module

@@ -500,7 +500,7 @@ SMT-LIB. The divisor must be provably non-zero.
 | `len(x) -> Int where it >= 0` | List, String, Map or HashMap |
 | `push(list: xs, item: x) -> List<T>` | amortised O(1) |
 | `set_at(list: xs, at: i, value: v) -> List<T>` | `xs` with element `i` replaced; requires `0 <= i < len(xs)`; in place when `xs` is unshared |
-| `slice(of: x, from: a, to: b)` | List or String; requires `0 <= a <= b <= len(x)` |
+| `slice(of: x, from: a, to: b)` | List or String; requires `0 <= a <= b <= len(x)`; of a list from 0, in place when the list is unshared |
 | `join(parts: List<String>, sep: String) -> String` | |
 | `int_to_str(n) -> String` | |
 | `str_to_int(s) -> Option<Int>` | |
@@ -730,7 +730,9 @@ Every value is one 64-bit word. Integers and booleans are unboxed. Strings, list
 maps, structs and enums are pointers to immutable heap objects, each with a reference
 count. An object is freed as soon as nothing refers to it (cycles cannot occur, because
 values are immutable). When an object has a single reference, `with`, `push`, `set_at`,
-`insert` and `++` update it in place instead of copying; nothing else can observe the
+`insert` and `++` update it in place instead of copying, and `slice` of a list from 0
+shortens it in place (`set xs = slice(of: xs, from: 0, to: len(xs) - 1)` takes the last
+element off in constant time); nothing else can observe the
 difference, so value semantics are preserved. A chain of `++` on strings is joined in
 one step (string literals next to each other in it are joined by the compiler), and a string that is appended to repeatedly is given room to grow, so
 building one with `set s = s ++ x` costs time in proportion to its final length. In `set x = op(x, ...)`, the old value of

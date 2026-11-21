@@ -1,0 +1,14 @@
+// language: 0.9
+// A panic in an elif condition names the condition's line (it named the line of the
+// 'if').
+fn main() uses console, proc do
+  let n = len(args())
+  let big = 9223372036854775807
+  if n == 5 then
+    print("five\n")
+  elif (big + n + 1) > 0 then
+    print("unreachable\n")
+  else
+    print("unreachable too\n")
+  end if
+end fn main

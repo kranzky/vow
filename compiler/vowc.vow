@@ -451,8 +451,12 @@ fn main() uses console, fs, proc do
   if cmd == "test" then
     set tests = test_names(src.items)
   end if
-  let code = generate(items: src.items, info: c.info, files: src.files, verified: verified, lines: line_directives,
-    tests: tests, contracts: check_contracts)
+  // check has no use for the C.
+  var code = ""
+  if cmd != "check" then
+    set code = generate(items: src.items, info: c.info, files: src.files, verified: verified, lines: line_directives,
+      tests: tests, contracts: check_contracts)
+  end if
   if cmd == "check" then
     print("ok\n")
     if totality_report then

@@ -939,11 +939,24 @@ static inline V vlist_set_at_at(V l, V i, V x, VOW_AT) {
 
 #define vlist_set_at(l, i, x) vlist_set_at_at((l), (i), (x), __FILE__, __LINE__)
 
-// Borrows l.
-static V vlist_slice_at(V l, V from, V to, VOW_AT) {
+// Consumes l. The beginning of a list that nothing else refers to stays where it is
+// (`set xs = slice(of: xs, from: 0, to: len(xs) - 1)` takes the last element off in
+// constant time): the list is made shorter, and if nothing else shares its buffer the
+// elements past the new end are released, so that a push can go there.
+static V vlist_cut_at(V l, V from, V to, VOW_AT) {
     VOW_REQUIRE(0 <= VI(from) && VI(from) <= VI(to) && VI(to) <= VL(l)->len, "list slice out of bounds");
     int heap = VH(l)->flags;
     int64_t n = VI(to) - VI(from);
+    if (VH(l)->rc == 1 && VI(from) == 0) {
+        V b = VL(l)->buf;
+        if (b && VH(b)->rc == 1) {
+            if (heap)
+                for (int64_t j = n; j < VB(b)->used; j++) vdrop(VB(b)->items[j]);
+            VB(b)->used = n;
+        }
+        VL(l)->len = n;
+        return l;
+    }
     V nb = vbuf_new(n, heap);
     if (n) {
         memcpy(VB(nb)->items, VB(VL(l)->buf)->items + VI(from), (size_t)n * sizeof(V));
@@ -951,10 +964,11 @@ static V vlist_slice_at(V l, V from, V to, VOW_AT) {
             for (int64_t j = 0; j < n; j++) vdup(VB(nb)->items[j]);
     }
     VB(nb)->used = n;
+    vdrop(l);
     return vlist_make(n, nb, heap);
 }
 
-#define vlist_slice(l, from, to) vlist_slice_at((l), (from), (to), __FILE__, __LINE__)
+#define vlist_cut(l, from, to) vlist_cut_at((l), (from), (to), __FILE__, __LINE__)
 
 // Consumes a, borrows b.
 static V vlist_cat(V a, V b) {

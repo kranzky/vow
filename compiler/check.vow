@@ -1125,6 +1125,9 @@ struct Checker
   info: Info,
   errs: List<Diag>,
   locals: List<Local>,
+  // Where each local is in locals. An entry is not removed when its scope ends: it is
+  // good only if that place still holds a local of that name (see find_local).
+  local_at: Map<String, Int>,
   marks: List<Int>,
   effects: List<String>,
   ret: Ty,
@@ -1312,15 +1315,25 @@ fn check_arg_refines(c: inout Checker, te: TypeExpr) do
 end fn check_arg_refines
 
 fn find_local(c: Checker, name: String) -> Option<Local> do
-  var i = len(c.locals) - 1
-  while i >= 0 invariant i < len(c.locals) do
+  let i = value_or(opt: lookup(map: c.local_at, key: name), default: -1)
+  if (i >= 0) and (i < len(c.locals)) then
     if c.locals[i].name == name then
       return Option.Some(value: c.locals[i])
     end if
-    set i = i - 1
-  end while
+  end if
   return Option.None
 end fn find_local
+
+// Where each of the locals is (the first, of two with one name).
+fn index_locals(locals: List<Local>) -> Map<String, Int> do
+  var at: Map<String, Int> = {}
+  for i in 0..len(locals) do
+    if not has(map: at, key: locals[i].name) then
+      set at = insert(map: at, key: locals[i].name, value: i)
+    end if
+  end for
+  return at
+end fn index_locals
 
 fn is_local(c: Checker, name: String) -> Bool do
   match find_local(c: c, name: name)
@@ -1333,9 +1346,13 @@ end fn is_local
 
 fn declare(c: inout Checker, pos: Pos, name: String, t: Ty, mutable: Bool) do
   if is_local(c: c, name: name) then
+    // The name goes on meaning the local it meant.
     err(c: inout c, pos: pos, msg: "'" ++ name ++ "' is already defined in this scope (Vow has no shadowing)")
+    set c = c with (locals: push(list: c.locals, item: Local(name: name, ty: t, mutable: mutable)))
+    return
   end if
-  set c = c with (locals: push(list: c.locals, item: Local(name: name, ty: t, mutable: mutable)))
+  let at = len(c.locals)
+  set c = c with (locals: push(list: c.locals, item: Local(name: name, ty: t, mutable: mutable)), local_at: insert(map: c.local_at, key: name, value: at))
 end fn declare
 
 fn enter(c: inout Checker) do
@@ -1394,17 +1411,97 @@ fn new_info() -> Info do
     next_id: 0, scc: {}, recursive: {}, structural: false, spec_notes: {})
 end fn new_info
 
-fn alias_ready(info: Info, te: TypeExpr, alias_names: List<String>) -> Bool do
-  if contains_str(xs: alias_names, x: te.name) and not has(map: info.aliases, key: te.name) then
-    return false
+// The aliases a type is written with.
+fn alias_uses(te: TypeExpr, first: Map<String, Int>, out: inout List<String>) do
+  if has(map: first, key: te.name) then
+    set out = push(list: out, item: te.name)
   end if
   for a in te.args do
-    if not alias_ready(info: info, te: a, alias_names: alias_names) then
-      return false
+    alias_uses(te: a, first: first, out: inout out)
+  end for
+end fn alias_uses
+
+// The turn of an alias declared at index at that uses the aliases in used, given the
+// turns of those (see alias_turns): -1 if one of them has none.
+fn alias_turn(at: Int, used: List<String>, first: Map<String, Int>, turns: Map<String, Int>) -> Int do
+  var r = 1
+  for u in used do
+    let t = value_or(opt: lookup(map: turns, key: u), default: -1)
+    if t < 0 then
+      return -1
+    end if
+    var mine = t + 1
+    if value_or(opt: lookup(map: first, key: u), default: at) < at then
+      set mine = t
+    end if
+    if mine > r then
+      set r = mine
     end if
   end for
-  return true
-end fn alias_ready
+  return r
+end fn alias_turn
+
+// The order in which the aliases are resolved: each after the aliases it is written
+// with. An alias has a turn, from 1: the turn of an alias it uses that is declared
+// before it, or the turn after that of one declared after it, whichever is latest; so
+// taking the turns in order, and the aliases of a turn as they are declared, each alias
+// follows what it uses. The result gives each declaration's turn, and -1 for an alias
+// defined in terms of itself or of such an alias. (first: the index of the first
+// declaration of each name.)
+fn alias_turns(decls: List<AliasDecl>, first: Map<String, Int>) -> List<Int> do
+  var used: Map<String, List<String>> = {}
+  var names: List<String> = []
+  for i in 0..len(decls) do
+    if value_or(opt: lookup(map: first, key: decls[i].name), default: -1) == i then
+      var us: List<String> = []
+      alias_uses(te: decls[i].ty, first: first, out: inout us)
+      set used = insert(map: used, key: decls[i].name, value: us)
+      set names = push(list: names, item: decls[i].name)
+    end if
+  end for
+  // A depth-first search; a name being searched from has the turn -2, so one found
+  // again in that state is defined in terms of itself.
+  var turns: Map<String, Int> = {}
+  for root in names do
+    if has(map: turns, key: root) then
+      continue
+    end if
+    set turns = insert(map: turns, key: root, value: -2)
+    var stack = [root]
+    var pos = [0]
+    while len(stack) > 0 invariant len(pos) == len(stack) do
+      let k = len(stack) - 1
+      let n = stack[k]
+      let us = out_edges(edges: used, n: n)
+      let p = pos[k]
+      if (p >= 0) and (p < len(us)) then
+        set pos = set_at(list: pos, at: k, value: p + 1)
+        let m = us[p]
+        if not has(map: turns, key: m) then
+          set turns = insert(map: turns, key: m, value: -2)
+          set stack = push(list: stack, item: m)
+          set pos = push(list: pos, item: 0)
+        end if
+      else
+        let at = value_or(opt: lookup(map: first, key: n), default: 0)
+        set turns = insert(map: turns, key: n, value: alias_turn(at: at, used: us, first: first, turns: turns))
+        set stack = slice(of: stack, from: 0, to: k)
+        set pos = slice(of: pos, from: 0, to: k)
+      end if
+    end while
+  end for
+  var out: List<Int> = []
+  for i in 0..len(decls) do
+    if value_or(opt: lookup(map: first, key: decls[i].name), default: -1) == i then
+      set out = push(list: out, item: value_or(opt: lookup(map: turns, key: decls[i].name), default: -1))
+    else
+      var us: List<String> = []
+      alias_uses(te: decls[i].ty, first: first, out: inout us)
+      set out = push(list: out, item: alias_turn(at: i, used: us, first: first, turns: turns))
+    end if
+  end for
+  return out
+end fn alias_turns
 
 fn primitive_types() -> List<String> do
   return ["Int", "Float", "Bool", "String", "Unit", "List", "Map", "HashMap", "Option", "Output"]
@@ -1412,7 +1509,7 @@ end fn primitive_types
 
 fn check_program(items: List<Item>, files: List<String>, next_id: Int) -> Checker do
   let none: Option<Ty> = Option.None
-  var c = Checker(info: new_info() with (next_id: next_id), errs: [], locals: [], marks: [], effects: [], ret: Ty.TUnit,
+  var c = Checker(info: new_info() with (next_id: next_id), errs: [], locals: [], local_at: {}, marks: [], effects: [], ret: Ty.TUnit,
     loops: 0, spec: false, it_ty: none, result_ty: none, inout_ok: false, files: files, queue: [],
     inouts: [], olds: [], changing: [], refined: "")
   // Phase 1: names.
@@ -1499,32 +1596,44 @@ fn check_program(items: List<Item>, files: List<String>, next_id: Int) -> Checke
   end for
   // Phase 2: aliases in dependency order, then fields and signatures.
   var alias_decls: List<AliasDecl> = []
-  var alias_names: List<String> = []
+  var first_alias: Map<String, Int> = {}
   for item in items do
     match item
     case AliasItem(decl: a) then
+      if not has(map: first_alias, key: a.name) then
+        set first_alias = insert(map: first_alias, key: a.name, value: len(alias_decls))
+      end if
       set alias_decls = push(list: alias_decls, item: a)
-      set alias_names = push(list: alias_names, item: a.name)
     else
     end match
   end for
-  var pending = alias_decls
-  var progress = true
-  while progress and (len(pending) > 0) do
-    let before = len(pending)
-    var still: List<AliasDecl> = []
-    for a in pending do
-      if alias_ready(info: c.info, te: a.ty, alias_names: alias_names) then
-        let r = resolve(c: inout c, te: a.ty)
-        let info = c.info
-        set c = c with (info: info with (aliases: insert(map: info.aliases, key: a.name, value: r)))
-      else
-        set still = push(list: still, item: a)
+  let turns = alias_turns(decls: alias_decls, first: first_alias)
+  var by_turn: Map<Int, List<AliasDecl>> = {}
+  var last_turn = 0
+  var pending: List<AliasDecl> = []
+  for i in 0..len(alias_decls) do
+    var t = -1
+    if i < len(turns) then
+      set t = turns[i]
+    end if
+    if t < 1 then
+      set pending = push(list: pending, item: alias_decls[i])
+    else
+      let before: List<AliasDecl> = value_or(opt: lookup(map: by_turn, key: t), default: [])
+      set by_turn = insert(map: by_turn, key: t, value: push(list: before, item: alias_decls[i]))
+      if t > last_turn then
+        set last_turn = t
       end if
+    end if
+  end for
+  for t in 1..(last_turn + 1) do
+    let ready: List<AliasDecl> = value_or(opt: lookup(map: by_turn, key: t), default: [])
+    for a in ready do
+      let r = resolve(c: inout c, te: a.ty)
+      let info = c.info
+      set c = c with (info: info with (aliases: insert(map: info.aliases, key: a.name, value: r)))
     end for
-    set pending = still
-    set progress = len(pending) != before
-  end while
+  end for
   for a in pending do
     err(c: inout c, pos: a.pos, msg: "type alias '" ++ a.name ++ "' is defined in terms of itself")
     let info = c.info
@@ -2123,29 +2232,31 @@ end fn check_fixed_pred
 
 fn check_pred(c: inout Checker, e: Expr, scope: List<NamedTy>, subject: Option<Ty>, res: Option<Ty>) do
   let saved_locals = c.locals
+  let saved_at = c.local_at
   let saved_marks = c.marks
   var locals: List<Local> = []
   for s in scope do
     set locals = push(list: locals, item: Local(name: s.name, ty: s.ty, mutable: false))
   end for
-  set c = c with (locals: locals, marks: [], it_ty: subject, result_ty: res, spec: true)
+  set c = c with (locals: locals, local_at: index_locals(locals), marks: [], it_ty: subject, result_ty: res, spec: true)
   let t = check_expr(c: inout c, e: e, expected: Option.Some(value: Ty.TBool))
   expect_ty(c: inout c, pos: e.pos, got: t, want: Ty.TBool, what: "a specification")
   let none: Option<Ty> = Option.None
-  set c = c with (locals: saved_locals, marks: saved_marks, it_ty: none, result_ty: none, spec: false)
+  set c = c with (locals: saved_locals, local_at: saved_at, marks: saved_marks, it_ty: none, result_ty: none, spec: false)
 end fn check_pred
 
 fn check_measure(c: inout Checker, e: Expr, scope: List<NamedTy>) do
   let saved_locals = c.locals
+  let saved_at = c.local_at
   let saved_marks = c.marks
   var locals: List<Local> = []
   for s in scope do
     set locals = push(list: locals, item: Local(name: s.name, ty: s.ty, mutable: false))
   end for
-  set c = c with (locals: locals, marks: [], spec: true)
+  set c = c with (locals: locals, local_at: index_locals(locals), marks: [], spec: true)
   let t = check_expr(c: inout c, e: e, expected: Option.None)
   expect_measure(c: inout c, pos: e.pos, t: t)
-  set c = c with (locals: saved_locals, marks: saved_marks, spec: false)
+  set c = c with (locals: saved_locals, local_at: saved_at, marks: saved_marks, spec: false)
 end fn check_measure
 
 // A measure is an Int, which must decrease and stay non-negative, or a list, struct,
@@ -2215,6 +2326,11 @@ fn compute_inline(c: inout Checker, items: List<Item>) do
     else
     end match
   end for
+  // What each of them calls.
+  var calls: Map<String, List<String>> = {}
+  for n in keys(bodies) do
+    set calls = insert(map: calls, key: n, value: tree_callees(value_or(opt: lookup(map: bodies, key: n), default: [])))
+  end for
   // Specifications reach these functions, directly or through specification functions.
   var used: Map<String, Bool> = {}
   var todo = named
@@ -2225,50 +2341,67 @@ fn compute_inline(c: inout Checker, items: List<Item>) do
       continue
     end if
     set used = insert(map: used, key: n, value: true)
-    match lookup(map: bodies, key: n)
-    case Some(value: b) then
-      for x in tree_callees(b) do
-        set todo = push(list: todo, item: x)
-      end for
-    case None then
-    end match
+    for x in out_edges(edges: calls, n: n) do
+      set todo = push(list: todo, item: x)
+    end for
   end while
+  // The candidates: cand maps each to true, and to false once it is found not to be a
+  // specification function.
   var cand: Map<String, Bool> = {}
+  var names: List<String> = []
   for n in keys(bodies) do
     if has(map: single, key: n) or has(map: used, key: n) then
       set cand = insert(map: cand, key: n, value: true)
+      set names = push(list: names, item: n)
     end if
   end for
+  // First, a candidate is dropped if its body is not made of specification
+  // expressions over the candidates, or if it is recursive (among them) with no
+  // measure. Then dropping one drops those that call it, and so on; no cycle appears
+  // that way, so recursion is looked for once.
+  let cyclic = on_cycles(names: names, edges: cand_edges(names: names, calls: calls, cand: cand))
   var notes: Map<String, String> = {}
-  var changed = true
-  while changed do
-    var drop: List<String> = []
-    for n in keys(cand) do
-      let b = value_or(opt: lookup(map: bodies, key: n), default: [])
-      var safe = true
-      for e in tree_exprs(b) do
-        if not spec_safe(c: c, e: e, cand: cand) then
-          set safe = false
-        end if
-      end for
-      var seen: List<String> = []
-      if not safe then
-        set drop = push(list: drop, item: n)
-      elif reaches(from: n, target: n, bodies: bodies, cand: cand, seen: inout seen) and not has_measure(c: c, n: n) then
-        set drop = push(list: drop, item: n)
-        set notes = insert(map: notes, key: n, value: "it is recursive and has no 'decreases' measure")
+  var dropped: List<String> = []
+  for n in names do
+    if not spec_safe_body(c: c, body: value_or(opt: lookup(map: bodies, key: n), default: []), cand: cand) then
+      set dropped = push(list: dropped, item: n)
+    elif has(map: cyclic, key: n) and not has_measure(c: c, n: n) then
+      set dropped = push(list: dropped, item: n)
+      set notes = insert(map: notes, key: n, value: "it is recursive and has no 'decreases' measure")
+    end if
+  end for
+  var callers: Map<String, List<String>> = {}
+  for n in names do
+    for x in out_edges(edges: calls, n: n) do
+      if has(map: cand, key: x) then
+        set callers = insert(map: callers, key: x, value: push(list: out_edges(edges: callers, n: x), item: n))
       end if
     end for
-    set changed = len(drop) > 0
-    for n in drop do
-      set cand = remove_key(m: cand, k: n)
+  end for
+  for n in dropped do
+    set cand = insert(map: cand, key: n, value: false)
+  end for
+  while len(dropped) > 0 do
+    let gone = dropped[len(dropped) - 1]
+    set dropped = slice(of: dropped, from: 0, to: len(dropped) - 1)
+    for n in out_edges(edges: callers, n: gone) do
+      if is_cand(cand: cand, n: n) and not spec_safe_body(c: c, body: value_or(opt: lookup(map: bodies, key: n), default: []), cand: cand) then
+        set cand = insert(map: cand, key: n, value: false)
+        set dropped = push(list: dropped, item: n)
+      end if
     end for
   end while
-  for n in keys(cand) do
+  var kept: List<String> = []
+  for n in names do
+    if is_cand(cand: cand, n: n) then
+      set kept = push(list: kept, item: n)
+    end if
+  end for
+  let recursive = on_cycles(names: kept, edges: cand_edges(names: kept, calls: calls, cand: cand))
+  for n in kept do
     match get_fn(info: c.info, name: n)
     case Some(value: fi) then
-      var seen: List<String> = []
-      let rec = reaches(from: n, target: n, bodies: bodies, cand: cand, seen: inout seen)
+      let rec = has(map: recursive, key: n)
       var fi2 = fi
       match lookup(map: single, key: n)
       case Some(value: e) then
@@ -2298,15 +2431,34 @@ fn has_measure(c: Checker, n: String) -> Bool do
   end match
 end fn has_measure
 
-fn remove_key(m: Map<String, Bool>, k: String) -> Map<String, Bool> do
-  var out: Map<String, Bool> = {}
-  for x in keys(m) do
-    if x != k then
-      set out = insert(map: out, key: x, value: true)
+fn is_cand(cand: Map<String, Bool>, n: String) -> Bool do
+  return value_or(opt: lookup(map: cand, key: n), default: false)
+end fn is_cand
+
+// The calls from each of the names to candidates.
+fn cand_edges(names: List<String>, calls: Map<String, List<String>>, cand: Map<String, Bool>) -> Map<String, List<String>> do
+  var edges: Map<String, List<String>> = {}
+  for n in names do
+    var es: List<String> = []
+    for x in out_edges(edges: calls, n: n) do
+      if is_cand(cand: cand, n: x) then
+        set es = push(list: es, item: x)
+      end if
+    end for
+    set edges = insert(map: edges, key: n, value: es)
+  end for
+  return edges
+end fn cand_edges
+
+// Whether a body is made of specification expressions over the candidates.
+fn spec_safe_body(c: Checker, body: List<Stmt>, cand: Map<String, Bool>) -> Bool do
+  for e in tree_exprs(body) do
+    if not spec_safe(c: c, e: e, cand: cand) then
+      return false
     end if
   end for
-  return out
-end fn remove_key
+  return true
+end fn spec_safe_body
 
 // A body made only of 'let', 'if', 'match', 'assert' and 'return e'.
 fn tree_shaped(stmts: List<Stmt>) -> Bool do
@@ -2528,7 +2680,7 @@ fn spec_safe(c: Checker, e: Expr, cand: Map<String, Bool>) -> Bool do
   case Call(callee: callee, args: args) then
     match callee.kind
     case Var(name: n) then
-      if not (spec_builtin(n) or has(map: cand, key: n)) then
+      if not (spec_builtin(n) or is_cand(cand: cand, n: n)) then
         return false
       end if
       for a in args do
@@ -2575,32 +2727,6 @@ fn callees(e: Expr, out: inout List<String>) do
   else
   end match
 end fn callees
-
-// True if 'from' can reach 'target' through calls among the candidates.
-// Whether from can call target through specification functions.
-fn reaches(from: String, target: String, bodies: Map<String, List<Stmt>>, cand: Map<String, Bool>,
-    seen: inout List<String>) -> Bool do
-  if not has(map: cand, key: from) then
-    return false
-  end if
-  match lookup(map: bodies, key: from)
-  case None then
-    return false
-  case Some(value: body) then
-    for x in tree_callees(body) do
-      if x == target then
-        return true
-      end if
-      if not contains_str(xs: seen, x: x) then
-        set seen = push(list: seen, item: x)
-        if reaches(from: x, target: target, bodies: bodies, cand: cand, seen: inout seen) then
-          return true
-        end if
-      end if
-    end for
-    return false
-  end match
-end fn reaches
 
 fn inout_names(fi: FnInfo) -> List<String> do
   var out: List<String> = []
@@ -2662,13 +2788,13 @@ fn check_fn(c: inout Checker, f: FnDecl) do
       end if
       set locals = push(list: locals, item: Local(name: fi.params[i].name, ty: fi.params[i].rty.ty, mutable: m))
     end for
-    set c = c with (locals: locals, marks: [], effects: fi.effects, ret: fi.ret.ty, loops: 0, inouts: inout_names(fi))
+    set c = c with (locals: locals, local_at: index_locals(locals), marks: [], effects: fi.effects, ret: fi.ret.ty, loops: 0, inouts: inout_names(fi))
     check_block(c: inout c, stmts: f.body)
     set c = c with (inouts: [])
     if (ty_show(fi.ret.ty) != "Unit") and not terminates(f.body) then
       err(c: inout c, pos: f.pos, msg: "function '" ++ f.name ++ "' can finish without returning a " ++ ty_show(fi.ret.ty))
     end if
-    set c = c with (locals: [], marks: [])
+    set c = c with (locals: [], local_at: {}, marks: [])
   end match
 end fn check_fn
 
