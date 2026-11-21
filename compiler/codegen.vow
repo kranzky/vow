@@ -199,14 +199,23 @@ fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool, 
   set c = c ++ eq_defs ++ rank_defs
   // The functions come last: from their first #line directive on, every C line is
   // attributed to Vow source.
+  // The string literals are made from a table, in a loop: with a statement for each
+  // one, a C compiler takes time that grows with the square of their number.
+  if len(g.strs) > 0 then
+    set c = push(list: c, item: "static const struct { const char *text; int64_t len; } vow_lit[" ++ int_to_str(len(g.strs)) ++ "] = {")
+    for s in g.strs do
+      set c = push(list: c, item: "    {" ++ c_string(s) ++ ", " ++ int_to_str(len(s)) ++ "},")
+    end for
+    set c = push(list: c, item: "};")
+    set c = push(list: c, item: "")
+  end if
   set c = push(list: c, item: "int main(int argc, char **argv) {")
   set c = push(list: c, item: "    vow_guard_stack(&argc);")
   set c = push(list: c, item: "    vow_argc = argc;")
   set c = push(list: c, item: "    vow_argv = argv;")
-  for i in 0..len(g.strs) do
-    let s = g.strs[i]
-    set c = push(list: c, item: "    vow_s[" ++ int_to_str(i) ++ "] = vow_immortal(vstr_new(" ++ c_string(s) ++ ", " ++ int_to_str(len(s)) ++ "));")
-  end for
+  if len(g.strs) > 0 then
+    set c = push(list: c, item: "    for (int64_t i = 0; i < " ++ int_to_str(len(g.strs)) ++ "; i++) vow_s[i] = vow_immortal(vstr_new(vow_lit[i].text, vow_lit[i].len));")
+  end if
   if len(tests) > 0 then
     set c = push(list: c, item: "    if (argc == 3 && strcmp(argv[1], \"--vow-test\") == 0) {")
     set c = push(list: c, item: "        vow_argc = 1;")
@@ -567,23 +576,66 @@ fn gen_str_cat(g: inout Gen, l: Expr, r: Expr) -> Val do
   var parts: List<Expr> = []
   cat_parts(g: g, e: l, out: inout parts)
   cat_parts(g: g, e: r, out: inout parts)
+  // Literals next to each other are joined here, into literals of at most 16,000
+  // bytes (C compilers need not accept longer ones): a text written as a literal for
+  // each line costs nothing to put together when the program runs.
   var vals: List<Val> = []
+  var lit = ""
+  var pending = false
   for x in parts do
-    let v = gen_expr(g: inout g, e: x)
-    set vals = push(list: vals, item: v)
+    var text = ""
+    var is_lit = false
+    match x.kind
+    case StrLit(value: sv) then
+      set text = sv
+      set is_lit = true
+    else
+    end match
+    if is_lit and pending and ((len(lit) + len(text)) <= 16000) then
+      set lit = lit ++ text
+    else
+      if pending then
+        set vals = push(list: vals, item: plain_val(str_lit(g: inout g, s: lit)))
+      end if
+      set pending = is_lit
+      set lit = text
+      if not is_lit then
+        let v = gen_expr(g: inout g, e: x)
+        set vals = push(list: vals, item: v)
+      end if
+    end if
   end for
-  if len(vals) < 2 then
+  if pending then
+    set vals = push(list: vals, item: plain_val(str_lit(g: inout g, s: lit)))
+  end if
+  if len(vals) == 0 then
     return plain_val("0")
+  end if
+  if len(vals) == 1 then
+    return vals[0]
   end if
   let first = take(g: inout g, v: vals[0], heap: true)
   if len(vals) == 2 then
     return owned_tmp(g: inout g, rhs: "vstr_append(" ++ first ++ ", " ++ vals[1].c ++ ")", heap: true)
   end if
+  // At most 256 strings are appended by one call, each call consuming the result of
+  // the one before: a C compiler takes time that grows with the square of the length
+  // of one array.
+  var acc = first
+  var at = 1
+  while (len(vals) - at) > 256 invariant at >= 1 do
+    var some: List<String> = []
+    for i in at..(at + 256) do
+      set some = push(list: some, item: vals[i].c)
+    end for
+    set acc = bind(g: inout g, rhs: "vstr_append_n(" ++ acc ++ ", 256, (V[]){" ++ join(parts: some, sep: ", ") ++ "})")
+    set at = at + 256
+  end while
   var rest: List<String> = []
-  for i in 1..len(vals) do
+  for i in at..len(vals) do
     set rest = push(list: rest, item: vals[i].c)
   end for
-  let call = "vstr_append_n(" ++ first ++ ", " ++ int_to_str(len(rest)) ++ ", (V[]){" ++ join(parts: rest, sep: ", ") ++ "})"
+  let call = "vstr_append_n(" ++ acc ++ ", " ++ int_to_str(len(rest)) ++ ", (V[]){" ++ join(parts: rest, sep: ", ") ++ "})"
   return owned_tmp(g: inout g, rhs: call, heap: true)
 end fn gen_str_cat
 

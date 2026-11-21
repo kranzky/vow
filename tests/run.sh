@@ -377,6 +377,77 @@ status 0"
   fi
   rm -rf "$odir"
 fi
+# Nothing can be more than 1000 levels deep (max_depth in compiler/parser.vow): the
+# passes recurse over the tree, and deeper input used to overflow the stack. A program
+# that is as deep as allowed in every way builds and runs; one level more, or 40,000,
+# is an error; and the output of tools/embed.vow for a 30,000-line file is accepted.
+if [ -z "$VOW_FROZEN" ]; then
+  ddir=$(mktemp -d)
+  # rep <n> <text>: the text n times (awk turns a \n in it into a newline).
+  rep() { awk -v n="$1" -v s="$2" 'BEGIN { for (i = 0; i < n; i++) printf "%s", s }'; }
+  # deep <n>: blocks nested n deep around a sum nested n deep and an 'and' chain of n terms.
+  deep() {
+    printf 'fn id(x: Int) -> Int do\n  return x\nend fn id\nfn main() uses console, proc do\n  let c = len(args()) >= 0\n'
+    rep $(($1 - 2)) 'if c then\n'
+    printf '  let x = '; rep $(($1 - 3)) '(1 + '; printf 'id(1)'; rep $(($1 - 3)) ')'
+    printf '\n  let z = c'; rep $(($1 - 1)) ' and c'
+    printf '\n  if z then\n    print(int_to_str(x))\n  end if\n'
+    rep $(($1 - 2)) 'end if\n'
+    printf 'end fn main\n'
+  }
+  deep 1000 > "$ddir/deep.vow"
+  got=$("$VOWC" run "$ddir/deep.vow" $VOWFLAGS 2>&1)
+  if [ "$got" = 998 ]; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1)); echo "FAIL a program 1000 levels deep: $(printf '%s' "$got" | head -3 | cut -c1-200)"
+  fi
+  # too_deep <name> <message> <program text>
+  too_deep() {
+    printf '%s' "$3" > "$ddir/$1.vow"
+    got=$("$VOWC" check "$ddir/$1.vow" 2>&1)
+    if [ $? -eq 1 ] && printf '%s' "$got" | grep -qF -- "$2 more than 1000 levels deep"; then
+      pass=$((pass + 1))
+    else
+      fail=$((fail + 1)); echo "FAIL $1 (wanted: $2 more than 1000 levels deep): $(printf '%s' "$got" | head -3 | cut -c1-200)"
+    fi
+  }
+  head='fn main() uses console do
+'
+  tail='
+end fn main
+'
+  too_deep chain 'this expression is' "$head  print(\"a\"$(rep 1000 ' ++ "a"'))$tail"
+  too_deep chain_long 'this expression is' "$head  print(\"a\"$(rep 40000 ' ++ "a"'))$tail"
+  too_deep sum 'this expression is' "$head  let x = 1$(rep 1000 ' + 1')$tail"
+  too_deep fields 'this expression is' "$head  let x = s$(rep 1000 '.a')$tail"
+  too_deep parens 'this expression is nested' "$head  let x = $(rep 1001 '(')1$(rep 1001 ')')$tail"
+  too_deep parens_long 'this expression is nested' "$head  let x = $(rep 40000 '(')1$(rep 40000 ')')$tail"
+  too_deep open_only 'this expression is nested' "$head  let x = $(rep 40000 '(')$tail"
+  too_deep negations 'this expression is nested' "$head  let x = $(rep 40000 'not ')true$tail"
+  too_deep lists 'this expression is nested' "$head  let x = $(rep 40000 '[')1$(rep 40000 ']')$tail"
+  too_deep calls 'this expression is nested' "$head  let x = $(rep 40000 'abs(')1$(rep 40000 ')')$tail"
+  too_deep ifs 'these statements are' "$head$(rep 1001 'if true then\n')$(rep 1001 'end if\n')$tail"
+  too_deep ifs_long 'these statements are' "$head$(rep 40000 'if true then\n')$(rep 40000 'end if\n')$tail"
+  too_deep tries 'these statements are' "fn f() -> Option<Int> do
+$(rep 1001 '  let _ = try f()\n')
+  return Option.None
+end fn f
+$head$tail"
+  too_deep types 'this type is' "fn f(x: $(rep 40000 'List<')Int$(rep 40000 '>')) do
+end fn f
+$head$tail"
+  rep 30000 'a line of "text"\n' > "$ddir/text.txt"
+  "$VOWC" run ../tools/embed.vow -- "$ddir/text.txt" text > "$ddir/text.vow" 2>&1
+  printf 'fn main() uses console do\n  print(int_to_str(len(text())))\nend fn main\n' >> "$ddir/text.vow"
+  got=$("$VOWC" run "$ddir/text.vow" $VOWFLAGS 2>&1)
+  if [ "$got" = 510000 ]; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1)); echo "FAIL embedding a 30,000-line file: $(printf '%s' "$got" | head -3 | cut -c1-200)"
+  fi
+  rm -rf "$ddir"
+fi
 # The pinned Z3 version must be the same in the compiler and the installer.
 pinned=$(sed -n 's/^VERSION=//p' ../tools/install-z3.sh)
 if grep -A1 'fn tested_z3_version' ../compiler/verify.vow | grep -q "\"$pinned\""; then

@@ -14,6 +14,11 @@ struct Parser
   // name) and whether the statement just parsed used 'try'.
   ret_kind: String,
   tried: Bool,
+  // How deep the parser is in expressions and types, and in blocks, and how many
+  // levels deep the expression just parsed is (see max_depth).
+  depth: Int,
+  blocks: Int,
+  high: Int,
 end struct Parser
 
 // alias is "" and names is empty for an import that merges the whole file;
@@ -33,8 +38,38 @@ struct Parsed
 end struct Parsed
 
 fn new_parser(toks: List<Token> where len(it) > 0, first_id: Int) -> Parser do
-  return Parser(toks: toks, pos: 0, next_id: first_id, err: Option.None, ret_kind: "", tried: false)
+  return Parser(toks: toks, pos: 0, next_id: first_id, err: Option.None, ret_kind: "", tried: false, depth: 0, blocks: 0, high: 0)
 end fn new_parser
+
+// The most levels that expressions, types and blocks can have. Every pass after the
+// parser recurses over the tree, so this keeps them all within the C stack (the
+// passes need less than 2 KB of stack for a level). An operator chain is a tree that
+// leans to the left, and so are a.b.c and f(x)[i]: each term or step is a level.
+fn max_depth() -> Int do
+  return 1000
+end fn max_depth
+
+fn too_deep(p: inout Parser, pos: Pos, what: String, note: String) do
+  let d = diag(pos: pos, msg: what ++ " more than " ++ int_to_str(max_depth()) ++ " levels deep")
+  fail(p: inout p, d: with_note(d: d, note: note))
+end fn too_deep
+
+// Records that the expression just built, at pos, is h levels deep.
+fn rise(p: inout Parser, pos: Pos, h: Int) do
+  if h > max_depth() then
+    too_deep(p: inout p, pos: pos, what: "this expression is",
+      note: "each term of an operator chain is a level: put parentheses around groups of terms, or build the value in steps")
+  end if
+  set p = p with (high: h)
+end fn rise
+
+// The larger of h and the depth of the expression just parsed.
+fn higher(p: Parser, h: Int) -> Int do
+  if p.high > h then
+    return p.high
+  end if
+  return h
+end fn higher
 
 fn failed(p: Parser) -> Bool do
   match p.err
@@ -224,6 +259,10 @@ end fn parse_type
 // arguments), so a comparison with '>' in it needs parentheses:
 // List<Int where (it > 0)>, or Option<Int where it >= 0>.
 fn parse_type_in(p: inout Parser, in_args: Bool) -> TypeExpr do
+  if p.depth >= max_depth() then
+    too_deep(p: inout p, pos: peek(p).pos, what: "this type is", note: "give the inner type a name by wrapping it in a struct")
+  end if
+  set p = p with (depth: p.depth + 1)
   let name = ident(p: inout p, ctx: "for a type")
   // A type from a module imported with `as`: m.Name.
   var full = name.text
@@ -261,6 +300,7 @@ fn parse_type_in(p: inout Parser, in_args: Bool) -> TypeExpr do
       set refine = Option.Some(value: parse_expr(inout p))
     end if
   end if
+  set p = p with (depth: p.depth - 1)
   return TypeExpr(name: full, args: args, refine: refine, pos: name.pos)
 end fn parse_type_in
 
@@ -435,15 +475,22 @@ end fn at_block_end
 
 fn parse_block(p: inout Parser) -> List<Stmt> do
   var out: List<Stmt> = []
+  if p.blocks >= max_depth() then
+    too_deep(p: inout p, pos: peek(p).pos, what: "these statements are",
+      note: "move the inner statements to a function of their own (each 'try' puts the statements after it one level deeper)")
+  end if
+  set p = p with (blocks: p.blocks + 1)
   while not at_block_end(p) do
     let s = parse_stmt(inout p)
     if p.tried then
       set p = p with (tried: false)
       let rest = parse_block(inout p)
-      return out ++ desugar_try(p: inout p, s: s, rest: rest)
+      set out = out ++ desugar_try(p: inout p, s: s, rest: rest)
+      break
     end if
     set out = push(list: out, item: s)
   end while
+  set p = p with (blocks: p.blocks - 1)
   return out
 end fn parse_block
 
@@ -725,6 +772,7 @@ end fn parse_expr
 fn parse_expr_ops(p: inout Parser, ops: List<String>) -> Expr do
   let chainable = ["+", "*", "++", "and", "or"]
   var left = parse_unary(inout p)
+  var h = p.high
   var first = ""
   while not failed(p) do
     let t = peek(p)
@@ -748,22 +796,35 @@ fn parse_expr_ops(p: inout Parser, ops: List<String>) -> Expr do
     let right = parse_unary(inout p)
     set left = mk(p: inout p, pos: left.pos, kind: EK.Binary(op: op, l: left, r: right))
     set first = op
+    set h = higher(p: p, h: h) + 1
+    rise(p: inout p, pos: t.pos, h: h)
   end while
   return left
 end fn parse_expr_ops
 
 fn parse_unary(p: inout Parser) -> Expr do
   let t = peek(p)
+  if p.depth >= max_depth() then
+    too_deep(p: inout p, pos: t.pos, what: "this expression is nested", note: "build the value in steps: give the inner parts names with 'let'")
+  end if
+  set p = p with (depth: p.depth + 1)
+  var e = Expr(id: -1, pos: t.pos, kind: EK.IntLit(value: 0))
   if ((t.kind == "sym") and (t.text == "-")) or ((t.kind == "keyword") and (t.text == "not")) then
     let _ = advance(inout p)
-    let e = parse_unary(inout p)
-    return mk(p: inout p, pos: t.pos, kind: EK.Unary(op: t.text, x: e))
+    let x = parse_unary(inout p)
+    set e = mk(p: inout p, pos: t.pos, kind: EK.Unary(op: t.text, x: x))
+    rise(p: inout p, pos: t.pos, h: p.high + 1)
+  else
+    set e = parse_postfix(inout p)
   end if
-  return parse_postfix(inout p)
+  set p = p with (depth: p.depth - 1)
+  return e
 end fn parse_unary
 
+// Leaves in p.high the depth of the deepest argument (0 if there are none).
 fn parse_args(p: inout Parser) -> List<Arg> do
   var args: List<Arg> = []
+  var h = 0
   while not is_tok(p: p, text: ")") do
     let t = peek(p)
     let nx = peek_at(p: p, k: 1)
@@ -779,28 +840,35 @@ fn parse_args(p: inout Parser) -> List<Arg> do
     if io then
       let v = ident(p: inout p, ctx: "after 'inout'")
       set value = mk(p: inout p, pos: v.pos, kind: EK.Var(name: v.text))
+      set p = p with (high: 1)
     else
       set value = parse_expr(inout p)
     end if
+    set h = higher(p: p, h: h)
     set args = push(list: args, item: Arg(name: name, is_inout: io, value: value, pos: t.pos))
     if not accept(p: inout p, text: ",") then
       break
     end if
   end while
   let _ = expect(p: inout p, text: ")", ctx: "to close the argument list")
+  set p = p with (high: h)
   return args
 end fn parse_args
 
 fn parse_postfix(p: inout Parser) -> Expr do
   var e = parse_primary(inout p)
+  var h = p.high
   while not failed(p) do
+    let at = peek(p).pos
     if accept(p: inout p, text: "(") then
       let args = parse_args(inout p)
       set e = mk(p: inout p, pos: e.pos, kind: EK.Call(callee: e, args: args))
+      set h = higher(p: p, h: h)
     elif accept(p: inout p, text: "[") then
       let idx = parse_expr(inout p)
       let _ = expect(p: inout p, text: "]", ctx: "to close the index")
       set e = mk(p: inout p, pos: e.pos, kind: EK.Index(obj: e, idx: idx))
+      set h = higher(p: p, h: h)
     elif is_tok(p: p, text: ".") and ((peek_at(p: p, k: 1).kind == "ident") or (peek_at(p: p, k: 1).kind == "keyword")) then
       let _ = advance(inout p)
       let f = label(p: inout p, ctx: "after '.'")
@@ -814,16 +882,21 @@ fn parse_postfix(p: inout Parser) -> Expr do
         end if
       end for
       set e = mk(p: inout p, pos: e.pos, kind: EK.With(obj: e, args: args))
+      set h = higher(p: p, h: h)
     else
       break
     end if
+    set h = h + 1
+    rise(p: inout p, pos: at, h: h)
   end while
+  set p = p with (high: h)
   return e
 end fn parse_postfix
 
 fn parse_primary(p: inout Parser) -> Expr do
   let t = advance(inout p)
   let pos = t.pos
+  set p = p with (high: 1)
   if t.kind == "int" then
     return mk(p: inout p, pos: pos, kind: EK.IntLit(value: t.num))
   elif t.kind == "float" then
@@ -858,13 +931,16 @@ fn parse_primary(p: inout Parser) -> Expr do
       return e
     case "[" then
       var items: List<Expr> = []
+      var h = 0
       while not is_tok(p: p, text: "]") do
         set items = push(list: items, item: parse_expr(inout p))
+        set h = higher(p: p, h: h)
         if not accept(p: inout p, text: ",") then
           break
         end if
       end while
       let rb = expect(p: inout p, text: "]", ctx: "to close the list")
+      rise(p: inout p, pos: pos, h: h + 1)
       return mk(p: inout p, pos: pos, kind: EK.ListLit(items: items))
     case "{" then
       let _ = expect(p: inout p, text: "}", ctx: "(only the empty map literal '{}' exists)")
@@ -880,9 +956,12 @@ fn parse_quant(p: inout Parser, q: String, pos: Pos) -> Expr do
   let v = ident(p: inout p, ctx: "for the quantified variable")
   let _ = expect(p: inout p, text: "in", ctx: "after the quantified variable")
   let lo = parse_expr(inout p)
+  var h = p.high
   let _ = expect(p: inout p, text: "..", ctx: "in the quantifier range")
   let hi = parse_expr(inout p)
+  set h = higher(p: p, h: h)
   let _ = expect(p: inout p, text: ":", ctx: "after the quantifier range")
   let body = parse_expr(inout p)
+  rise(p: inout p, pos: pos, h: higher(p: p, h: h) + 1)
   return mk(p: inout p, pos: pos, kind: EK.Quant(q: q, name: v.text, lo: lo, hi: hi, body: body))
 end fn parse_quant

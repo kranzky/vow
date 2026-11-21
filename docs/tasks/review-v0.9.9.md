@@ -192,6 +192,23 @@ structured inputs.
   runtime is a 1,200-term chain), so embedding a 25,000-line file crashes the compiler.
 - **Fix:** count depth in the parser and report "nested too deeply"; make the passes
   over `Binary` iterate down the left spine.
+- **Done, with a limit in place of the iteration:** the parser refuses anything more
+  than 1,000 levels deep (`max_depth` in `compiler/parser.vow`). It counts its own
+  recursion (expressions and types in `Parser.depth`, blocks in `Parser.blocks`) and
+  the height of each expression it builds (`Parser.high`), so a chain, which is a deep
+  tree made without recursion, is limited too: its terms are levels. About 27
+  functions in the later passes recurse over `Binary`; making each iterate would not
+  have removed the limits after them (5,000 `elif` arms already fail in the C
+  compiler, B6). Before the limit, the passes overflowed at about 5,000 levels for most
+  kinds of nesting (measured on an 8 MB stack); a program 1,000 deep in blocks, in a
+  sum and in an `and` chain at once builds and runs. `tools/embed.vow` puts its lines
+  in parenthesised groups of 200. Tests: the "1000 levels deep" block in
+  `tests/run.sh` (at the limit, one past it, and 40,000 of each kind).
+- **Also done (found while testing the above):** a text embedded as one literal per
+  line took minutes to build. Two causes, both in the generated C: a statement per
+  string literal at start-up (now a table and a loop), and one 30,000-element array
+  for the chain (now literals next to each other are joined at compile time, and a
+  chain is appended at most 256 strings at a time).
 
 ### B2. Lexer: bytes and literals it mishandles (reproduced)
 

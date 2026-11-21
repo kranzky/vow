@@ -46,7 +46,8 @@ Check your code against this list before running the compiler.
 1. **No operator precedence.** An expression may not mix different binary operators
    without parentheses: write `a + (b * c)`, `(i + 1) < n`, `(x > 0) and (y > 0)`.
    Only `+ * ++ and or` may chain with *themselves* (`a + b + c`). `a - b - c` and
-   `a < b < c` are errors.
+   `a < b < c` are errors. A chain can have 1,000 terms (nothing can be more than
+   1,000 levels deep); put parentheses around groups of terms in a longer one.
 2. **Every block has a labelled end.** `end fn name`, `end struct Name`,
    `end enum Name`, `end if`, `end while`, `end for`, `end match`. `elif` (not
    `else if`).

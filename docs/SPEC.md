@@ -471,6 +471,13 @@ without parentheses. `a + b + c` is fine because `+`, `*`, `++`, `and` and `or` 
 chain with themselves. `a + b * c`, `a - b - c` and `a < b < c` are errors. Unary
 operators and postfix forms bind tighter than any binary operator.
 
+**Depth.** An expression, the statements of a function and a type can each be at most
+1,000 levels deep; more is an error. Parentheses, brackets, calls and unary operators
+nest, and so do blocks. A chain is as deep as it is long: each term of `a ++ b ++ c`
+is a level, and each step of `a.b.c` or `f(x)[i]`; a `try` puts the statements after
+it one level deeper. A chain of more than 1,000 terms is written with parentheses
+around groups of them: `(a ++ b ++ ...) ++ (...)`.
+
 `/` and `%` use Euclidean semantics (the remainder is always non-negative), matching
 SMT-LIB. The divisor must be provably non-zero.
 
@@ -712,7 +719,7 @@ count. An object is freed as soon as nothing refers to it (cycles cannot occur, 
 values are immutable). When an object has a single reference, `with`, `push`, `set_at`,
 `insert` and `++` update it in place instead of copying; nothing else can observe the
 difference, so value semantics are preserved. A chain of `++` on strings is joined in
-one step, and a string that is appended to repeatedly is given room to grow, so
+one step (string literals next to each other in it are joined by the compiler), and a string that is appended to repeatedly is given room to grow, so
 building one with `set s = s ++ x` costs time in proportion to its final length. In `set x = op(x, ...)`, the old value of
 `x` is moved into `op`, which is what makes such updates in place. In
 `set s = s with (f: op(s.f, ...))`, where `s.f` is read only once, the field is moved

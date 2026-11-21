@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Nothing can be more than 1,000 levels deep, and the compiler says so instead of
+  overflowing its stack: `this expression is nested more than 1000 levels deep` for
+  parentheses, calls, lists and unary operators, `this expression is more than 1000
+  levels deep` for an operator chain (each term is a level, and so is each step of
+  `a.b.c` or `f(x)[i]`), `these statements are more than 1000 levels deep` for blocks
+  (each `try` puts the statements after it a level deeper) and `this type is more than
+  1000 levels deep`. A longer chain is written with parentheses around groups of
+  terms, which `tools/embed.vow` now does (in groups of 200 lines), so it can embed a
+  file of 160,000 lines; it could embed about 6,000.
+- Programs with many string literals build much faster. The literals are made from a
+  table when the program starts, where there was a statement for each, on which a C
+  compiler spends time that grows with the square of their number: 5,000 literals
+  build in 1.7 s, from 15 s. String literals joined with `++` are joined by the
+  compiler, so a text written as one literal per line is one string in the program:
+  a 30,000-line text builds and runs in 0.7 s, where it did not finish in ten minutes.
 - A build with `--check-contracts` no longer panics on a contract that holds because
   its arithmetic overflowed 64 bits. A specification is proved over the mathematical
   integers, and the checks now evaluate the arithmetic written in one in 128 bits:

@@ -149,7 +149,7 @@ Wrong behaviour in programs the compiler accepts (first):
 - [x] A10: `vowc build prog` overwrote a source file that has no extension
 
 Compiler robustness:
-- [ ] B1: 25,000 nested parentheses or terms of one `++` chain segfault the compiler;
+- [x] B1: 25,000 nested parentheses or terms of one `++` chain segfault the compiler;
       limit depth in the parser and iterate over operator chains
 - [ ] B2: lexer: a newline inside a character literal (wrong line numbers, and `fmt`
       fails), a byte order mark, non-ASCII bytes that make `--json` output invalid,
