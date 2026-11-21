@@ -1,0 +1,40 @@
+// language: 0.9
+// A struct with two fields that have ranks has the rank of the larger: a call on the
+// smaller field decreases the measure, and a call on the larger does not. The checked
+// build has to measure both values to tell.
+// vowflags: --no-verify --check-contracts
+
+enum Chain
+  Stop,
+  Link(value: Int, rest: Chain),
+end enum Chain
+
+struct Pair
+  small: Chain,
+  large: Chain,
+end struct Pair
+
+fn first(p: Pair, pick: Int) -> Int
+  decreases p
+do
+  if pick == 0 then
+    return second(c: p.small, back: false)
+  end if
+  return second(c: p.large, back: false)
+end fn first
+
+// The call back, never made here, puts the two functions in one recursive group.
+fn second(c: Chain, back: Bool) -> Int
+  decreases c
+do
+  if back then
+    return first(p: Pair(small: c, large: c), pick: 0)
+  end if
+  return 0
+end fn second
+
+fn main() do
+  let p = Pair(small: Chain.Stop, large: Chain.Link(value: 1, rest: Chain.Link(value: 2, rest: Chain.Stop)))
+  let a = first(p: p, pick: 0)
+  let b = first(p: p, pick: 1)
+end fn main

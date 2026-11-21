@@ -10,6 +10,12 @@
   are not enough, or a value passed on to a function or an index does not fit in 64,
   the panic names the specification and says it could not be checked (`cannot check
   postcondition: ... (its arithmetic needs more than 128 bits)`), not that it failed.
+- Builds with `--check-contracts` are much faster on two common shapes of code. A
+  recursive function with a structural measure (`decreases t`) no longer measures the
+  whole value at every call: a call on a part of the argument is known to be smaller.
+  Walking a chain of 40,000 links takes under 0.01 s, from 7.5 s. And `set xs =
+  push(list: xs, item: x)` on a list with refined elements checks the new element, not
+  every element again: 80,000 pushes take under 0.01 s, from 1.4 s.
 
 ## v0.9.10
 

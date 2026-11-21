@@ -77,6 +77,10 @@ struct Gen
   loop_dec: List<List<Expr>>,
   loop_m: List<List<String>>,
   dec_c: List<String>,
+  // For each part of the function's measure: "" when dec_c holds its value on entry;
+  // or, for a structural part that is a parameter, the parameter's C name. Its rank
+  // is then computed only if a call needs it (dec_c keeps it; see vow_rank_cmp).
+  dec_lazy: List<String>,
   ranks: List<Ty>,
   // The pointer bitmaps of wide objects (new_fields): bitmap i is the C array vow_wide_i.
   wide: List<String>,
@@ -125,7 +129,7 @@ fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool, 
     owned_vars: [], scope_marks: [], loop_marks: [], temps: [], temp_marks: [], move_id: -1,
     moved: false, inout_vars: [], steal_ids: [], eqs: [], src: no_pos(), mapped_file: -1, mapped_next: -1, lines: lines,
     contracts: contracts, fname: "", it_c: "", result_c: "", olds: {}, spec_binds: {}, exact: false,
-    exact_pos: no_pos(), exact_what: "", var_preds: {}, loop_invs: [], loop_dec: [], loop_m: [], dec_c: [], ranks: [], wide: [])
+    exact_pos: no_pos(), exact_what: "", var_preds: {}, loop_invs: [], loop_dec: [], loop_m: [], dec_c: [], dec_lazy: [], ranks: [], wide: [])
   // Generic functions are compiled through their instances.
   var fns: List<FnDecl> = []
   for item in items do
@@ -723,7 +727,7 @@ fn gen_function(g: inout Gen, f: FnDecl) do
     end if
   end for
   set g = g with (io_params: io, owned_vars: [], scope_marks: [], loop_marks: [], temps: [], temp_marks: [], src: f.pos,
-    fname: f.name, olds: {}, var_preds: {}, loop_invs: [], loop_dec: [], loop_m: [], dec_c: [])
+    fname: f.name, olds: {}, var_preds: {}, loop_invs: [], loop_dec: [], loop_m: [], dec_c: [], dec_lazy: [])
   line(g: inout g, s: "static V " ++ c_fn(f.name) ++ "(" ++ c_params(f) ++ ") {")
   indent(inout g)
   if g.contracts then
@@ -824,8 +828,16 @@ fn gen_stmt(g: inout Gen, s: Stmt) do
     line(g: inout g, s: lv ++ " = " ++ c ++ ";")
     flush(inout g)
     if g.contracts then
-      gen_rty(g: inout g, r: value_or(opt: lookup(map: g.var_preds, key: name), default: plain(Ty.TUnknown)), subject: lv,
-        desc: "'" ++ name ++ "'")
+      let r = value_or(opt: lookup(map: g.var_preds, key: name), default: plain(Ty.TUnknown))
+      if pushes_onto(g: g, value: value, name: name) and (len(r.args) > 0) then
+        // `set xs = push(list: xs, item: x)`: the elements xs had were checked when
+        // they were stored, so only the new one is checked, not all of them again.
+        gen_preds(g: inout g, preds: r.preds, subject: lv, what: "refinement of '" ++ name ++ "' failed")
+        gen_rty(g: inout g, r: r.args[0], subject: "VB(VL(" ++ lv ++ ")->buf)->items[VL(" ++ lv ++ ")->len - 1]",
+          desc: "an element of '" ++ name ++ "'")
+      else
+        gen_rty(g: inout g, r: r, subject: lv, desc: "'" ++ name ++ "'")
+      end if
     end if
     gen_inout_checks(g: inout g, e: value)
   case Return(value: rv) then
@@ -1202,6 +1214,36 @@ fn gen_field_checks(g: inout Gen, r: String, fields: List<FieldInfo>, offset: In
   set g = g with (spec_binds: saved)
 end fn gen_field_checks
 
+// Whether value is push(list: name, item: ...), the built-in on the variable itself.
+fn pushes_onto(g: Gen, value: Expr, name: String) -> Bool do
+  match call_info(info: g.info, e: value)
+  case Some(value: ci) then
+    if (ci.kind != "builtin") or (ci.name != "push") then
+      return false
+    end if
+  case None then
+    return false
+  end match
+  match value.kind
+  case Call(callee: c, args: args) then
+    if len(args) != 2 then
+      return false
+    end if
+    var at = 0
+    if args[1].name == "list" then
+      set at = 1
+    end if
+    match args[at].value.kind
+    case Var(name: n) then
+      return n == name
+    else
+      return false
+    end match
+  else
+    return false
+  end match
+end fn pushes_onto
+
 // The refinements of the variables a statement passed inout, which may have changed.
 fn gen_inout_checks(g: inout Gen, e: Expr) do
   if not g.contracts then
@@ -1218,6 +1260,26 @@ end fn gen_inout_checks
 // On entry: the parameters' refinements and the preconditions; and the entry values of
 // the inout parameters that old(x) names. Only those: a kept entry value is a second
 // reference, so every update of the parameter in the body would copy it.
+// For a part d of a function's measure that is one of its parameters, whole and with a
+// rank: the parameter's C name, else "". A parameter that is not inout is borrowed and
+// cannot be assigned, so it is the value on entry for as long as the function runs.
+fn whole_param(g: Gen, fi: FnInfo, d: Expr) -> String do
+  if not is_ranked(type_of(info: g.info, e: d)) then
+    return ""
+  end if
+  match d.kind
+  case Var(name: n) then
+    for i in 0..len(fi.params) do
+      if (fi.params[i].name == n) and not ((i < len(fi.io)) and fi.io[i]) then
+        return cvar(g: g, n: n)
+      end if
+    end for
+    return ""
+  else
+    return ""
+  end match
+end fn whole_param
+
 fn gen_entry_checks(g: inout Gen, f: FnDecl) do
   match get_fn(info: g.info, name: f.name)
   case Some(value: fi) then
@@ -1245,13 +1307,20 @@ fn gen_entry_checks(g: inout Gen, f: FnDecl) do
     // decrease (gen_call_measure_check).
     if len(fi.dec) > 0 then
       var names: List<String> = []
+      var lazy: List<String> = []
       for i in 0..len(fi.dec) do
         var nm = "vow_dec"
         if i > 0 then
           set nm = "vow_dec" ++ int_to_str(i)
         end if
-        line(g: inout g, s: "int64_t " ++ nm ++ " = 0;")
+        let whole = whole_param(g: g, fi: fi, d: fi.dec[i])
+        if len(whole) > 0 then
+          line(g: inout g, s: "int64_t " ++ nm ++ " = -1;")
+        else
+          line(g: inout g, s: "int64_t " ++ nm ++ " = 0;")
+        end if
         set names = push(list: names, item: nm)
+        set lazy = push(list: lazy, item: whole)
       end for
       line(g: inout g, s: "if (vow_spec_depth == 0) {")
       indent(inout g)
@@ -1259,17 +1328,19 @@ fn gen_entry_checks(g: inout Gen, f: FnDecl) do
       push_frame(inout g)
       for i in 0..len(fi.dec) do
         let d = fi.dec[i]
-        let v = gen_expr(g: inout g, e: d)
-        let m = c_measure(g: inout g, d: d, c: v.c)
-        if i < len(names) then
-          line(g: inout g, s: names[i] ++ " = " ++ m ++ ";")
+        if (i < len(lazy)) and (len(lazy[i]) == 0) then
+          let v = gen_expr(g: inout g, e: d)
+          let m = c_measure(g: inout g, d: d, c: v.c)
+          if i < len(names) then
+            line(g: inout g, s: names[i] ++ " = " ++ m ++ ";")
+          end if
         end if
       end for
       pop_frame(inout g)
       line(g: inout g, s: "vow_spec_depth--;")
       dedent(inout g)
       line(g: inout g, s: "}")
-      set g = g with (dec_c: names)
+      set g = g with (dec_c: names, dec_lazy: lazy)
     end if
   case None then
   end match
@@ -1335,18 +1406,46 @@ fn gen_call_measure_check(g: inout Gen, pos: Pos, name: String, args: List<Arg>,
       if len(g.dec_c) < parts then
         set parts = len(g.dec_c)
       end if
-      var now: List<String> = []
+      // For each part, C for "smaller than on entry" and for "the same as on entry".
+      var less: List<String> = []
+      var same: List<String> = []
+      let decs = g.dec_c
+      let lazies = g.dec_lazy
       for i in 0..parts do
         let d = cd[i]
         let v = gen_expr(g: inout g, e: d)
-        set now = push(list: now, item: c_measure(g: inout g, d: d, c: v.c))
+        let t = type_of(info: g.info, e: d)
+        var was = "0"
+        var entry = ""
+        if (i < len(decs)) and (i < len(lazies)) then
+          set was = decs[i]
+          set entry = lazies[i]
+        end if
+        if (len(entry) > 0) and (i < len(mine)) then
+          // The entry value is a parameter, whose rank has not been computed.
+          let et = type_of(info: g.info, e: mine[i])
+          need_rank(g: inout g, t: et)
+          if is_ranked(t) then
+            need_rank(g: inout g, t: t)
+            let cmp = fresh_tmp(inout g)
+            let steps = rank_step_name(t) ++ ", " ++ v.c ++ ", " ++ rank_step_name(et) ++ ", " ++ entry
+            line(g: inout g, s: "int " ++ cmp ++ " = vow_rank_cmp(" ++ steps ++ ", &" ++ was ++ ");")
+            set less = push(list: less, item: "(" ++ cmp ++ " < 0)")
+            set same = push(list: same, item: "(" ++ cmp ++ " == 0)")
+            continue
+          end if
+          line(g: inout g, s: "if (" ++ was ++ " < 0) " ++ was ++ " = " ++ rank_c_name(et) ++ "(" ++ entry ++ ");")
+        end if
+        let now = c_measure(g: inout g, d: d, c: v.c)
+        set less = push(list: less, item: "((" ++ was ++ " >= 0) && (" ++ now ++ " < " ++ was ++ "))")
+        set same = push(list: same, item: "(" ++ now ++ " == " ++ was ++ ")")
       end for
       line(g: inout g, s: "vow_spec_depth--;")
       var what = "recursive call to '" ++ name ++ "' did not decrease its measure: " ++ pretty_measure(cd)
       if name != g.fname then
         set what = "call to '" ++ name ++ "' did not decrease the measure of '" ++ g.fname ++ "': " ++ measure_text(measure_prefix(ds: cd, k: parts)) ++ " < " ++ measure_text(measure_prefix(ds: mine, k: parts))
       end if
-      line(g: inout g, s: "if (!" ++ c_lex_less(now: now, entry: g.dec_c) ++ ") " ++ panic_at(g: g, pos: pos, msg: c_string(what)))
+      line(g: inout g, s: "if (!" ++ c_lex_parts(less: less, same: same) ++ ") " ++ panic_at(g: g, pos: pos, msg: c_string(what)))
       pop_frame(inout g)
       dedent(inout g)
       line(g: inout g, s: "}")
@@ -1365,6 +1464,25 @@ fn dec_exprs(g: Gen) -> List<Expr> do
     return []
   end match
 end fn dec_exprs
+
+// C for a lexicographic comparison, given for each part C for "smaller" and for "the
+// same": some part is smaller and every part before it is the same.
+fn c_lex_parts(less: List<String>, same: List<String>) -> String do
+  var k = len(less)
+  if len(same) < k then
+    set k = len(same)
+  end if
+  if k == 0 then
+    return "0"
+  end if
+  var i = k - 1
+  var acc = less[i]
+  while i > 0 invariant (i >= 0) and (i < len(less)) and (i < len(same)) do
+    set i = i - 1
+    set acc = "(" ++ less[i] ++ " || (" ++ same[i] ++ " && " ++ acc ++ "))"
+  end while
+  return acc
+end fn c_lex_parts
 
 // C for: the measure's parts now are lexicographically smaller than at entry, on the
 // parts both have (as the verifier's lex_less).
@@ -2188,7 +2306,7 @@ fn rank_fields(g: inout Gen, owner: Ty, fields: List<FieldInfo>, offset: Int, pa
       need_rank(g: inout g, t: ft)
       let part = "VP(a)[" ++ int_to_str(i + offset) ++ "]"
       if step_pushes(g: g, owner: owner, ft: ft) then
-        set out = push(list: out, item: pad ++ "vow_work_push(" ++ rank_step_name(ft) ++ ", " ++ part ++ ", d);")
+        set out = push(list: out, item: pad ++ "vow_rank_push(" ++ rank_step_name(ft) ++ ", " ++ part ++ ", d);")
       else
         set out = push(list: out, item: pad ++ rank_step_name(ft) ++ "(" ++ part ++ ", d);")
       end if
@@ -2203,16 +2321,33 @@ end fn rank_fields
 // d, records its own depth (vow_rank_max) and visits its parts as an equality step
 // does (vow_rank_run).
 fn gen_rank_fn(g: inout Gen, t: Ty) -> List<String> do
-  var out = ["static int " ++ rank_step_name(t) ++ "(V a, V d) {"]
-  let deeper = ["    d += 1;", "    if (VI(d) > vow_rank_max) vow_rank_max = VI(d);"]
+  var out = ["static int " ++ rank_step_name(t) ++ "(V a, V d) {", "    if (vow_rank_skip(a, d)) return 1;"]
+  // d counts in twos (see vow_rank_max in the runtime).
+  let deeper = ["    d += 2;", "    if ((VI(d) >> 1) > vow_rank_max) vow_rank_max = VI(d) >> 1;"]
   match t
   case TStruct(name: n) then
-    set out = out ++ rank_fields(g: inout g, owner: t, fields: struct_fields(info: g.info, name: n), offset: 0, pad: "    ")
+    let fields = struct_fields(info: g.info, name: n)
+    var ranked = 0
+    for fl in fields do
+      if is_ranked(fl.rty.ty) then
+        set ranked = ranked + 1
+      end if
+    end for
+    if ranked > 1 then
+      // Any of them may be the largest: a field met from here on is no larger than
+      // the struct, and that is all a search can say of it.
+      set out = push(list: out, item: "    d |= 1;")
+    end if
+    set out = out ++ rank_fields(g: inout g, owner: t, fields: fields, offset: 0, pad: "    ")
   case TList(elem: et) then
     set out = out ++ deeper
     if is_ranked(et) then
       need_rank(g: inout g, t: et)
-      set out = push(list: out, item: "    for (int64_t i = 0; i < VL(a)->len; i++) " ++ rank_step_name(et) ++ "(VB(VL(a)->buf)->items[i], d);")
+      // A search looks at every element before it enters any: a list may be long.
+      let item = "VB(VL(a)->buf)->items[i]"
+      let seen = "if (" ++ item ++ " == vow_rank_seek) { vow_rank_found = 1; break; }"
+      set out = push(list: out, item: "    if (vow_rank_left >= 0 && !vow_rank_found) for (int64_t i = 0; i < VL(a)->len; i++) " ++ seen)
+      set out = push(list: out, item: "    for (int64_t i = 0; i < VL(a)->len && VOW_RANK_GOING; i++) " ++ rank_step_name(et) ++ "(" ++ item ++ ", d);")
     end if
   else
     set out = out ++ deeper

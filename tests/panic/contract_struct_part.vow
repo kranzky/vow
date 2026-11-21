@@ -1,0 +1,34 @@
+// language: 0.9
+// A struct has the rank of its largest field, so a field of the argument is not a
+// smaller value, though it is a part of it. (A part of an enum or of a list is.)
+// vowflags: --no-verify --check-contracts
+
+enum Chain
+  Stop,
+  Link(value: Int, rest: Chain),
+end enum Chain
+
+struct Box
+  c: Chain,
+end struct Box
+
+fn boxed(b: Box) -> Int
+  decreases b
+do
+  return bare(b.c)
+end fn boxed
+
+fn bare(c: Chain) -> Int
+  decreases c
+do
+  match c
+  case Stop then
+    return 0
+  case Link(value: v, rest: r) then
+    return 1 + boxed(Box(c: r))
+  end match
+end fn bare
+
+fn main() do
+  let n = boxed(Box(c: Chain.Link(value: 1, rest: Chain.Stop)))
+end fn main

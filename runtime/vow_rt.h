@@ -372,14 +372,70 @@ static V vow_work_run(VStep step, V a, V b) {
     return (V)ok;
 }
 
-// A rank step is given a value and the depth of its parent, and records the greatest
-// depth reached: that is the rank of the value the run began with.
+// A rank step is given a value a and, in d, twice the number of enums and lists
+// entered above it; it records the greatest number reached, which is the rank of the
+// value the run began with. A struct has the rank of its largest field, so entering
+// one adds nothing; d is odd once the walk has entered a struct with several fields
+// that have ranks, any of which may be the largest.
 static int64_t vow_rank_max;
+
+// A bounded search (vow_rank_cmp) for the value vow_rank_seek below the value a run
+// began with: whether it was found (1: with a smaller rank; 2: with the same rank), and
+// the steps left. A full run has vow_rank_left negative.
+static V vow_rank_seek;
+static int vow_rank_found;
+static int64_t vow_rank_left = -1;
+#define VOW_RANK_GOING (vow_rank_left < 0 || (!vow_rank_found && vow_rank_left > 0))
+
+static inline void vow_rank_meet(V a, V d) {
+    if (a != vow_rank_seek || vow_rank_found) return;
+    // Below an enum or a list: smaller. Reached only through structs that each have
+    // one field with a rank: the same.
+    if (VI(d) >= 2) vow_rank_found = 1;
+    else if (VI(d) == 0) vow_rank_found = 2;
+}
+
+// Every rank step begins with this: 1 when the run should go no further.
+static inline int vow_rank_skip(V a, V d) {
+    if (vow_rank_left < 0) return 0;
+    vow_rank_meet(a, d);
+    if (vow_rank_found || vow_rank_left == 0) return 1;
+    vow_rank_left--;
+    return 0;
+}
+
+// Looks at a part as it is pushed, so that all the parts of a value are seen before
+// the walk goes deep into the last of them.
+static inline void vow_rank_push(VStep step, V a, V d) {
+    if (vow_rank_left >= 0) vow_rank_meet(a, d);
+    vow_work_push(step, a, d);
+}
 
 static int64_t vow_rank_run(VStep step, V a) {
     vow_rank_max = 0;
     vow_work_run(step, a, 0);
     return vow_rank_max;
+}
+
+// How the rank of a compares with the rank of e: negative, zero or positive. A
+// recursive function is nearly always called on a part of its own argument, and then
+// the answer needs no ranks: a value has the rank it has (a is e), and a part of it
+// has a smaller rank, or for the one ranked field of a struct the same. Only when a
+// short walk of e does not meet a are the two ranks computed; *re keeps e's (negative
+// until then). Values with a rank are pointers, so the same bits are the same value.
+static int vow_rank_cmp(VStep sa, V a, VStep se, V e, int64_t *re) {
+    if (a == e) return 0;
+    vow_rank_seek = a;
+    vow_rank_found = 0;
+    vow_rank_left = 256;
+    vow_work_run(se, e, 0);
+    int found = vow_rank_found;
+    vow_rank_found = 0;
+    vow_rank_left = -1;
+    if (found) return found == 1 ? -1 : 0;
+    if (*re < 0) *re = vow_rank_run(se, e);
+    int64_t ra = vow_rank_run(sa, a);
+    return ra < *re ? -1 : ra > *re;
 }
 
 // ---- integers ----

@@ -462,6 +462,22 @@ soundness bug, and slowness limits what can be fuzzed.
   call. 80,000 pushes: 0.025 s plain, 1.14 s checked. A recursive walk of a
   40,000-link chain: 0.008 s plain, 1.8 s checked.
 - **Fix:** check only the new element when the list is moved; compare ranks lazily.
+- **Done:**
+  - Measures: when a part of a function's measure is a parameter (not inout), its rank
+    is no longer computed on entry. A call compares the argument with the parameter by
+    `vow_rank_cmp` (runtime): the same object has the same rank; an argument met on a
+    short walk of the parameter (256 steps; every part of a value and every element
+    of a list is looked at before the walk goes deeper) is smaller if it lies below an
+    enum or a list, and the same if it was reached only through structs with one
+    ranked field; otherwise both ranks are computed, the parameter's once per call of
+    the function. A 40,000-link walk in a checked build: 7.5 s to under 0.01 s.
+  - Refinements: after `set xs = push(list: xs, item: x)` only the new element's
+    refinement is checked (`pushes_onto`). 80,000 pushes: 1.4 s to under 0.01 s.
+  - Tests: `tests/run/lazy_ranks.vow`, `tests/panic/contract_struct_part.vow` and
+    `contract_struct_fields.vow`; the earlier measure tests still panic as they did.
+- **Not done:** a loop's structural measure and a measure part that is not a whole
+  parameter are still computed each time; other updates of a refined list (`set_at`,
+  `++`, an inout call) still check every element.
 
 ## P. Speed of the runtime and of generated code
 

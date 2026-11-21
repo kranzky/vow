@@ -1,0 +1,142 @@
+// language: 0.9
+// Structural measures in a checked build (tests/rc.sh runs this with
+// --check-contracts). A call on a part of the argument is known to be smaller without
+// measuring either value.
+
+enum Chain
+  Stop,
+  Link(value: Int, rest: Chain),
+end enum Chain
+
+enum Tree
+  Leaf,
+  Node(left: Tree, key: Int, right: Tree),
+end enum Tree
+
+fn make(n: Int) -> Chain
+  requires n >= 0
+do
+  var c = Chain.Stop
+  var i = 0
+  while i < n
+    invariant i >= 0
+  do
+    set c = Chain.Link(value: i, rest: c)
+    set i = i + 1
+  end while
+  return c
+end fn make
+
+// On a part of the argument.
+fn total(c: Chain) -> Int
+  decreases c
+do
+  match c
+  case Stop then
+    return 0
+  case Link(value: v, rest: r) then
+    return (v % 7) + total(r)
+  end match
+end fn total
+
+// A tree whose nodes have any number of children, walked through a helper over the
+// list of them. A struct has the rank of its one ranked field, so the step from a node
+// to its list keeps the first part of the measure; an element of a list is smaller
+// than the list, however long the list is.
+struct Rose
+  label: Int,
+  kids: List<Rose>,
+end struct Rose
+
+fn weight(r: Rose) -> Int
+  decreases r, 1
+do
+  return r.label + kids_weight(ks: r.kids, i: 0)
+end fn weight
+
+fn kids_weight(ks: List<Rose>, i: Int where (0 <= it) and (it <= len(ks))) -> Int
+  decreases ks, 0, len(ks) - i
+do
+  if i == len(ks) then
+    return 0
+  end if
+  return weight(ks[i]) + kids_weight(ks: ks, i: i + 1)
+end fn kids_weight
+
+fn bush(n: Int, kid: Rose) -> Rose
+  requires n >= 0
+do
+  var ks: List<Rose> = []
+  var i = 0
+  while i < n
+    invariant i >= 0
+  do
+    set ks = push(list: ks, item: kid)
+    set i = i + 1
+  end while
+  return Rose(label: 1, kids: ks)
+end fn bush
+
+fn grow(depth: Int) -> Tree
+  requires depth >= 0
+  decreases depth
+do
+  if depth == 0 then
+    return Tree.Leaf
+  end if
+  return Tree.Node(left: grow(depth - 1), key: depth, right: grow(depth - 1))
+end fn grow
+
+// On both parts, and on a part of a part.
+fn size(t: Tree) -> Int
+  decreases t
+do
+  match t
+  case Leaf then
+    return 0
+  case Node(left: l, key: k, right: r) then
+    return (size(l) + 1) + size(r)
+  end match
+end fn size
+
+fn leftmost(t: Tree) -> Int
+  decreases t
+do
+  match t
+  case Leaf then
+    return 0
+  case Node(left: l, key: k, right: r) then
+    match l
+    case Leaf then
+      return k
+    case Node(left: ll, key: lk, right: lr) then
+      return leftmost(ll) + lk
+    end match
+  end match
+end fn leftmost
+
+type Nat = Int where it >= 0
+
+// Each push checks the element pushed, not the list again.
+fn naturals(n: Int) -> List<Nat>
+  requires n >= 0
+do
+  var xs: List<Nat> = []
+  var i = 0
+  while i < n
+    invariant i >= 0
+  do
+    set xs = push(list: xs, item: i)
+    set i = i + 1
+  end while
+  return xs
+end fn naturals
+
+fn main() uses console do
+  print(int_to_str(total(make(20000))) ++ "\n")
+  let leaf = Rose(label: 2, kids: [])
+  print(int_to_str(weight(bush(n: 3, kid: bush(n: 1000, kid: leaf)))) ++ "\n")
+  let t = grow(10)
+  print(int_to_str(size(t)) ++ " " ++ int_to_str(leftmost(t)) ++ "\n")
+  print(int_to_str(len(naturals(20000))) ++ "\n")
+end fn main

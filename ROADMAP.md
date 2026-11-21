@@ -194,7 +194,7 @@ Checked builds (`--check-contracts`, the fuzzers' oracle):
 - [x] K2: an in-place update through an `inout` parameter copied every time in a checked
       build (80,000 inserts: 21 s against 0.006 s); entry values are captured only
       where `old` is used
-- [ ] K3: whole values are re-checked at every step (each element's refinement after
+- [x] K3: whole values are re-checked at every step (each element's refinement after
       every push; a structural measure's height at every call)
 
 Speed of the runtime and generated code:

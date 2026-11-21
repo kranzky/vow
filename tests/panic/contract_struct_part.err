@@ -1,0 +1,1 @@
+vow: panic at panic/contract_struct_part.vow:18: call to 'bare' did not decrease the measure of 'boxed': c < b
