@@ -81,7 +81,7 @@ end struct Verified
 fn query_key(vc: FnVc) -> String do
   let globals = join(parts: vc.globals, sep: "\n")
   let none: Option<Ob> = Option.None
-  let block = join(parts: fn_block(vc: vc, model: none), sep: "\n")
+  let block = join(parts: fn_block(vc: vc, model: none, legacy: false), sep: "\n")
   let text = verifier_version() ++ "\n" ++ globals ++ "\n\n" ++ block
   return hash("a\n" ++ text) ++ hash("b\n" ++ text)
 end fn query_key

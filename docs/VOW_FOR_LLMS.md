@@ -503,8 +503,10 @@ couldn't present values for the variables involved:
 tests/fail/pre.vow:6:11: error: cannot prove precondition of 'half': (n % 2) == 0
 ```
 
-"Z3 gave up" means a timeout or nonlinear arithmetic. Split the step, or add an
-intermediate `assert`.
+"Z3 gave up" means the proof needs more work than the verifier allows a query (a fixed
+amount, the same on every machine, so trying again does not help) or arithmetic Z3
+cannot decide, such as products of variables. Split the step, or add an intermediate
+`assert`.
 
 **Holes** let you ask the compiler what a spot needs. Write `?name` where an
 expression goes:

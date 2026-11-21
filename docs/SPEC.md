@@ -574,8 +574,17 @@ obligations to Z3 in SMT-LIB 2.
 - `vowc check --totality` reports which functions are proved to terminate: those
   whose `while` loops and recursion are measured and which call only such functions.
   Built-in functions are taken to terminate.
-- Unknown or timed-out queries count as failures. Failed obligations are reported with
-  a counterexample when Z3 provides one.
+- A query that Z3 answers `unknown`, or does not finish within its limit, counts as a
+  failure. Failed obligations are reported with a counterexample when Z3 provides one.
+- The limit on a query is an amount of work (2,000,000 of Z3's resource units), not a
+  time, and each function is proved by a solver of its own. So whether a proof goes
+  through does not depend on the machine, on its load, or on which other functions
+  are being proved; with one Z3 version, the same program gets the same answers
+  everywhere. No proof in the tests, the examples, the standard library or the
+  compiler needs more than a sixteenth of the limit. A query at the limit takes from
+  half a second to a few seconds. Two clocks stand behind it, for a solver that stops
+  counting its work: 30 s for a query, and for the whole run 120 s plus 30 s for each
+  query, after which Z3 ends itself and `vowc` reports that it stopped answering.
 
 Specification expressions (`requires`, `ensures`, `where`, `invariant`, `decreases`,
 `assert`, `check`) are restricted to pure, total-in-the-logic forms: literals,

@@ -16,6 +16,17 @@
   Walking a chain of 40,000 links takes under 0.01 s, from 7.5 s. And `set xs =
   push(list: xs, item: x)` on a list with refined elements checks the new element, not
   every element again: 80,000 pushes take under 0.01 s, from 1.4 s.
+- Whether a proof goes through no longer depends on the machine, on its load, or on
+  what else is being proved. A query is limited by the work Z3 does (2,000,000 of its
+  resource units, sixteen times what the largest proof in the tests, examples,
+  standard library and compiler needs), where it had 10 seconds; and each function is
+  proved by a solver of its own, where all shared one, so a query's answer could
+  change with the functions sent before it (which changes as proofs are cached). A
+  hopeless obligation now fails in half a second to a few seconds: a generated program
+  with eight of them checks in 21 s, from over 60 s. "Z3 gave up" says the work limit
+  was reached. Verifier version `vow-verifier-15`.
+- A Z3 that hangs no longer hangs `vowc`: Z3 is given a limit for the whole run, and
+  `vowc` reports that it stopped answering.
 
 ## v0.9.10
 

@@ -176,9 +176,9 @@ Verifier time and stability (the compiler checks itself in 34 s; with V1, under 
       answers `unknown`, for 0.4 s more
 - [ ] V2: run chunks of functions in parallel Z3 processes (measured at 0.82 s to
       0.24 s for Z3 alone), and ask for the model in the same run
-- [ ] V3: an overall time limit: a hung or overrunning Z3 hangs `vowc`, and a function
+- [x] V3: an overall time limit: a hung or overrunning Z3 hangs `vowc`, and a function
       with k hard obligations costs k times 10 s
-- [ ] V4: bound queries by Z3's resource count, not wall-clock time, so that an answer
+- [x] V4: bound queries by Z3's resource count, not wall-clock time, so that an answer
       does not depend on machine load or on what ran before
 - [x] V5: cache keys cover only the types and specification functions a function can
       reach: today, editing any one-line function re-verifies the whole program

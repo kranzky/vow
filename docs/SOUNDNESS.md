@@ -34,7 +34,14 @@ as a panic naming it. That is how the claims are tested (see the last section).
 ## What is trusted
 
 - **Z3** (version 5.3.2, pinned): `unsat` is taken as a proof. Only `unsat` counts;
-  `sat`, `unknown`, a timeout or an error are reported as failures.
+  `sat`, `unknown`, reaching the limit or an error are reported as failures. The limit
+  is a count of Z3's work, and each function has a solver of its own, so an answer
+  does not depend on the machine's speed or on what was proved before it. Before a
+  function's obligations, Z3 is asked whether the function's definitions contradict
+  one another, with the same limit; if they do, every obligation would be proved
+  vacuously, and `vowc` stops with an internal error. That check looks only for a
+  contradiction (model-based instantiation is off for it): finding a model when there
+  is none to find cost more than the proofs.
 - **The C compiler and the runtime** (`runtime/vow_rt.h`): they implement the operations
   as the verifier models them. The runtime's own checks (bounds, division, `char`) are
   compiled out of verified programs, so each of them must be an obligation the verifier

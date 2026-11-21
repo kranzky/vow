@@ -271,6 +271,26 @@ if [ -z "$VOW_FROZEN" ]; then
     grep -q '^(push 1) ; fn twice$' "$rdir/dump" || { reuse_ok=false; echo "reuse: a failed proof was kept"; }
   done
   sed -i.bak 's/return n - 1/return n * 2/' "$rdir/main.vow"
+  # Each function is proved by a solver of its own, under a limit on work and not on
+  # time, so that an answer depends neither on what else was sent nor on the machine:
+  # the script for two functions is the two scripts for one, one after the other.
+  printf 'fn a(n: Int) -> Int\n  ensures result >= n\ndo\n  let m = n\n  return m\nend fn a\n\nfn b(n: Int where it >= 0) -> Int\n  ensures result >= 0\ndo\n  let m = n\n  return m\nend fn b\n' > "$rdir/a.vow"
+  printf '\nfn main() do\n  let x = a(1)\nend fn main\n' >> "$rdir/a.vow"
+  sed 's/fn a(/fn a0(/; s/end fn a$/end fn a0/; s/a(1)/b(1)/' "$rdir/a.vow" > "$rdir/b.vow"
+  sed 's/fn b(/fn b0(/; s/end fn b$/end fn b0/' "$rdir/a.vow" > "$rdir/a1.vow"
+  for one in a b a1; do
+    VOW_SMT_DUMP="$rdir/$one.smt2" "$VOWC" check "$rdir/$one.vow" --no-cache >/dev/null 2>&1 || { reuse_ok=false; echo "reuse: $one.vow does not verify"; }
+  done
+  part() { awk -v want="$2" '/^\(reset\)$/ { on = 0; held = $0; next } /^\(push 1\) ; fn / { on = ($5 == want); if (on) print held } on' "$1"; }
+  part "$rdir/a.smt2" a > "$rdir/in_both"
+  part "$rdir/a1.smt2" a > "$rdir/alone"
+  [ -s "$rdir/alone" ] && cmp -s "$rdir/in_both" "$rdir/alone" || { reuse_ok=false; echo "reuse: a function's queries depend on what else is sent"; }
+  grep -q '^(set-option :rlimit [0-9]*)$' "$rdir/a.smt2" || { reuse_ok=false; echo "reuse: queries are not bounded by work"; }
+  [ "$(grep -c '^(reset)$' "$rdir/a.smt2")" = 2 ] || { reuse_ok=false; echo "reuse: not one solver for each function"; }
+  # A solver that stops answering is ended by its own limit, and vowc says so.
+  printf '#!/bin/sh\ncat > /dev/null\necho sat\necho timeout\n' > "$rdir/stuck" && chmod +x "$rdir/stuck"
+  VOW_Z3="$rdir/stuck" "$VOWC" check "$rdir/a.vow" --no-cache 2>&1 | grep -q 'Z3 answered 1 of 4 queries and then stopped answering' ||
+    { reuse_ok=false; echo "reuse: a solver that stops is not reported"; }
   # With every proof in the store, Z3 is not needed at all.
   VOW_CACHE="$rdir/store" VOW_Z3=/nonexistent/z3 "$VOWC" check "$rdir/main.vow" >/dev/null 2>&1 ||
     { reuse_ok=false; echo "reuse: a check with every proof kept ran Z3"; }

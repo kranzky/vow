@@ -3486,8 +3486,9 @@ fn z3_path() -> String uses proc do
   end match
 end fn z3_path
 
-fn run_z3(script: String) -> Output uses proc do
-  return run(argv: [z3_path(), "-in", "-smt2"], input: script)
+// Runs Z3 on a script of so many queries (see script_backstop).
+fn run_z3(script: String, queries: Int) -> Output uses proc do
+  return run(argv: [z3_path(), "-in", "-smt2", "-T:" ++ int_to_str(script_backstop(queries))], input: script)
 end fn run_z3
 
 // The version of the Z3 that run_z3 uses ("5.3.2"), or "" if it cannot be run.
@@ -3504,8 +3505,9 @@ end fn z3_version
 // (VOW_SMT_V03, for tests/differential.sh).
 // The part of a script that proves one function: its definitions, a sanity check, and
 // each obligation as "the facts of its path, and not the goal". With a model, that one
-// obligation alone, followed by a request for the values to show.
-fn fn_block(vc: FnVc, model: Option<Ob>) -> List<String> do
+// obligation alone, followed by a request for the values to show. legacy gives the
+// v0.3 verifier's text (see script_for).
+fn fn_block(vc: FnVc, model: Option<Ob>, legacy: Bool) -> List<String> do
   var s: List<String> = ["(push 1) ; fn " ++ vc.name]
   if vc.axioms then
     set s = push(list: s, item: "(set-option :smt.mbqi false)")
@@ -3520,8 +3522,18 @@ fn fn_block(vc: FnVc, model: Option<Ob>) -> List<String> do
     set is_model = true
   case None then
     // Sanity check: the definitions alone must be satisfiable, or every
-    // obligation in this function would be proved vacuously.
+    // obligation in this function would be proved vacuously. Only `unsat` matters, so
+    // Z3 is asked to look for a contradiction and not, when there is none, for a
+    // model (model-based instantiation off): building one costs more than all the
+    // proofs of a long function.
+    let quick = (not legacy) and not vc.axioms
+    if quick then
+      set s = push(list: s, item: "(set-option :smt.mbqi false)")
+    end if
     set s = push(list: s, item: "(check-sat)")
+    if quick then
+      set s = push(list: s, item: "(set-option :smt.mbqi true)")
+    end if
   end match
   set s = s ++ vc.qdefs
   for ob in obs do
@@ -3547,16 +3559,67 @@ fn fn_block(vc: FnVc, model: Option<Ob>) -> List<String> do
   return s
 end fn fn_block
 
-fn script_for(pre: List<String>, vcs: List<FnVc>, model: Option<Ob>, every: Bool) -> String do
-  var s: List<String> = ["(set-option :produce-models true)", "(set-option :timeout 10000)"]
-  set s = s ++ pre
+// How much Z3 may do for one query, in its own resource units (`rlimit`). The count is
+// of work done, not of time, so the answer does not depend on the machine or on its
+// load. No proof in the tests, the examples, the standard library or the compiler
+// needs more than a ninth of it.
+fn query_budget() -> Int do
+  return 2000000
+end fn query_budget
+
+// A query's limit in milliseconds: a backstop for a solver that stops counting. A
+// query within its budget finishes long before it.
+fn query_backstop() -> Int do
+  return 30000
+end fn query_backstop
+
+// The whole script's limit in seconds, after which Z3 ends itself: more than every
+// query running to its backstop, so only a solver that hangs meets it.
+fn script_backstop(queries: Int) -> Int do
+  if queries < 0 then
+    return 120
+  end if
+  return 120 + ((queries * query_backstop()) / 1000)
+end fn script_backstop
+
+// The script that proves vcs. Each function is proved by a solver of its own (after
+// `(reset)`, with the declarations it names), so that its answers depend on nothing
+// that came before it: not on which other functions were sent, which changes as
+// proofs are cached. legacy gives the layout of the v0.3 verifier instead (one solver,
+// every function sent, a time limit), for tests/differential.sh.
+fn script_for(pre: List<String>, vcs: List<FnVc>, model: Option<Ob>, legacy: Bool) -> String do
+  if legacy then
+    var old: List<String> = ["(set-option :produce-models true)", "(set-option :timeout 10000)"]
+    set old = old ++ pre
+    for vc in vcs do
+      set old = old ++ fn_block(vc: vc, model: model, legacy: true)
+    end for
+    return join(parts: old, sep: "\n") ++ "\n"
+  end if
+  let options = ["(set-option :produce-models true)", "(set-option :rlimit " ++ int_to_str(query_budget()) ++ ")",
+    "(set-option :timeout " ++ int_to_str(query_backstop()) ++ ")"]
+  var s: List<String> = []
   for vc in vcs do
-    // A function with nothing to prove sends nothing: the sanity check below protects
-    // obligations, and on a long function without any it can run to the time limit.
-    if (len(vc.obs) == 0) and not every then
+    // A function with nothing to prove sends nothing: the sanity check protects
+    // obligations, and on a long function without any it can run to the limit.
+    if len(vc.obs) == 0 then
       continue
     end if
-    set s = s ++ fn_block(vc: vc, model: model)
+    set s = push(list: s, item: "(reset)")
+    set s = s ++ options
+    set s = s ++ prelude()
+    // Sorts before the functions over them.
+    for d in vc.globals do
+      if starts_with(s: d, p: "(declare-sort") then
+        set s = push(list: s, item: d)
+      end if
+    end for
+    for d in vc.globals do
+      if not starts_with(s: d, p: "(declare-sort") then
+        set s = push(list: s, item: d)
+      end if
+    end for
+    set s = s ++ fn_block(vc: vc, model: model, legacy: false)
   end for
   return join(parts: s, sep: "\n") ++ "\n"
 end fn script_for
@@ -3638,36 +3701,13 @@ fn split_pair(pair: String) -> String do
 end fn split_pair
 
 fn discharge(pre: List<String>, vcs: List<FnVc>, every: Bool) -> Discharged uses proc, fs do
-  let script = script_for(pre: pre, vcs: vcs, model: Option.None, every: every)
+  let script = script_for(pre: pre, vcs: vcs, model: Option.None, legacy: every)
   match getenv("VOW_SMT_DUMP")
   case Some(value: path) then
     let _ = write_file(path: path, contents: script)
   case None then
   end match
   let none: List<Failure> = []
-  // Nothing to prove (every proof was cached, say): Z3 is not started.
-  var waiting = false
-  for vc in vcs do
-    if (len(vc.obs) > 0) or every then
-      set waiting = true
-    end if
-  end for
-  if not waiting then
-    return Discharged(error: "", failures: none)
-  end if
-  let o = run_z3(script)
-  var answers: List<String> = []
-  for l0 in split(s: o.out, sep: '\n') do
-    let l = trim(l0)
-    if (l == "sat") or (l == "unsat") or (l == "unknown") or starts_with(s: l, p: "(error") then
-      set answers = push(list: answers, item: l)
-    end if
-  end for
-  for a in answers do
-    if starts_with(s: a, p: "(error") then
-      return Discharged(error: "Z3 rejected the generated query: " ++ a, failures: none)
-    end if
-  end for
   // One answer per obligation, and one for the sanity check of each function that has
   // any (script_for).
   var total = 0
@@ -3676,8 +3716,32 @@ fn discharge(pre: List<String>, vcs: List<FnVc>, every: Bool) -> Discharged uses
       set total = total + (len(vc.obs) + 1)
     end if
   end for
+  // Nothing to prove (every proof was cached, say): Z3 is not started.
+  if total == 0 then
+    return Discharged(error: "", failures: none)
+  end if
+  let o = run_z3(script: script, queries: total)
+  var answers: List<String> = []
+  var cut_short = false
+  for l0 in split(s: o.out, sep: '\n') do
+    let l = trim(l0)
+    if (l == "sat") or (l == "unsat") or (l == "unknown") or starts_with(s: l, p: "(error") then
+      set answers = push(list: answers, item: l)
+    elif l == "timeout" then
+      set cut_short = true
+    end if
+  end for
+  for a in answers do
+    if starts_with(s: a, p: "(error") then
+      return Discharged(error: "Z3 rejected the generated query: " ++ a, failures: none)
+    end if
+  end for
   if len(answers) != total then
     let msg = "Z3 answered " ++ int_to_str(len(answers)) ++ " of " ++ int_to_str(total) ++ " queries"
+    if cut_short then
+      // Z3 ended itself at the script's limit: it hung, or stopped counting its work.
+      return Discharged(error: msg ++ " and then stopped answering; it was ended after " ++ int_to_str(script_backstop(total)) ++ " s", failures: none)
+    end if
     if o.code != 0 then
       return Discharged(error: msg ++ " (is Z3 installed? set VOW_Z3 to its path)", failures: none)
     end if
@@ -3704,7 +3768,7 @@ fn discharge(pre: List<String>, vcs: List<FnVc>, every: Bool) -> Discharged uses
       end if
       var model: List<Shown> = []
       if (a == "sat") and (len(ob.show) > 0) then
-        let mo = run_z3(script_for(pre: pre, vcs: [vc], model: Option.Some(value: ob), every: true))
+        let mo = run_z3(script: script_for(pre: pre, vcs: [vc], model: Option.Some(value: ob), legacy: every), queries: 1)
         let vals = parse_values(mo.out)
         for i in 0..len(ob.show) do
           if i < len(vals) then
@@ -3727,7 +3791,7 @@ fn failure_diag(f: Failure) -> Diag do
   if f.verdict == "unknown-unfolded" then
     set d = with_note(d: d, note: "not proved: it may be false, or need facts the verifier does not have (it knows only order and NaN-ness of Float values, and unfolds a recursive specification function at most twice per use); state them with check, assert or a contract")
   elif f.verdict == "unknown" then
-    set d = with_note(d: d, note: "Z3 gave up (timeout or incomplete theory); add an assertion, invariant or check to help it")
+    set d = with_note(d: d, note: "Z3 gave up (it reached its work limit, or the theory is incomplete); add an assertion, invariant or check to help it")
   elif len(f.model) > 0 then
     var parts: List<String> = []
     for m in f.model do

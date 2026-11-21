@@ -337,6 +337,15 @@ obligation, so "incremental solving" in the usual sense is done.
   forever.
 - **Fix:** a wall-clock limit in `vowc` that kills the child, and stop sending a
   function's obligations after its first timeout.
+- **Done, in part:** Z3 is started with `-T:<seconds>`, after which it ends itself
+  (120 s plus 30 s for each query, so only a solver that hangs meets it), and `vowc`
+  reports "Z3 answered n of m queries and then stopped answering". A query's own
+  clock is now a 30 s backstop behind the work limit of V4. With that limit, a
+  function with k hopeless obligations costs k times 0.5 to 6 s, not k times 10 s:
+  the fuzzer's seed 1000061, with eight of them, checks in 21 s, from 60 to 66 s.
+- **Not done:** obligations after a function's first failure are still sent (the
+  script is written before Z3 starts). The whole-run limit is long for a large
+  program; a tighter one needs `vowc` to watch the solver while it runs.
 
 ### V4. The same query can get a different answer depending on what ran before it (reproduced by one reviewer)
 
@@ -346,6 +355,20 @@ obligation, so "incremental solving" in the usual sense is done.
   on a cold run and fail after a one-function edit, or the reverse.
 - **Fix:** bound queries with Z3's `rlimit` (a deterministic resource count) in place
   of the timeout.
+- **Done:** each query is limited to 2,000,000 resource units (`query_budget` in
+  `compiler/verify.vow`), and each function is proved after `(reset)` with only the
+  declarations it names, so its queries see nothing of what came before. Measured on
+  the fuzzer's seed 1000061 with the functions in three orders: in one solver, 65 of
+  102 queries used different amounts of work from order to order (one used 52,587
+  units in one order and ran past 5,000,000 in the others); with a solver each, every
+  obligation used the same amount in every order. Across 6,448 queries (tests,
+  examples, standard library, compiler) the largest proof needs 123,223 units, and
+  Z3 5.3.2 and 5.4.1 give the same answers and counts for all of the compiler's.
+  The sanity check now runs with model-based instantiation off: it still answers
+  `unsat` for contradictory definitions, and no longer spends the budget building a
+  model (the compiler's cold check would otherwise go from 1.4 s to 3.2 s; it is
+  unchanged). Verifier version `vow-verifier-15`. Tests: `tests/run.sh` compares a
+  function's queries sent alone and with another function.
 
 ### V5. Editing any one-line function or any type re-verifies the whole program (reproduced by one reviewer)
 
