@@ -1,0 +1,1 @@
+vow: panic at panic/contract_exact_false.vow:7: postcondition failed: (result * 2) > (lo + hi)

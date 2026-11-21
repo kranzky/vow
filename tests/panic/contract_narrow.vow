@@ -1,0 +1,19 @@
+// language: 0.9
+// Arithmetic in a specification is exact, but a function it calls takes a 64-bit
+// value: when the argument does not fit, the specification cannot be checked.
+// vowflags: --no-verify --check-contracts
+
+fn half(n: Int) -> Int do
+  let h = n / 2
+  return h
+end fn half
+
+fn f(n: Int) -> Int
+  requires half(n + n) == n
+do
+  return n
+end fn f
+
+fn main() do
+  let n = f(9223372036854775807)
+end fn main

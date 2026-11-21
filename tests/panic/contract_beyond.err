@@ -1,0 +1,1 @@
+vow: panic at panic/contract_beyond.vow:8: cannot check precondition: ((n * n) * (n * n)) >= 0 (its arithmetic needs more than 128 bits)

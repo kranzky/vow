@@ -1,0 +1,81 @@
+// language: 0.9
+// A specification is proved over the mathematical integers, and a checked build
+// (tests/rc.sh runs this with --check-contracts) evaluates the arithmetic written in
+// one in 128 bits. Each specification here holds, and each would overflow 64 bits.
+
+fn mid(lo: Int, hi: Int) -> Int
+  requires (lo >= 0) and (lo <= hi)
+  ensures ((result * 2) <= (lo + hi)) and ((lo + hi) <= ((result * 2) + 1))
+do
+  return lo + ((hi - lo) / 2)
+end fn mid
+
+fn below(a: Int, b: Int) -> Bool
+  requires (a - b) < 0
+  ensures result
+do
+  return a < b
+end fn below
+
+// A refinement, a product of products, and equality of two sums.
+fn same(n: Int where (it * 4) > (it * 2)) -> Int
+  ensures ((result * 1000000) * 1000000) > n
+  ensures (result + result) == (n * 2)
+do
+  return n
+end fn same
+
+// Euclidean division and remainder, as the program's own are.
+fn sevenths(n: Int) -> Int
+  ensures ((result * 7) + (n % 7)) == n
+  ensures result == (n / 7)
+do
+  return n / 7
+end fn sevenths
+
+fn negated_is_positive(x: Int) -> Bool
+  requires (-x) > 0
+do
+  return x < 0
+end fn negated_is_positive
+
+// Arithmetic where a value is needed: computed exactly, it fits again.
+fn pick(xs: List<Int>, i: Int) -> Int
+  requires (i >= 0) and (i < len(xs))
+  ensures result == xs[(i + 9223372036854775807) - 9223372036854775807]
+do
+  return xs[i]
+end fn pick
+
+fn count(n: Int) -> Int
+  requires n >= 0
+  ensures result == n
+do
+  var i = 0
+  while i < n
+    invariant (i <= n) and ((i + 9223372036854775807) >= i)
+  do
+    set i = i + 1
+  end while
+  return i
+end fn count
+
+fn main() uses console do
+  let big = 9223372036854775806
+  print(int_to_str(mid(lo: big - 6, hi: big)) ++ "\n")
+  print(int_to_str(mid(lo: 0, hi: 7)) ++ "\n")
+  if below(a: 0 - big, b: big) then
+    print("below\n")
+  end if
+  print(int_to_str(same(4000000000000000000)) ++ "\n")
+  print(int_to_str(sevenths(0 - big)) ++ " " ++ int_to_str(sevenths(big)) ++ " " ++ int_to_str(sevenths(0 - 8)) ++ "\n")
+  let least = (0 - big) - 2
+  if negated_is_positive(least) then
+    print("negated\n")
+  end if
+  print(int_to_str(pick(xs: [5, 6, 7], i: 2)) ++ "\n")
+  print(int_to_str(count(3)) ++ "\n")
+  let x = 5000000000000000000
+  assert ((x * 3) - x) == (x * 2)
+  print("done\n")
+end fn main

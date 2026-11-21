@@ -426,6 +426,19 @@ soundness bug, and slowness limits what can be fuzzed.
 - **Fix:** evaluate specification arithmetic in `__int128` (or saturate) while a
   contract is being checked; at the least, say "overflow while checking postcondition"
   at the contract's position, so the fuzzers can tell it apart.
+- **Done:** a checked build evaluates the arithmetic written in a specification
+  (`+`, `-`, `*`, `/`, `%` and unary `-` on `Int`, in contracts, refinements, loop
+  invariants and `assert`) in `__int128` (`gen_wide` in `compiler/codegen.vow`, the
+  `vow_w*` helpers in the runtime). Comparisons compare the wide values; where a value
+  is needed (an argument, an index) it is narrowed, and must fit. When 128 bits are not
+  enough, or a narrowed value does not fit, the panic is `cannot check <the
+  specification> (...)` at the specification's position, which the fuzzers do not count
+  as a finding. Tests: `tests/run/exact_specs.vow` (under `tests/rc.sh` with
+  `--check-contracts`), `tests/panic/contract_beyond.vow`, `contract_narrow.vow`,
+  `contract_exact_false.vow`.
+- **Not done:** measures are still evaluated in 64 bits, and so is a function that a
+  specification calls: `ensures result <= sq(n)` with `fn sq(n) do return n * n end`
+  traps inside `sq`, though the verifier inlines it.
 
 ### K2. Every in-place update through an `inout` parameter copies (reproduced)
 

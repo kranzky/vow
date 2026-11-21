@@ -541,7 +541,10 @@ reason.
 contract, refinement, invariant and measure (of loops and of recursive calls) as it
 executes: the first one that a
 real input breaks panics with its line (`postcondition failed: result > n`). Use it to
-find out whether a failed proof is a wrong contract or a missing fact.
+find out whether a failed proof is a wrong contract or a missing fact. Arithmetic
+written in a specification is checked exactly (in 128 bits), so state contracts the
+mathematical way, as in `ensures (result * 2) <= (lo + hi)`, even where the code must
+avoid the overflow.
 
 ## 6. Idioms
 

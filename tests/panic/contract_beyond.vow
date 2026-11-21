@@ -1,0 +1,15 @@
+// language: 0.9
+// A checked build evaluates the arithmetic of a specification in 128 bits. When even
+// that cannot hold a result, the specification's truth is unknown, and the panic says
+// so: it does not call the contract false, or blame the program's own arithmetic.
+// vowflags: --no-verify --check-contracts
+
+fn fourth(n: Int) -> Int
+  requires ((n * n) * (n * n)) >= 0
+do
+  return n
+end fn fourth
+
+fn main() do
+  let n = fourth(4611686018427387904)
+end fn main

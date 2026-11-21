@@ -189,7 +189,7 @@ Verifier time and stability (the compiler checks itself in 34 s; with V1, under 
 - [ ] V9: with `--json`, report solver trouble as a JSON diagnostic naming the function
 
 Checked builds (`--check-contracts`, the fuzzers' oracle):
-- [ ] K1: a contract that holds can panic with an overflow, because it was proved over
+- [x] K1: a contract that holds can panic with an overflow, because it was proved over
       all integers and is evaluated in 64 bits
 - [x] K2: an in-place update through an `inout` parameter copied every time in a checked
       build (80,000 inserts: 21 s against 0.006 s); entry values are captured only

@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- A build with `--check-contracts` no longer panics on a contract that holds because
+  its arithmetic overflowed 64 bits. A specification is proved over the mathematical
+  integers, and the checks now evaluate the arithmetic written in one in 128 bits:
+  `ensures (result * 2) <= (lo + hi)` on a midpoint near the top of the range passes,
+  where it panicked with `integer overflow in '*'` at the `return`. If even 128 bits
+  are not enough, or a value passed on to a function or an index does not fit in 64,
+  the panic names the specification and says it could not be checked (`cannot check
+  postcondition: ... (its arithmetic needs more than 128 bits)`), not that it failed.
+
 ## v0.9.10
 
 - Lexicographic termination measures: `decreases a, b` (no parentheses, as in Dafny)

@@ -122,6 +122,10 @@ def run(cmd, cwd, timeout):
 
 def is_bug(stderr):
     for line in stderr.splitlines():
+        # "cannot check <specification>": a checked build could not evaluate it (its
+        # arithmetic went past 128 bits), which says nothing about its truth.
+        if ": cannot check " in line:
+            continue
         if line.startswith("vow: panic at") and any(m in line for m in BUG_MESSAGES):
             return line
     return None

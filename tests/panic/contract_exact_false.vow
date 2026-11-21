@@ -1,0 +1,14 @@
+// language: 0.9
+// A false postcondition whose arithmetic overflows 64 bits is reported as false, not
+// as an overflow: a checked build evaluates it exactly.
+// vowflags: --no-verify --check-contracts
+
+fn mid(lo: Int, hi: Int) -> Int
+  ensures (result * 2) > (lo + hi)
+do
+  return lo + ((hi - lo) / 2)
+end fn mid
+
+fn main() do
+  let m = mid(lo: 9223372036854775800, hi: 9223372036854775806)
+end fn main

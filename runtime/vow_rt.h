@@ -442,6 +442,58 @@ static inline V DV(double d) {
     memcpy(&x, &d, sizeof x);
     return x;
 }
+// Wide integers, for the arithmetic a checked build does while it evaluates a
+// specification. A specification is proved over the mathematical integers, so what it
+// writes with +, -, *, / and % is evaluated in 128 bits there: `(result * 2) <= (lo +
+// hi)` holds for every Int, and its sum must not trap as the program's own would. Each
+// operation gives 1 when even 128 bits cannot hold its result.
+#ifdef __SIZEOF_INT128__
+typedef __int128 vow_wide;
+typedef unsigned __int128 vow_uwide;
+#define VOW_WIDE_BITS 128
+#else
+typedef int64_t vow_wide;
+typedef uint64_t vow_uwide;
+#define VOW_WIDE_BITS 64
+#endif
+#define vow_wfits(w) ((w) >= (vow_wide)INT64_MIN && (w) <= (vow_wide)INT64_MAX)
+static inline int vow_wadd(vow_wide a, vow_wide b, vow_wide *r) { return __builtin_add_overflow(a, b, r); }
+static inline int vow_wsub(vow_wide a, vow_wide b, vow_wide *r) { return __builtin_sub_overflow(a, b, r); }
+static inline int vow_wmul(vow_wide a, vow_wide b, vow_wide *r) {
+#ifdef __SIZEOF_INT128__
+    // Two 64-bit values, as nearly always: the product fits. Otherwise compare
+    // magnitudes by division (a compiler's built-in check may call a library function
+    // that not every C runtime has).
+    if (vow_wfits(a) && vow_wfits(b)) { *r = a * b; return 0; }
+    if (a == 0 || b == 0) { *r = 0; return 0; }
+    vow_uwide ua = a < 0 ? (vow_uwide)0 - (vow_uwide)a : (vow_uwide)a;
+    vow_uwide ub = b < 0 ? (vow_uwide)0 - (vow_uwide)b : (vow_uwide)b;
+    int neg = (a < 0) != (b < 0);
+    vow_uwide top = (vow_uwide)1 << (VOW_WIDE_BITS - 1);
+    if (ua > (neg ? top : top - 1) / ub) return 1;
+    vow_uwide p = ua * ub;
+    *r = neg ? (vow_wide)((vow_uwide)0 - p) : (vow_wide)p;
+    return 0;
+#else
+    return __builtin_mul_overflow(a, b, r);
+#endif
+}
+// Euclidean, as vdiv and vmod are; b is not zero.
+static inline int vow_wdiv(vow_wide a, vow_wide b, vow_wide *r) {
+    if (b == -1) return vow_wsub(0, a, r);
+    vow_wide q = a / b, m = a % b;
+    if (m < 0) q = b > 0 ? q - 1 : q + 1;
+    *r = q;
+    return 0;
+}
+static inline int vow_wmod(vow_wide a, vow_wide b, vow_wide *r) {
+    if (b == -1) { *r = 0; return 0; }
+    vow_wide m = a % b;
+    if (m < 0) m = b > 0 ? m + b : m - b;
+    *r = m;
+    return 0;
+}
+
 // IEEE arithmetic: never panics (division by zero gives an infinity or NaN).
 static inline V vfadd(V a, V b) { return DV(VD(a) + VD(b)); }
 static inline V vfsub(V a, V b) { return DV(VD(a) - VD(b)); }

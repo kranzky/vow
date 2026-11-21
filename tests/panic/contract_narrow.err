@@ -1,0 +1,1 @@
+vow: panic at panic/contract_narrow.vow:12: cannot check precondition: half(n + n) == n (a value in it does not fit in 64 bits)

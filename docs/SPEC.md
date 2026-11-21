@@ -751,3 +751,12 @@ built with `--no-verify` they find the contract that does not hold. Measures of
 recursive calls are not checked, and a function called while a specification is being
 checked does not check its own contracts (they are proved, and a postcondition that
 calls its own function would otherwise recurse forever).
+
+A specification is proved over the mathematical integers, so these checks evaluate the
+arithmetic written in one (`+`, `-`, `*`, `/`, `%`) in 128 bits: `ensures (result * 2)
+<= (lo + hi)` is checked as stated, where the program's own `lo + hi` would trap. A
+function that a specification calls computes in 64 bits, as it does anywhere. When a
+specification cannot be evaluated, because a result does not fit in 128 bits or a value
+passed on (an argument, an index) does not fit in 64, the panic says that and not that
+the contract is false: `cannot check postcondition: ... (its arithmetic needs more than
+128 bits)`. Measures are evaluated in 64 bits.

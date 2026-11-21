@@ -66,6 +66,12 @@ struct Gen
   result_c: String,
   olds: Map<String, String>,
   spec_binds: Map<String, String>,
+  // While a specification is being generated: its integer arithmetic is exact (see
+  // gen_wide), and when that cannot be done the panic names the specification, by
+  // exact_what at exact_pos.
+  exact: Bool,
+  exact_pos: Pos,
+  exact_what: String,
   var_preds: Map<String, RTy>,
   loop_invs: List<List<Expr>>,
   loop_dec: List<List<Expr>>,
@@ -118,8 +124,8 @@ fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool, 
   var g = Gen(info: info, files: files, out: [], ind: 0, tmp: 0, strs: [], str_index: {}, io_params: [],
     owned_vars: [], scope_marks: [], loop_marks: [], temps: [], temp_marks: [], move_id: -1,
     moved: false, inout_vars: [], steal_ids: [], eqs: [], src: no_pos(), mapped_file: -1, mapped_next: -1, lines: lines,
-    contracts: contracts, fname: "", it_c: "", result_c: "", olds: {}, spec_binds: {}, var_preds: {}, loop_invs: [],
-    loop_dec: [], loop_m: [], dec_c: [], ranks: [], wide: [])
+    contracts: contracts, fname: "", it_c: "", result_c: "", olds: {}, spec_binds: {}, exact: false,
+    exact_pos: no_pos(), exact_what: "", var_preds: {}, loop_invs: [], loop_dec: [], loop_m: [], dec_c: [], ranks: [], wide: [])
   // Generic functions are compiled through their instances.
   var fns: List<FnDecl> = []
   for item in items do
@@ -933,7 +939,9 @@ fn gen_stmt(g: inout Gen, s: Stmt) do
       line(g: inout g, s: "if (vow_spec_depth == 0) {")
       indent(inout g)
       line(g: inout g, s: "vow_spec_depth++;")
+      set g = g with (exact: true, exact_pos: s.pos, exact_what: "assertion: " ++ pretty_expr(e))
       let c = gen_top(g: inout g, e: e)
+      set g = g with (exact: false)
       flush(inout g)
       line(g: inout g, s: "vow_spec_depth--;")
       line(g: inout g, s: "if (!" ++ c.c ++ ") " ++ panic_at(g: g, pos: s.pos, msg: c_string(msg)))
@@ -984,7 +992,16 @@ fn gen_check(g: inout Gen, e: Expr, what: String) do
   indent(inout g)
   line(g: inout g, s: "vow_spec_depth++;")
   push_frame(inout g)
+  let was = g.exact
+  let was_pos = g.exact_pos
+  let was_what = g.exact_what
+  var name = what
+  if ends_with(s: name, p: " failed") then
+    set name = slice(of: name, from: 0, to: len(name) - 7)
+  end if
+  set g = g with (exact: true, exact_pos: e.pos, exact_what: name ++ ": " ++ pretty_expr(e))
   let v = gen_expr(g: inout g, e: e)
+  set g = g with (exact: was, exact_pos: was_pos, exact_what: was_what)
   line(g: inout g, s: "vow_spec_depth--;")
   line(g: inout g, s: "if (!" ++ v.c ++ ") " ++ panic_at(g: g, pos: e.pos, msg: c_string(what ++ ": " ++ pretty_expr(e))))
   pop_frame(inout g)
@@ -992,6 +1009,92 @@ fn gen_check(g: inout Gen, e: Expr, what: String) do
   line(g: inout g, s: "}")
   set g = g with (inout_vars: io, move_id: mid, steal_ids: steals)
 end fn gen_check
+
+// ---- exact arithmetic in specifications ----
+//
+// A specification is proved over the mathematical integers. A checked build evaluates
+// the arithmetic written in one (with +, -, *, / and %) in 128 bits, so that a
+// specification that holds is not reported as an overflow: `(result * 2) <= (lo + hi)`
+// is true of a midpoint whatever lo and hi are. A function the specification calls
+// still computes in 64 bits, as it does when the program calls it.
+
+// Whether e is integer arithmetic written with an operator.
+fn is_int_arith(g: Gen, e: Expr) -> Bool do
+  match e.kind
+  case Binary(op: op, l: l, r: r) then
+    return contains_str(xs: ["+", "-", "*", "/", "%"], x: op) and (ty_show(type_of(info: g.info, e: l)) == "Int")
+  case Unary(op: op, x: x) then
+    return (op == "-") and (ty_show(type_of(info: g.info, e: x)) == "Int")
+  else
+    return false
+  end match
+end fn is_int_arith
+
+// The panic for a specification that cannot be evaluated: its truth is unknown, which
+// is not the same as false.
+fn exact_panic(g: Gen, why: String) -> String do
+  return panic_at(g: g, pos: g.exact_pos, msg: c_string("cannot check " ++ g.exact_what ++ " (" ++ why ++ ")"))
+end fn exact_panic
+
+// The Int expression e as a C value of type vow_wide.
+fn gen_wide(g: inout Gen, e: Expr) -> String do
+  var a = "0"
+  var b = ""
+  var f = ""
+  match e.kind
+  case Binary(op: op, l: l, r: r) then
+    if is_int_arith(g: g, e: e) then
+      set a = gen_wide(g: inout g, e: l)
+      set b = gen_wide(g: inout g, e: r)
+      match op
+      case "+" then
+        set f = "vow_wadd"
+      case "-" then
+        set f = "vow_wsub"
+      case "*" then
+        set f = "vow_wmul"
+      case "/" then
+        set f = "vow_wdiv"
+      else
+        set f = "vow_wmod"
+      end match
+      if (op == "/") or (op == "%") then
+        line(g: inout g, s: "if (" ++ b ++ " == 0) " ++ panic_at(g: g, pos: e.pos, msg: c_string("division by zero")))
+      end if
+    end if
+  case Unary(op: op, x: x) then
+    if is_int_arith(g: g, e: e) then
+      set b = gen_wide(g: inout g, e: x)
+      set f = "vow_wsub"
+    end if
+  else
+  end match
+  if len(f) == 0 then
+    let v = gen_expr(g: inout g, e: e)
+    return "(vow_wide)VI(" ++ v.c ++ ")"
+  end if
+  let t = fresh_tmp(inout g)
+  line(g: inout g, s: "vow_wide " ++ t ++ ";")
+  let call = f ++ "(" ++ a ++ ", " ++ b ++ ", &" ++ t ++ ")"
+  line(g: inout g, s: "if (" ++ call ++ ") " ++ exact_panic(g: g, why: "its arithmetic needs more than 128 bits"))
+  return t
+end fn gen_wide
+
+// Integer arithmetic in a specification, where a value is needed (an argument, an
+// index): computed exactly, the result must fit in 64 bits.
+fn gen_narrow(g: inout Gen, e: Expr) -> Val do
+  let w = gen_wide(g: inout g, e: e)
+  line(g: inout g, s: "if (!vow_wfits(" ++ w ++ ")) " ++ exact_panic(g: g, why: "a value in it does not fit in 64 bits"))
+  return plain_val(bind(g: inout g, rhs: "(V)(int64_t)" ++ w))
+end fn gen_narrow
+
+// A comparison of integers in a specification, when either side is arithmetic.
+fn exact_compare(g: Gen, op: String, l: Expr, r: Expr) -> Bool do
+  if not (g.exact and contains_str(xs: ["<", "<=", ">", ">=", "==", "!="], x: op)) then
+    return false
+  end if
+  return (ty_show(type_of(info: g.info, e: l)) == "Int") and (is_int_arith(g: g, e: l) or is_int_arith(g: g, e: r))
+end fn exact_compare
 
 // Checks refinements, with 'it' the C value it.
 fn gen_preds(g: inout Gen, preds: List<Expr>, subject: String, what: String) do
@@ -1725,6 +1828,9 @@ fn gen_expr(g: inout Gen, e: Expr) -> Val do
     end if
     return r
   case Unary(op: op, x: x) then
+    if g.exact and is_int_arith(g: g, e: e) then
+      return gen_narrow(g: inout g, e: e)
+    end if
     let v = gen_expr(g: inout g, e: x)
     if op == "-" then
       if ty_show(type_of(info: g.info, e: x)) == "Float" then
@@ -1734,6 +1840,14 @@ fn gen_expr(g: inout Gen, e: Expr) -> Val do
     end if
     return plain_val(bind(g: inout g, rhs: "(V)!" ++ v.c))
   case Binary(op: op, l: l, r: r) then
+    if g.exact and is_int_arith(g: g, e: e) then
+      return gen_narrow(g: inout g, e: e)
+    end if
+    if exact_compare(g: g, op: op, l: l, r: r) then
+      let wl = gen_wide(g: inout g, e: l)
+      let wr = gen_wide(g: inout g, e: r)
+      return plain_val(bind(g: inout g, rhs: "(V)(" ++ wl ++ " " ++ op ++ " " ++ wr ++ ")"))
+    end if
     return gen_binary(g: inout g, op: op, l: l, r: r)
   case Quant(q: q, name: v, lo: lo, hi: hi, body: body) then
     let a = gen_expr(g: inout g, e: lo)

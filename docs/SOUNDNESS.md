@@ -431,7 +431,10 @@ queries built to collide, which is the same trust as writing to the store.
   runs that return.
 - `--check-contracts` does not check the contracts of functions called while a
   specification is evaluated. It checks a structural measure by the value's height,
-  which is one rank the verifier's facts allow, not the only one.
+  which is one rank the verifier's facts allow, not the only one. It evaluates the
+  arithmetic written in a specification in 128 bits; past that, and in the functions a
+  specification calls (64 bits), it stops with `cannot check ...` or an overflow, and
+  that specification goes unchecked on that run.
 - Integer arithmetic is proved for mathematical integers; a run that overflows traps.
 - Nothing is proved about memory. A measure shows that a recursion ends, not that the
   stack is deep enough for it: a run that needs more stack or more memory than there
