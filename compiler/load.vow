@@ -74,6 +74,8 @@ struct Source
   next_id: Int,
   // For each file, how it names the declarations of other modules.
   names: List<Map<String, String>>,
+  // The file of each declaration that some files cannot name (see show_names).
+  others: Map<String, String>,
 end struct Source
 
 // Declarations every program gets, unless it declares a type of the same name. Type
@@ -313,7 +315,7 @@ fn load_with(root: String, overrides: Map<String, String>) -> Source uses fs do
     end if
   end if
   let res = resolve_modules(files: linked, shared: shared, shared_in_root: not declared)
-  return Source(files: files, items: res.items, errs: errs ++ res.errs, next_id: next_id, names: res.names)
+  return Source(files: files, items: res.items, errs: errs ++ res.errs, next_id: next_id, names: res.names, others: res.others)
 end fn load_with
 
 // The diagnostics with each module declaration named as the file it is in names it.
@@ -326,9 +328,9 @@ fn shown(src: Source, diags: List<Diag>) -> List<Diag> do
     end if
     var notes: List<String> = []
     for n in d.notes do
-      set notes = push(list: notes, item: show_names(text: n, names: names))
+      set notes = push(list: notes, item: show_names(text: n, names: names, others: src.others))
     end for
-    set out = push(list: out, item: d with (msg: show_names(text: d.msg, names: names), notes: notes))
+    set out = push(list: out, item: d with (msg: show_names(text: d.msg, names: names, others: src.others), notes: notes))
   end for
   return out
 end fn shown

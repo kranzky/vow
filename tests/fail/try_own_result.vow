@@ -1,0 +1,21 @@
+// error: 'try' needs a Result with the variants Ok(value: ...) and Err(error: ...), and no others, which the Result this program declares does not have
+// language: 0.9
+// The program's own Result, without the variants 'try' uses (the message was "needs
+// Result, but this is Result").
+enum Result
+  Good(n: Int),
+  Bad,
+end enum Result
+
+fn get() -> Result do
+  return Result.Good(n: 1)
+end fn get
+
+fn twice() -> Result do
+  let r = try get()
+  return r
+end fn twice
+
+fn main() uses console do
+  print("x\n")
+end fn main

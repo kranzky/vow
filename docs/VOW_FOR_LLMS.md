@@ -35,6 +35,9 @@ vowc fmt file.vow              # rewrite in the canonical layout (whitespace onl
 vowc test file_test.vow        # verify, then run each test_... function
 ```
 
+The command comes first; options may come before or after the file. An option the
+command has no use for is an error, not ignored.
+
 A program started by `vowc run` reads `vowc`'s standard input and writes as it runs,
 as the built executable would (`echo 3 | vowc run double.vow`), and `vowc` exits with
 the program's status.

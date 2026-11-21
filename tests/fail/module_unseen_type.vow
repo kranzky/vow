@@ -1,0 +1,10 @@
+// error: the value of 'n' must be Int, but this is List<Point (from modules/geo.vow)>
+// language: 0.9
+// far.vow returns a type of geo.vow, which this file does not import: the message
+// names it by its file (it was "geo.Point", a name this file cannot write).
+import "../modules/far.vow" as far
+
+fn main() uses console do
+  let n: Int = far.homes()
+  print(int_to_str(n) ++ "\n")
+end fn main

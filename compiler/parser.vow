@@ -304,9 +304,11 @@ fn parse_type_in(p: inout Parser, in_args: Bool) -> TypeExpr do
   return TypeExpr(name: full, args: args, refine: refine, pos: name.pos)
 end fn parse_type_in
 
+// A struct's fields end at 'end', which may also label a field: it does when a ':'
+// follows, as none follows the 'end' that closes a struct.
 fn parse_fields(p: inout Parser, closer: String, labels: Bool) -> List<Param> do
   var fields: List<Param> = []
-  while not is_tok(p: p, text: closer) do
+  while (not is_tok(p: p, text: closer)) or (labels and (closer == "end") and (peek_at(p: p, k: 1).text == ":") and (peek_at(p: p, k: 1).kind == "sym")) do
     var name = peek(p)
     if labels then
       set name = label(p: inout p, ctx: "for a field")

@@ -552,6 +552,76 @@ if [ -z "$VOW_FROZEN" ]; then
   fi
   rm -rf "$sdir"
 fi
+# The command line. The command is checked before any work is done (an unknown one was
+# reported only after the file had been checked, verified and compiled); options may
+# come before the file ('check --no-verify f.vow' was "unknown option 'f.vow'"); and an
+# option the command has no use for, a second file or a missing one is an error.
+# Unnamed arguments are reported once for a call, with the names to use.
+if [ -z "$VOW_FROZEN" ]; then
+  cdir=$(mktemp -d)
+  cat > "$cdir/ok.vow" <<'VOW'
+fn add(a: Int, b: Int) -> Int do
+  return a + b
+end fn add
+
+fn main() uses console, proc do
+  print(int_to_str(add(a: len(args()), b: 1)) ++ "\n")
+end fn main
+VOW
+  # A file that does not verify: a command that got as far as the verifier says so.
+  cat > "$cdir/bad.vow" <<'VOW'
+fn main() uses console do
+  assert 1 > 2
+  print("x\n")
+end fn main
+VOW
+  cat > "$cdir/unnamed.vow" <<'VOW'
+fn add(a: Int, b: Int) -> Int do
+  return a + b
+end fn add
+
+fn main() uses console do
+  print(int_to_str(add(1, 2)) ++ "\n")
+end fn main
+VOW
+  cli() {
+    want_status=$1
+    want=$2
+    shift 2
+    got=$(cd "$cdir" && "$VOWC" "$@" 2>&1)
+    status=$?
+    if [ "$status" = "$want_status" ] && [ "$(printf '%s\n' "$got" | head -1)" = "$want" ]; then
+      pass=$((pass + 1))
+    else
+      fail=$((fail + 1)); echo "FAIL vowc $*: status $status (wanted $want_status): $got" | head -5
+    fi
+  }
+  cli 2 "vowc: unknown command 'frobnicate'" frobnicate bad.vow
+  cli 2 "vowc: unknown command 'frobnicate'" frobnicate
+  cli 2 "vowc: the command comes first, then the file and the options ('--json' is an option)" --json check ok.vow
+  cli 0 "ok" check --no-verify bad.vow
+  cli 0 "ok" check --no-cache ok.vow --json
+  cli 0 "4" run --no-cache ok.vow -- a b --json
+  cli 2 "vowc: check needs a file" check --json
+  cli 2 "vowc: check takes one file, but 'bad.vow' follows 'ok.vow'" check ok.vow bad.vow
+  cli 2 "vowc: run takes one file, but 'a' follows 'ok.vow' (arguments for the program go after '--')" run ok.vow a
+  cli 2 "vowc: '-o' needs the path of the executable after it" build ok.vow -o
+  cli 2 "vowc: build does not take the option '--totality': only check does" build ok.vow --totality
+  cli 2 "vowc: fmt does not take the option '--no-verify': only check, build, run, emit-c and test do" fmt --no-verify ok.vow
+  cli 2 "vowc: check does not take the option '-o': only build and run do" check ok.vow -o x
+  cli 2 "vowc: check does not take arguments for the program (after '--'): only run does" check ok.vow -- a
+  cli 2 "vowc: unknown option '--frob'" check ok.vow --frob
+  got=$(cd "$cdir" && "$VOWC" check unnamed.vow 2>&1)
+  want="unnamed.vow:6:24: error: arguments to 'add' must be named
+    name each one: (a: ..., b: ...)"
+  if [ "$got" = "$want" ]; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1)); echo "FAIL unnamed arguments are reported once: $got"
+  fi
+  rm -rf "$cdir"
+fi
+
 # The pinned Z3 version must be the same in the compiler and the installer.
 pinned=$(sed -n 's/^VERSION=//p' ../tools/install-z3.sh)
 if grep -A1 'fn tested_z3_version' ../compiler/verify.vow | grep -q "\"$pinned\""; then

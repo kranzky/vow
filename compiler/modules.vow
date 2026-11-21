@@ -63,6 +63,9 @@ struct Resolved
   errs: List<Diag>,
   // For each file, how it names the declarations it can see (see display_names).
   names: List<Map<String, String>>,
+  // For each declaration with a qualified canonical name, the file that declares it:
+  // how a file that cannot see it names it (see show_names).
+  others: Map<String, String>,
 end struct Resolved
 
 fn is_fn_item(item: Item) -> Bool do
@@ -221,6 +224,7 @@ fn resolve_modules(files: List<ModFile>, shared: List<Int>, shared_in_root: Bool
   var efns: List<Map<String, String>> = []
   var etypes: List<Map<String, String>> = []
   var known: Map<String, Int> = {}
+  var others: Map<String, String> = {}
   for f in 0..len(files) do
     let mf = files[f]
     let in_root = int_list_contains(xs: root, x: f)
@@ -233,6 +237,9 @@ fn resolve_modules(files: List<ModFile>, shared: List<Int>, shared_in_root: Bool
       var canon = string_at(xs: tags, i: f) ++ "." ++ n
       if in_root and ((not private) or (value_or(opt: lookup(map: counts, key: n), default: 0) == 1)) then
         set canon = n
+      end if
+      if canon != n then
+        set others = insert(map: others, key: canon, value: mf.path)
       end if
       set cs = push(list: cs, item: canon)
       if not private then
@@ -267,7 +274,7 @@ fn resolve_modules(files: List<ModFile>, shared: List<Int>, shared_in_root: Bool
       set out = push(list: out, item: resolve_item(r: inout r, item: mf.items[k], canon: string_at(xs: cs, i: k)))
     end for
   end for
-  return Resolved(items: out, errs: r.errs, names: names)
+  return Resolved(items: out, errs: r.errs, names: names, others: others)
 end fn resolve_modules
 
 // Whether file f was loaded; names missing from a file that was not are not reported.
@@ -398,10 +405,42 @@ fn add_display(out: inout Map<String, String>, m: Map<String, String>, prefix: S
   end for
 end fn add_display
 
+// Where the type arguments that start at from end: after the '>' that closes its '<'
+// (one inside parentheses compares). from, if no type arguments start there.
+fn type_args_end(text: String, from: Int) -> Int
+  requires from >= 0
+  requires from <= len(text)
+  ensures result >= from
+  ensures result <= len(text)
+do
+  if (from >= len(text)) or (text[from] != '<') then
+    return from
+  end if
+  var angles = 0
+  var parens = 0
+  for at in from..len(text) do
+    let ch = text[at]
+    if ch == '(' then
+      set parens = parens + 1
+    elif ch == ')' then
+      set parens = parens - 1
+    elif (ch == '<') and (parens == 0) then
+      set angles = angles + 1
+    elif (ch == '>') and (parens == 0) then
+      set angles = angles - 1
+      if angles == 0 then
+        return at + 1
+      end if
+    end if
+  end for
+  return from
+end fn type_args_end
+
 // Rewrites the canonical names in a message (geo.Point, geo.Shape.Box) into those of
-// names, a file's display names.
-fn show_names(text: String, names: Map<String, String>) -> String do
-  if len(names) == 0 then
+// names, a file's display names. A declaration the file cannot name (others has the
+// file it is in) is shown with that file: "Point (from lib/geo.vow)".
+fn show_names(text: String, names: Map<String, String>, others: Map<String, String>) -> String do
+  if (len(names) == 0) and (len(others) == 0) then
     return text
   end if
   var parts: List<String> = []
@@ -435,7 +474,24 @@ fn show_names(text: String, names: Map<String, String>) -> String do
     case Some(value: shown) then
       set parts = push(list: parts, item: shown)
     case None then
-      set parts = push(list: parts, item: word)
+      let path = value_or(opt: lookup(map: others, key: word), default: "")
+      if (len(path) > 0) and (k > j) then
+        // With a variant, if one follows: Shape.Box (from lib/geo.vow).
+        var m = k
+        if ((k + 1) < len(text)) and (text[k] == '.') and (is_alpha(text[k + 1]) or (text[k + 1] == '_')) then
+          set m = k + 1
+          while (m < len(text)) and (is_alnum(text[m]) or (text[m] == '_')) invariant k < m invariant m <= len(text) do
+            set m = m + 1
+          end while
+        end if
+        // And with its type arguments: Result<Int, String> (from <std>/prelude.vow).
+        let close = type_args_end(text: text, from: m)
+        let targs = show_names(text: slice(of: text, from: m, to: close), names: names, others: others)
+        set parts = push(list: parts, item: slice(of: text, from: j + 1, to: m) ++ targs ++ " (from " ++ path ++ ")")
+        set k = close
+      else
+        set parts = push(list: parts, item: word)
+      end if
     end match
     set i = k
   end while
@@ -756,7 +812,13 @@ end fn res_sk
 
 // ---- local names ----
 
-fn expr_binders(e: Expr, out: inout List<String>) do
+// A name a declaration binds, and where.
+struct Bound
+  name: String,
+  pos: Pos,
+end struct Bound
+
+fn expr_binders(e: Expr, out: inout List<Bound>) do
   match e.kind
   case Call(callee: c, args: args) then
     expr_binders(e: c, out: inout out)
@@ -783,7 +845,7 @@ fn expr_binders(e: Expr, out: inout List<String>) do
     expr_binders(e: l, out: inout out)
     expr_binders(e: rr, out: inout out)
   case Quant(q: q, name: n, lo: lo, hi: hi, body: b) then
-    set out = push(list: out, item: n)
+    set out = push(list: out, item: Bound(name: n, pos: e.pos))
     expr_binders(e: lo, out: inout out)
     expr_binders(e: hi, out: inout out)
     expr_binders(e: b, out: inout out)
@@ -791,13 +853,13 @@ fn expr_binders(e: Expr, out: inout List<String>) do
   end match
 end fn expr_binders
 
-fn exprs_binders(es: List<Expr>, out: inout List<String>) do
+fn exprs_binders(es: List<Expr>, out: inout List<Bound>) do
   for e in es do
     expr_binders(e: e, out: inout out)
   end for
 end fn exprs_binders
 
-fn opt_binders(e: Option<Expr>, out: inout List<String>) do
+fn opt_binders(e: Option<Expr>, out: inout List<Bound>) do
   match e
   case Some(value: x) then
     expr_binders(e: x, out: inout out)
@@ -805,25 +867,25 @@ fn opt_binders(e: Option<Expr>, out: inout List<String>) do
   end match
 end fn opt_binders
 
-fn type_binders(t: TypeExpr, out: inout List<String>) do
+fn type_binders(t: TypeExpr, out: inout List<Bound>) do
   for a in t.args do
     type_binders(t: a, out: inout out)
   end for
   opt_binders(e: t.refine, out: inout out)
 end fn type_binders
 
-fn params_binders(ps: List<Param>, out: inout List<String>) do
+fn params_binders(ps: List<Param>, out: inout List<Bound>) do
   for p in ps do
-    set out = push(list: out, item: p.name)
+    set out = push(list: out, item: Bound(name: p.name, pos: p.pos))
     type_binders(t: p.ty, out: inout out)
   end for
 end fn params_binders
 
-fn block_binders(stmts: List<Stmt>, out: inout List<String>) do
+fn block_binders(stmts: List<Stmt>, out: inout List<Bound>) do
   for s in stmts do
     match s.kind
     case Let(name: n, ty: ty, value: v, mutable: m) then
-      set out = push(list: out, item: n)
+      set out = push(list: out, item: Bound(name: n, pos: s.pos))
       match ty
       case Some(value: t) then
         type_binders(t: t, out: inout out)
@@ -850,13 +912,13 @@ fn block_binders(stmts: List<Stmt>, out: inout List<String>) do
       exprs_binders(es: d, out: inout out)
       block_binders(stmts: b, out: inout out)
     case ForRange(name: n, lo: lo, hi: hi, invs: invs, body: b) then
-      set out = push(list: out, item: n)
+      set out = push(list: out, item: Bound(name: n, pos: s.pos))
       expr_binders(e: lo, out: inout out)
       expr_binders(e: hi, out: inout out)
       exprs_binders(es: invs, out: inout out)
       block_binders(stmts: b, out: inout out)
     case ForEach(name: n, list: l, invs: invs, body: b) then
-      set out = push(list: out, item: n)
+      set out = push(list: out, item: Bound(name: n, pos: s.pos))
       expr_binders(e: l, out: inout out)
       exprs_binders(es: invs, out: inout out)
       block_binders(stmts: b, out: inout out)
@@ -866,7 +928,7 @@ fn block_binders(stmts: List<Stmt>, out: inout List<String>) do
         match c.pat
         case PVariant(name: vn, binds: binds) then
           for b in binds do
-            set out = push(list: out, item: b.binder)
+            set out = push(list: out, item: Bound(name: b.binder, pos: c.pos))
           end for
         else
         end match
@@ -889,13 +951,16 @@ fn block_binders(stmts: List<Stmt>, out: inout List<String>) do
 end fn block_binders
 
 // The local names of a declaration; a local may not take a module's name.
-fn enter_decl(r: inout Resolver, locals: List<String>, tparams: List<String>, pos: Pos) do
-  for n in locals do
+fn enter_decl(r: inout Resolver, locals: List<Bound>, tparams: List<String>) do
+  var names: List<String> = []
+  for b in locals do
+    let n = b.name
+    set names = push(list: names, item: n)
     if has(map: r.scope.aliases, key: n) then
-      res_err(r: inout r, pos: pos, msg: "'" ++ n ++ "' names an imported module, so it cannot also name a variable, parameter or field")
+      res_err(r: inout r, pos: b.pos, msg: "'" ++ n ++ "' names an imported module, so it cannot also name a variable, parameter or field")
     end if
   end for
-  set r = r with (locals: locals, tparams: tparams)
+  set r = r with (locals: names, tparams: tparams)
 end fn enter_decl
 
 // The names of a file's private types.
@@ -955,13 +1020,13 @@ end fn check_exposed
 fn resolve_item(r: inout Resolver, item: Item, canon: String) -> Item do
   match item
   case FnItem(decl: d) then
-    var locals: List<String> = []
+    var locals: List<Bound> = []
     params_binders(ps: d.params, out: inout locals)
     exprs_binders(es: d.pre, out: inout locals)
     exprs_binders(es: d.post, out: inout locals)
     exprs_binders(es: d.dec, out: inout locals)
     block_binders(stmts: d.body, out: inout locals)
-    enter_decl(r: inout r, locals: locals, tparams: d.tparams, pos: d.pos)
+    enter_decl(r: inout r, locals: locals, tparams: d.tparams)
     let params = res_params(r: inout r, ps: d.params)
     let ret = res_opt_type(r: inout r, t: d.ret)
     let pre = res_exprs(r: inout r, es: d.pre)
@@ -970,25 +1035,25 @@ fn resolve_item(r: inout Resolver, item: Item, canon: String) -> Item do
     let body = res_block(r: inout r, stmts: d.body)
     return Item.FnItem(decl: d with (name: canon, params: params, ret: ret, pre: pre, post: post, dec: dec, body: body))
   case StructItem(decl: d) then
-    var locals: List<String> = []
+    var locals: List<Bound> = []
     params_binders(ps: d.fields, out: inout locals)
-    enter_decl(r: inout r, locals: locals, tparams: d.tparams, pos: d.pos)
+    enter_decl(r: inout r, locals: locals, tparams: d.tparams)
     return Item.StructItem(decl: d with (name: canon, fields: res_params(r: inout r, ps: d.fields)))
   case EnumItem(decl: d) then
-    var locals: List<String> = []
+    var locals: List<Bound> = []
     for v in d.variants do
       params_binders(ps: v.fields, out: inout locals)
     end for
-    enter_decl(r: inout r, locals: locals, tparams: d.tparams, pos: d.pos)
+    enter_decl(r: inout r, locals: locals, tparams: d.tparams)
     var vs: List<VariantDecl> = []
     for v in d.variants do
       set vs = push(list: vs, item: v with (fields: res_params(r: inout r, ps: v.fields)))
     end for
     return Item.EnumItem(decl: d with (name: canon, variants: vs))
   case AliasItem(decl: d) then
-    var locals: List<String> = []
+    var locals: List<Bound> = []
     type_binders(t: d.ty, out: inout locals)
-    enter_decl(r: inout r, locals: locals, tparams: [], pos: d.pos)
+    enter_decl(r: inout r, locals: locals, tparams: [])
     return Item.AliasItem(decl: d with (name: canon, ty: res_type(r: inout r, t: d.ty)))
   end match
 end fn resolve_item

@@ -3015,8 +3015,13 @@ fn check_match(c: inout Checker, pos: Pos, scrut: Expr, cases: List<Case>, els: 
     end if
     return
   end match
-  if (len(tried) > 0) and ((find_variant(vs: variants, name: tried_variant(tried)) < 0) or not try_type(t: st, kind: tried)) then
+  if (len(tried) > 0) and not try_type(t: st, kind: tried) then
     err(c: inout c, pos: scrut.pos, msg: try_msg(kind: tried, got: sts))
+    return
+  end if
+  // A Result by name, but not by shape: the program's own.
+  if (len(tried) > 0) and not try_shape(vs: variants, kind: tried, binds: try_binds(cases)) then
+    err(c: inout c, pos: scrut.pos, msg: "'try' needs a Result with the variants Ok(value: ...) and Err(error: ...), and no others, which the " ++ sts ++ " this program declares does not have")
     return
   end if
   var covered: List<Int> = []
@@ -3108,12 +3113,34 @@ fn try_type(t: Ty, kind: String) -> Bool do
   end match
 end fn try_type
 
-fn tried_variant(kind: String) -> String do
-  if kind == "Result" then
-    return "Err"
+// Whether an enum has the variants 'try' matches on, with the fields it binds.
+fn try_shape(vs: List<VariantInfo>, kind: String, binds: Bool) -> Bool do
+  if kind != "Result" then
+    return find_variant(vs: vs, name: "None") >= 0
   end if
-  return "None"
-end fn tried_variant
+  let ok = find_variant(vs: vs, name: "Ok")
+  let bad = find_variant(vs: vs, name: "Err")
+  if (ok < 0) or (ok >= len(vs)) or (bad < 0) or (bad >= len(vs)) then
+    return false
+  end if
+  if (len(vs) != 2) or (find_field(fields: vs[bad].fields, name: "error") < 0) then
+    return false
+  end if
+  return (not binds) or (find_field(fields: vs[ok].fields, name: "value") >= 0)
+end fn try_shape
+
+// Whether a match made from 'try' binds the value tried.
+fn try_binds(cases: List<Case>) -> Bool do
+  if len(cases) != 2 then
+    return false
+  end if
+  match cases[1].pat
+  case PVariant(name: v, binds: b) then
+    return len(b) > 0
+  else
+    return false
+  end match
+end fn try_binds
 
 fn try_msg(kind: String, got: String) -> String do
   return "'try' in a function that returns " ++ kind ++ " needs " ++ kind ++ ", but this is " ++ got
@@ -3350,6 +3377,15 @@ fn inout_vars(e: Expr, out: inout List<String>) do
   end match
 end fn inout_vars
 
+// How a call names its arguments: "(a: ..., b: ...)".
+fn named_call(params: List<String>) -> String do
+  var parts: List<String> = []
+  for p in params do
+    set parts = push(list: parts, item: p ++ ": ...")
+  end for
+  return "(" ++ join(parts: parts, sep: ", ") ++ ")"
+end fn named_call
+
 fn match_args(c: inout Checker, pos: Pos, what: String, params: List<String>, args: List<Arg>) -> Option<List<Int>> do
   for a in args do
     if a.is_inout and not c.inout_ok then
@@ -3365,10 +3401,16 @@ fn match_args(c: inout Checker, pos: Pos, what: String, params: List<String>, ar
     set order = push(list: order, item: -1)
   end for
   var ok = true
+  // Said once for a call, at its first unnamed argument.
+  var unnamed = false
   for ai in 0..len(args) do
     let a = args[ai]
     if len(a.name) == 0 then
-      err(c: inout c, pos: a.pos, msg: "arguments to " ++ what ++ " must be named")
+      if not unnamed then
+        let d = diag(pos: a.pos, msg: "arguments to " ++ what ++ " must be named")
+        err_d(c: inout c, d: with_note(d: d, note: "name each one: " ++ named_call(params)))
+      end if
+      set unnamed = true
       set ok = false
     else
       let pi = index_of_str(xs: params, x: a.name)

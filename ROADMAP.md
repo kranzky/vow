@@ -164,9 +164,9 @@ Compiler robustness:
 - [x] B6: generated C: an `if` with over 2,000 `elif` arms does not compile; many `try`
       statements in one function are quadratic; a panic in an `elif` condition names
       the wrong line
-- [ ] B7: misleading diagnostics: a field named `end`, a local named like a module
+- [x] B7: misleading diagnostics: a field named `end`, a local named like a module
       alias, internal module tags, "needs Result, but this is Result", a duplicate
-- [ ] B8: command line: an unknown command is reported only after the whole build;
+- [x] B8: command line: an unknown command is reported only after the whole build;
       options before the file are rejected
 
 Verifier time and stability (the compiler checks itself in 34 s; with V1, under 1 s):

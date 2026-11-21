@@ -1,0 +1,16 @@
+// error: fail/module_local_alias.vow:14:3: error: 'geo' names an imported module
+// language: 0.9
+// Reported where the local is declared (it was at the start of the function).
+import "../modules/geo.vow" as geo
+
+fn helper(n: Int) -> Int do
+  return n + 1
+end fn helper
+
+fn main() uses console do
+  let a = 1
+  let b = helper(a)
+  // The clash:
+  let geo = 3
+  print(int_to_str(geo + b) ++ "\n")
+end fn main

@@ -2,6 +2,31 @@
 
 ## Unreleased
 
+- The command line is stricter and more forgiving:
+  - options may come before the file: `vowc check --no-verify f.vow` was `unknown
+    option 'f.vow'`;
+  - an unknown command is reported at once (it was reported after the file had been
+    checked, verified and compiled), and an option given first says that the command
+    comes first;
+  - an option the command has no use for is an error where it was ignored: `build does
+    not take the option '--totality': only check does`. So are arguments after `--`
+    for a command other than `run`, a second file, a missing file and `-o` with
+    nothing after it.
+- Clearer diagnostics:
+  - a struct field can be named `end`, as the specification says any keyword can (the
+    fields stopped at it), and `vowc fmt` lays out `s.end - 1` as written (it wrote
+    `s.end -1`);
+  - a local with the name of an imported module is reported where it is declared; it
+    was reported at the first line of its function;
+  - a type the file cannot name is shown with the file that declares it, `Point (from
+    lib/geo.vow)`; it was shown under an internal name that looked like a module the
+    file had imported (`geo.Point`), or as `prelude.Result` for the built-in `Result`
+    in a program that declares its own;
+  - `try` on a program's own `Result` that lacks the variants `Ok(value: ...)` and
+    `Err(error: ...)` says so; the message was "needs Result, but this is Result", or
+    named variables the compiler had made up;
+  - unnamed arguments are reported once for a call, with a note of the names to use:
+    `name each one: (a: ..., b: ...)`.
 - Taking the last element off a list is constant time: `set xs = slice(of: xs, from: 0,
   to: len(xs) - 1)` shortens the list where it is when nothing else refers to it (it
   copied the list). A list used as a stack, with `push` and this, costs time in

@@ -11,7 +11,7 @@ fn vow_version() -> String do
 end fn vow_version
 
 fn usage() -> String do
-  return "usage: vowc <command> <file.vow> [options]\n\n" ++
+  return "usage: vowc <command> <file.vow> [options]   (options may also come before the file)\n\n" ++
     "New to Vow? Read the guide for LLMs before writing any code:\n" ++
     "  https://vow.kranzky.com/llms.html (Markdown: https://vow.kranzky.com/md/VOW_FOR_LLMS.md)\n\n" ++
     "commands:\n" ++
@@ -38,8 +38,51 @@ fn usage() -> String do
     "  --totality    with check: also report which functions are proved to terminate\n" ++
     "  --no-line-directives  emit C without #line directives (errors, debuggers and\n" ++
     "                panics then refer to the C rather than the .vow source)\n" ++
-    "  -o <path>     output executable for build\n"
+    "  -o <path>     with build: the executable to write; with run: keep it there\n"
 end fn usage
+
+// The commands that work on a file.
+fn file_commands() -> List<String> do
+  return ["check", "build", "run", "emit-c", "hash", "test", "fmt", "pretty"]
+end fn file_commands
+
+// The commands an option has an effect on.
+fn option_commands(opt: String) -> List<String> do
+  if opt == "--json" then
+    return file_commands()
+  end if
+  if (opt == "--no-verify") or (opt == "--no-cache") then
+    return ["check", "build", "run", "emit-c", "test"]
+  end if
+  if (opt == "--check-contracts") or (opt == "--no-line-directives") then
+    return ["build", "run", "emit-c", "test"]
+  end if
+  if opt == "--totality" then
+    return ["check"]
+  end if
+  if opt == "--check" then
+    return ["fmt"]
+  end if
+  if opt == "-o" then
+    return ["build", "run"]
+  end if
+  return ["run"]
+end fn option_commands
+
+// "a", "a and b", "a, b and c".
+fn list_and(xs: List<String>) -> String do
+  if len(xs) < 2 then
+    return join(parts: xs, sep: "")
+  end if
+  return join(parts: slice(of: xs, from: 0, to: len(xs) - 1), sep: ", ") ++ " and " ++ xs[len(xs) - 1]
+end fn list_and
+
+fn plural_does(xs: List<String>) -> String do
+  if len(xs) == 1 then
+    return "does"
+  end if
+  return "do"
+end fn plural_does
 
 // Bytes that are not well-formed UTF-8 (from a source file or a file name) become
 // U+FFFD, so that the output is always JSON.
@@ -347,12 +390,20 @@ fn main() uses console, fs, proc do
     end if
     return
   end if
-  if len(argv) < 2 then
+  if len(argv) == 0 then
     eprint(usage())
     exit(2)
   end if
   let cmd = argv[0]
-  let file = argv[1]
+  if (len(cmd) > 0) and (cmd[0] == '-') then
+    eprint("vowc: the command comes first, then the file and the options ('" ++ cmd ++ "' is an option)\n\n" ++ usage())
+    exit(2)
+  end if
+  if not contains_str(xs: file_commands(), x: cmd) then
+    eprint("vowc: unknown command '" ++ cmd ++ "'\n\n" ++ usage())
+    exit(2)
+  end if
+  var file = ""
   var json = false
   var no_verify = false
   var check_contracts = false
@@ -362,8 +413,10 @@ fn main() uses console, fs, proc do
   var fmt_check = false
   var out = ""
   var run_args: List<String> = []
-  var i = 2
-  while i < len(argv) invariant i >= 2 do
+  // The options given, each checked against the command once all are read.
+  var given: List<String> = []
+  var i = 1
+  while i < len(argv) invariant i >= 1 do
     let a = argv[i]
     if a == "--json" then
       set json = true
@@ -379,18 +432,50 @@ fn main() uses console, fs, proc do
       set line_directives = false
     elif a == "--check" then
       set fmt_check = true
-    elif (a == "-o") and ((i + 1) < len(argv)) then
+    elif a == "-o" then
+      if (i + 1) >= len(argv) then
+        eprint("vowc: '-o' needs the path of the executable after it\n")
+        exit(2)
+      end if
       set out = argv[i + 1]
       set i = i + 1
     elif a == "--" then
       set run_args = slice(of: argv, from: i + 1, to: len(argv))
+      set given = push(list: given, item: a)
       break
+    elif (len(a) > 0) and (a[0] == '-') then
+      eprint("vowc: unknown option '" ++ a ++ "'\n\n" ++ usage())
+      exit(2)
+    elif len(file) == 0 then
+      set file = a
+      set i = i + 1
+      continue
     else
-      eprint("unknown option '" ++ a ++ "'\n\n" ++ usage())
+      var hint = ""
+      if cmd == "run" then
+        set hint = " (arguments for the program go after '--')"
+      end if
+      eprint("vowc: " ++ cmd ++ " takes one file, but '" ++ a ++ "' follows '" ++ file ++ "'" ++ hint ++ "\n")
       exit(2)
     end if
+    set given = push(list: given, item: a)
     set i = i + 1
   end while
+  if len(file) == 0 then
+    eprint("vowc: " ++ cmd ++ " needs a file\n\n" ++ usage())
+    exit(2)
+  end if
+  for opt in given do
+    let takers = option_commands(opt)
+    if not contains_str(xs: takers, x: cmd) then
+      var what = "the option '" ++ opt ++ "'"
+      if opt == "--" then
+        set what = "arguments for the program (after '--')"
+      end if
+      eprint("vowc: " ++ cmd ++ " does not take " ++ what ++ ": only " ++ list_and(takers) ++ " " ++ plural_does(takers) ++ "\n")
+      exit(2)
+    end if
+  end for
   if cmd == "fmt" then
     format_file(file: file, only_report: fmt_check, json: json)
     return
@@ -494,8 +579,5 @@ fn main() uses console, fs, proc do
     end if
   elif cmd == "test" then
     run_tests(code: code, tests: tests, json: json)
-  else
-    eprint("unknown command '" ++ cmd ++ "'\n\n" ++ usage())
-    exit(2)
   end if
 end fn main

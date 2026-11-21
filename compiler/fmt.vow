@@ -136,6 +136,8 @@ fn layout_line(toks: List<RawTok>, ind: Int) -> String do
   var prev_open = false
   var prev_close = false
   var prev_unary = false
+  // The token before was a field after a '.': an operand, even when a keyword (s.end).
+  var prev_label = false
   var first = true
   for i in 0..len(toks) do
     let t = toks[i]
@@ -162,7 +164,7 @@ fn layout_line(toks: List<RawTok>, ind: Int) -> String do
     elif (t.text == "(") and (toks[0].text == "import") then
       // import "m.vow" (a, b)
       set space = true
-    elif ((t.text == "(") or (t.text == "[")) and (ends_operand(prev) or prev_close) then
+    elif ((t.text == "(") or (t.text == "[")) and (ends_operand(prev) or prev_close or prev_label) then
       set space = false
     end if
     if t.kind == "comment" then
@@ -175,7 +177,8 @@ fn layout_line(toks: List<RawTok>, ind: Int) -> String do
       set parts = push(list: parts, item: " ")
     end if
     set parts = push(list: parts, item: t.text)
-    set prev_unary = (t.text == "-") and (first or not (ends_operand(prev) or prev_close))
+    set prev_unary = (t.text == "-") and (first or not (ends_operand(prev) or prev_close or prev_label))
+    set prev_label = prev.text == "."
     if opens then
       set angles = push(list: angles, item: brackets)
     elif closes and (len(angles) > 0) then

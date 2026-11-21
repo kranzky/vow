@@ -1,0 +1,15 @@
+// error: the value of 'r' must be Result, but this is Result<json.Value, String> (from <std>/prelude.vow)
+// language: 0.9
+// The program declares its own Result, so the one std/json returns is named by where
+// it is from (it was "prelude.Result", a name no file can write).
+import "std/json.vow" as json
+
+enum Result
+  Fine,
+  Broken,
+end enum Result
+
+fn main() uses console do
+  let r: Result = json.parse("1")
+  print("x\n")
+end fn main

@@ -1,0 +1,35 @@
+// language: 0.9
+// A keyword can label a field, 'end' included: a struct's fields used to stop at it.
+struct Span
+  start: Int,
+  end: Int,
+end struct Span
+
+struct Mark
+  end: List<Int>,
+  type: Int,
+end struct Mark
+
+enum Range
+  Closed(start: Int, end: Int),
+  Open,
+end enum Range
+
+fn width(r: Range) -> Int do
+  match r
+  case Closed(start: s, end: e) then
+    return e - s
+  case Open then
+    return 0
+  end match
+end fn width
+
+fn main() uses console do
+  let s = Span(start: 1, end: 9)
+  let t = s with (end: 5)
+  print(int_to_str(t.end - t.start) ++ "\n")
+  print(int_to_str(width(Range.Closed(start: 2, end: 7))) ++ "\n")
+  let m = Mark(end: [4, 6], type: 3)
+  print(int_to_str(m.end[1] - m.type) ++ "\n")
+  print(int_to_str(-m.type) ++ "\n")
+end fn main

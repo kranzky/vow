@@ -359,6 +359,25 @@ The front end is otherwise linear: the compiler's 17,500 lines check in 0.13 s.
   ("this is util.Point").
 - With a user-declared `Result`: "'try' ... needs Result, but this is Result".
 - `f(1, 2)` reports "arguments to 'f' must be named" twice.
+- **Done.** `parse_fields` takes an `end` followed by `:` for a field (nothing that
+  closes a struct is followed by one). The resolver keeps the position of each local
+  name (`Bound` in `modules.vow`), so the clash with a module is reported at the `let`,
+  parameter, loop or case that binds it. `resolve_modules` records the file of every
+  declaration with a qualified canonical name, and `show_names` uses it for a name the
+  file's own display names do not cover: `Point (from lib/geo.vow)`, with a variant or
+  type arguments kept next to the name (`Result<Int, String> (from
+  <std>/prelude.vow)`). A match made from `try` on a Result without exactly the
+  variants `Ok` and `Err(error: ...)` (and `value` in `Ok` when the value is bound) has
+  its own message (`try_shape`); before, the errors named the variables the parser
+  makes up (`unknown variable '20err'`). `match_args` reports unnamed arguments once
+  for a call, with a note. Found on the way: `vowc fmt` took the `-` after a keyword
+  field for a unary one (`s.end -1`). Tests: `tests/run/field_named_end.vow`,
+  `tests/fail/{module_local_alias, module_unseen_type, try_own_result,
+  result_prelude_named}.vow`, and the command-line block in `tests/run.sh`.
+- **Not done.** `show_names` rewrites any `word.word` in a message that is a canonical
+  name, so a message quoting source text in which a variable has the name of a file
+  and a field the name of one of its declarations would be rewritten too. This was so
+  before for the names a file imports.
 
 ### B8. Command line (reproduced by one reviewer)
 
@@ -366,6 +385,12 @@ The front end is otherwise linear: the compiler's 17,500 lines check in 0.13 s.
   compiled (`vowc.vow:453`).
 - Options before the file are rejected: `vowc check --no-verify f.vow` says "unknown
   option 'f.vow'" (`vowc.vow:325`).
+- **Done.** `main` checks the command against `file_commands()` before anything else,
+  takes the first argument that is not an option as the file wherever it is, and then
+  checks each option against the commands that use it (`option_commands`): one the
+  command ignores is an error, as are arguments after `--` for a command other than
+  `run`, a second file, no file, and `-o` with nothing after it. All exit with
+  status 2. Tests: the command-line block in `tests/run.sh`.
 
 ## V. The verifier: time and stability
 

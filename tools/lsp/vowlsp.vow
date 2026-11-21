@@ -414,9 +414,9 @@ fn hover(s: Server, path: String, line: Int, col: Int) -> json.Value uses fs do
   case Some(value: item) then
     match item
     case FnItem(decl: f) then
-      return markdown(show_names(text: fn_contract(f), names: names))
+      return markdown(show_names(text: fn_contract(f), names: names, others: src.others))
     else
-      return markdown(show_names(text: pretty_item(item), names: names))
+      return markdown(show_names(text: pretty_item(item), names: names, others: src.others))
     end match
   case None then
   end match
@@ -426,7 +426,7 @@ fn hover(s: Server, path: String, line: Int, col: Int) -> json.Value uses fs do
     case EnumItem(decl: e) then
       for vd in e.variants do
         if vd.name == w.text then
-          return markdown(show_names(text: pretty_item(item), names: names))
+          return markdown(show_names(text: pretty_item(item), names: names, others: src.others))
         end if
       end for
     else
@@ -439,7 +439,7 @@ fn hover(s: Server, path: String, line: Int, col: Int) -> json.Value uses fs do
     case FnItem(decl: f) then
       for p in f.params do
         if (p.pos.file == 0) and (p.pos.line == line) and (p.name == w.text) then
-          return markdown(p.name ++ ": " ++ show_names(text: pretty_type(p.ty), names: names))
+          return markdown(p.name ++ ": " ++ show_names(text: pretty_type(p.ty), names: names, others: src.others))
         end if
       end for
       find_in_block(stmts: f.body, line: line, name: w.text, out: inout found)
@@ -462,7 +462,7 @@ fn hover(s: Server, path: String, line: Int, col: Int) -> json.Value uses fs do
   if len(ty) == 0 then
     return json.Value.Null
   end if
-  var text = w.text ++ ": " ++ show_names(text: ty, names: names)
+  var text = w.text ++ ": " ++ show_names(text: ty, names: names, others: src.others)
   let facts = facts_about(src: src, ck: ck, line: line, name: w.text)
   if len(facts) > 0 then
     set text = text ++ "\n// known here:\n" ++ join(parts: facts, sep: "\n")

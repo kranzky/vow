@@ -1,0 +1,12 @@
+// language: 0.9
+// Returns a type of geo.vow, which a file importing only this one cannot name.
+
+import "geo.vow" as geo
+
+fn home() -> geo.Point do
+  return geo.origin()
+end fn home
+
+fn homes() -> List<geo.Point> do
+  return [geo.origin()]
+end fn homes
