@@ -357,6 +357,18 @@ obligation, so "incremental solving" in the usual sense is done.
   compiler's functions even when `vowc.vow.vowcache` is warm.
 - **Fix:** hash only the types and specification functions the function can reach
   (`total.vow`'s `proof_callees` computes most of that).
+- **Done, another way:** the key is a hash of the verifier version and of exactly what
+  the function's proof sends to Z3 (`query_key` in `compiler/pipeline.vow`), so it
+  needs no list of what a proof can reach, and cannot miss an entry of one. Generating
+  every function's queries on each run costs 0.04 s for the compiler; a warm check is
+  0.19 s (0.18 s before), and no longer starts Z3. Editing `tested_z3_version` proves
+  one function again (`main`, which inlines it), and adding a struct none. Tests:
+  `tests/cache/field_refine`, `spec_refine` and `alias_refine` (a proof must not be
+  reused), and the edits to `tests/reuse/main.vow` in `tests/run.sh` (exactly the
+  functions an edit reaches are proved again).
+- **Not done:** the cache is still one file per root file. The keys no longer depend on
+  the program around a function, so one store could serve every program (and prove the
+  standard library once per machine); where it lives is a design decision.
 
 ### V6. A script's size is quadratic in the facts on a path (measured by one reviewer)
 
@@ -595,6 +607,10 @@ No crash or hang in 30,000 fuzzed edits, and malformed framing is survived.
   `vowc add lib <repo> main` pins the commit of `feature/main`.
 - **Fix:** query `refs/heads/<ref>`, `refs/tags/<ref>` and its peeled form exactly,
   and report an ambiguous name.
+- **Done:** as above; `HEAD` and full names (`refs/...`) are also matched exactly. The
+  fix found a second fault: an annotated tag was pinned to the hash of the tag, not of
+  its commit, so the fetch after it failed ("did not check out commit"). Tests: the
+  package block of `tests/run.sh`.
 
 ### G2. Package hardening (reproduced by one reviewer; each is minor)
 

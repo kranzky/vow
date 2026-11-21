@@ -1,0 +1,11 @@
+// language: 0.9
+// The alias allows zero now.
+type Step = Int where it >= 0
+
+fn step(n: Int) -> Step
+  requires n > 0
+do
+  // Two statements, so that callers see the result's type and not this body.
+  let m = n
+  return m
+end fn step

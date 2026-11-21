@@ -1,0 +1,15 @@
+// error: cannot prove divisor is not zero: lib.rate(n).per
+// language: 0.9
+// main.vow is unchanged, and so is every type and contract it can see: only the body of
+// a specification function changes, which a field refinement calls.
+import "lib.vow" as lib
+
+fn share(total: Int, n: Int) -> Int
+  requires n > 0
+do
+  return total / lib.rate(n).per
+end fn share
+
+fn main() do
+  let x = share(total: 10, n: 2)
+end fn main

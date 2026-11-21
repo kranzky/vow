@@ -399,8 +399,15 @@ fn main() uses console, fs, proc do
   let c = ck.c
   let rec = ck.rec
   if cmd == "hash" then
-    for h in hash_program(items: src.items, info: c.info) do
-      print(h.name ++ "  body=" ++ h.body ++ " contract=" ++ h.contract ++ " key=" ++ h.key ++ "\n")
+    let fn_keys = query_keys(src: src, c: c)
+    let hashes = hash_program(items: src.items, info: c.info)
+    for hi in 0..len(hashes) do
+      let h = hashes[hi]
+      var key = ""
+      if hi < len(fn_keys) then
+        set key = fn_keys[hi].key
+      end if
+      print(h.name ++ "  body=" ++ h.body ++ " contract=" ++ h.contract ++ " key=" ++ key ++ "\n")
     end for
     return
   end if

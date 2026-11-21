@@ -36,6 +36,8 @@ struct FnVc
   // model-based instantiation then spends its whole timeout on a false claim, so it is
   // turned off: such a claim is reported as not proved at once.
   axioms: Bool,
+  // The declarations, shared by the whole script, that these queries name.
+  globals: List<String>,
 end struct FnVc
 
 // preds and args are the refinements assumed again where the variable may have changed
@@ -86,6 +88,8 @@ struct Verifier
   preamble: Map<String, Bool>,
   // The signature each global function was declared with (see global_fn).
   sigs: Map<String, String>,
+  // The lines of preamble the function being verified added or would have added.
+  used: Map<String, Bool>,
   strs: Map<String, String>,
   loops: List<LoopCtx>,
   fname: String,
@@ -130,7 +134,7 @@ fn new_verifier(info: Info) -> Verifier do
     set pre = insert(map: pre, key: p, value: true)
   end for
   let loops: List<LoopCtx> = []
-  return Verifier(info: info, n: 0, decls: [], defs: [], qdefs: [], obs: [], preamble: pre, sigs: {}, strs: {}, loops: loops,
+  return Verifier(info: info, n: 0, decls: [], defs: [], qdefs: [], obs: [], preamble: pre, sigs: {}, used: {}, strs: {}, loops: loops,
     fname: "", ret: plain(Ty.TUnit), post: [], dec: [], params: {}, hole_facts: {}, sf_done: [], eq_done: [], flits: [], floats: false, probe_line: -1, probe: [],
     hyps: true)
 end fn new_verifier
@@ -541,7 +545,8 @@ fn global_fn(v: inout Verifier, name: String, args: String, sort: String) -> Str
   if (sort == "Flt") or contains(s: args, p: "Flt") then
     use_floats(inout v)
   end if
-  set v = v with (preamble: insert(map: v.preamble, key: "(declare-fun " ++ name ++ " (" ++ args ++ ") " ++ sort ++ ")", value: true))
+  let line = "(declare-fun " ++ name ++ " (" ++ args ++ ") " ++ sort ++ ")"
+  set v = v with (preamble: insert(map: v.preamble, key: line, value: true), used: insert(map: v.used, key: line, value: true))
   return name
 end fn global_fn
 
@@ -655,7 +660,7 @@ fn verify_fn(v: inout Verifier, f: FnDecl) -> FnVc do
   // A generic function is verified once, with its type parameters as unknown types
   // (values of the uninterpreted sort Val), which covers every instance.
   let info = v.info
-  set v = v with (n: 0, decls: [], defs: [], qdefs: [], obs: [], strs: {}, loops: empty_loops, fname: f.name, params: {}, sf_done: [], eq_done: [], flits: [], floats: false,
+  set v = v with (n: 0, decls: [], defs: [], qdefs: [], obs: [], used: {}, strs: {}, loops: empty_loops, fname: f.name, params: {}, sf_done: [], eq_done: [], flits: [], floats: false,
     info: info with (tenv: identity_env(f.tparams), eq_tparams: f.eq, ord_tparams: f.ord))
   var fi = FnInfo(name: f.name, params: [], io: [], ret: plain(Ty.TUnit), effects: [], pre: [], post: [],
     dec: [], inline: Option.None, spec_body: Option.None, spec_rec: false, pos: f.pos)
@@ -696,7 +701,8 @@ fn verify_fn(v: inout Verifier, f: FnDecl) -> FnVc do
   if (not st.dead) and (ty_show(fi.ret.ty) == "Unit") then
     check_post(v: inout v, st: st, pos: f.pos, val: "0")
   end if
-  return FnVc(name: f.name, decls: v.decls, defs: v.defs, qdefs: v.qdefs, obs: v.obs, axioms: (len(v.sf_done) > 0) or v.floats)
+  return FnVc(name: f.name, decls: v.decls, defs: v.defs, qdefs: v.qdefs, obs: v.obs, axioms: (len(v.sf_done) > 0) or v.floats,
+    globals: keys(v.used))
 end fn verify_fn
 
 fn check_post(v: inout Verifier, st: St, pos: Pos, val: String) do
@@ -2022,14 +2028,6 @@ struct FloatLit
 end struct FloatLit
 
 fn use_floats(v: inout Verifier) do
-  if not has(map: v.preamble, key: "(declare-sort Flt 0)") then
-    var pre = v.preamble
-    for d in ["(declare-sort Flt 0)", "(declare-fun fkey (Flt) Real)", "(declare-fun fnan (Flt) Bool)",
-        "(declare-fun elem_Flt (Val Int) Flt)"] do
-      set pre = insert(map: pre, key: d, value: true)
-    end for
-    set v = v with (preamble: pre)
-  end if
   if v.floats then
     return
   end if
@@ -2037,9 +2035,11 @@ fn use_floats(v: inout Verifier) do
   // Sound facts about the operations that are exact or monotone, as axioms that fire
   // only on the operations a function uses.
   var ax: List<String> = []
-  for d in ["(declare-fun fneg (Flt) Flt)", "(declare-fun i2f (Int) Flt)", "(declare-fun fabs_ (Flt) Flt)",
-      "(declare-fun ffloor (Flt) Flt)", "(declare-fun fceil (Flt) Flt)", "(declare-fun fsqrt (Flt) Flt)"] do
-    set v = v with (preamble: insert(map: v.preamble, key: d, value: true))
+  for d in ["(declare-sort Flt 0)", "(declare-fun fkey (Flt) Real)", "(declare-fun fnan (Flt) Bool)",
+      "(declare-fun elem_Flt (Val Int) Flt)", "(declare-fun fneg (Flt) Flt)", "(declare-fun i2f (Int) Flt)",
+      "(declare-fun fabs_ (Flt) Flt)", "(declare-fun ffloor (Flt) Flt)", "(declare-fun fceil (Flt) Flt)",
+      "(declare-fun fsqrt (Flt) Flt)"] do
+    set v = v with (preamble: insert(map: v.preamble, key: d, value: true), used: insert(map: v.used, key: d, value: true))
   end for
   let n = "(not (fnan x))"
   set ax = push(list: ax, item: "(forall ((x Flt)) (! (and (= (fnan (fneg x)) (fnan x)) (=> " ++ n ++ " (= (fkey (fneg x)) (- (fkey x))))) :pattern ((fneg x))))")
@@ -3502,6 +3502,51 @@ end fn z3_version
 
 // every: also send the functions with nothing to prove, as the v0.3 verifier does
 // (VOW_SMT_V03, for tests/differential.sh).
+// The part of a script that proves one function: its definitions, a sanity check, and
+// each obligation as "the facts of its path, and not the goal". With a model, that one
+// obligation alone, followed by a request for the values to show.
+fn fn_block(vc: FnVc, model: Option<Ob>) -> List<String> do
+  var s: List<String> = ["(push 1) ; fn " ++ vc.name]
+  if vc.axioms then
+    set s = push(list: s, item: "(set-option :smt.mbqi false)")
+  end if
+  set s = s ++ vc.decls
+  set s = s ++ vc.defs
+  var obs: List<Ob> = vc.obs
+  var is_model = false
+  match model
+  case Some(value: o) then
+    set obs = [o]
+    set is_model = true
+  case None then
+    // Sanity check: the definitions alone must be satisfiable, or every
+    // obligation in this function would be proved vacuously.
+    set s = push(list: s, item: "(check-sat)")
+  end match
+  set s = s ++ vc.qdefs
+  for ob in obs do
+    set s = push(list: s, item: "(push 1)")
+    for f in ob.facts do
+      set s = push(list: s, item: "(assert " ++ f ++ ")")
+    end for
+    set s = push(list: s, item: "(assert (not " ++ ob.goal ++ "))")
+    set s = push(list: s, item: "(check-sat)")
+    if is_model and (len(ob.show) > 0) then
+      var terms: List<String> = []
+      for x in ob.show do
+        set terms = push(list: terms, item: x.term)
+      end for
+      set s = push(list: s, item: "(get-value (" ++ join(parts: terms, sep: " ") ++ "))")
+    end if
+    set s = push(list: s, item: "(pop 1)")
+  end for
+  set s = push(list: s, item: "(pop 1)")
+  if vc.axioms then
+    set s = push(list: s, item: "(set-option :smt.mbqi true)")
+  end if
+  return s
+end fn fn_block
+
 fn script_for(pre: List<String>, vcs: List<FnVc>, model: Option<Ob>, every: Bool) -> String do
   var s: List<String> = ["(set-option :produce-models true)", "(set-option :timeout 10000)"]
   set s = s ++ pre
@@ -3511,44 +3556,7 @@ fn script_for(pre: List<String>, vcs: List<FnVc>, model: Option<Ob>, every: Bool
     if (len(vc.obs) == 0) and not every then
       continue
     end if
-    set s = push(list: s, item: "(push 1) ; fn " ++ vc.name)
-    if vc.axioms then
-      set s = push(list: s, item: "(set-option :smt.mbqi false)")
-    end if
-    set s = s ++ vc.decls
-    set s = s ++ vc.defs
-    var obs: List<Ob> = vc.obs
-    var is_model = false
-    match model
-    case Some(value: o) then
-      set obs = [o]
-      set is_model = true
-    case None then
-      // Sanity check: the definitions alone must be satisfiable, or every
-      // obligation in this function would be proved vacuously.
-      set s = push(list: s, item: "(check-sat)")
-    end match
-    set s = s ++ vc.qdefs
-    for ob in obs do
-      set s = push(list: s, item: "(push 1)")
-      for f in ob.facts do
-        set s = push(list: s, item: "(assert " ++ f ++ ")")
-      end for
-      set s = push(list: s, item: "(assert (not " ++ ob.goal ++ "))")
-      set s = push(list: s, item: "(check-sat)")
-      if is_model and (len(ob.show) > 0) then
-        var terms: List<String> = []
-        for x in ob.show do
-          set terms = push(list: terms, item: x.term)
-        end for
-        set s = push(list: s, item: "(get-value (" ++ join(parts: terms, sep: " ") ++ "))")
-      end if
-      set s = push(list: s, item: "(pop 1)")
-    end for
-    set s = push(list: s, item: "(pop 1)")
-    if vc.axioms then
-      set s = push(list: s, item: "(set-option :smt.mbqi true)")
-    end if
+    set s = s ++ fn_block(vc: vc, model: model)
   end for
   return join(parts: s, sep: "\n") ++ "\n"
 end fn script_for
@@ -3636,6 +3644,17 @@ fn discharge(pre: List<String>, vcs: List<FnVc>, every: Bool) -> Discharged uses
     let _ = write_file(path: path, contents: script)
   case None then
   end match
+  let none: List<Failure> = []
+  // Nothing to prove (every proof was cached, say): Z3 is not started.
+  var waiting = false
+  for vc in vcs do
+    if (len(vc.obs) > 0) or every then
+      set waiting = true
+    end if
+  end for
+  if not waiting then
+    return Discharged(error: "", failures: none)
+  end if
   let o = run_z3(script)
   var answers: List<String> = []
   for l0 in split(s: o.out, sep: '\n') do
@@ -3644,7 +3663,6 @@ fn discharge(pre: List<String>, vcs: List<FnVc>, every: Bool) -> Discharged uses
       set answers = push(list: answers, item: l)
     end if
   end for
-  let none: List<Failure> = []
   for a in answers do
     if starts_with(s: a, p: "(error") then
       return Discharged(error: "Z3 rejected the generated query: " ++ a, failures: none)

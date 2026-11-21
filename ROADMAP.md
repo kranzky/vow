@@ -180,7 +180,7 @@ Verifier time and stability (the compiler checks itself in 34 s; with V1, under 
       with k hard obligations costs k times 10 s
 - [ ] V4: bound queries by Z3's resource count, not wall-clock time, so that an answer
       does not depend on machine load or on what ran before
-- [ ] V5: cache keys cover only the types and specification functions a function can
+- [x] V5: cache keys cover only the types and specification functions a function can
       reach: today, editing any one-line function re-verifies the whole program
 - [ ] V6: assert each fact once per path (script size is quadratic in a path's facts)
 - [ ] V7: a function that mentions a Float never gets a counterexample, and blames the
@@ -229,7 +229,7 @@ Standard library:
 - [ ] S3: `std/text`: contracts for `contains`, `compare`, `replace` and `repeat`
 
 Packages and running programs:
-- [ ] G1: `vowc add lib <url> main` can pin the branch `feature/main`
+- [x] G1: `vowc add lib <url> main` can pin the branch `feature/main`
 - [ ] G2: packages: a pin to a missing commit is written before it fails; relative
       URLs; `--` before URLs passed to git; `@lib/../` escapes the package
 - [x] G3: `vowc run` passes stdin through and streams output (the program got empty

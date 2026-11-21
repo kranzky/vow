@@ -1,0 +1,14 @@
+// error: cannot prove divisor is not zero: lib.step(n)
+// language: 0.9
+// main.vow is unchanged; the refinement of a type alias it never names changes.
+import "lib.vow" as lib
+
+fn strides(total: Int, n: Int) -> Int
+  requires n > 0
+do
+  return total / lib.step(n)
+end fn strides
+
+fn main() do
+  let x = strides(total: 10, n: 2)
+end fn main

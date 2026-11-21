@@ -1,0 +1,14 @@
+// language: 0.9
+fn usable(n: Int) -> Bool do
+  return n > 0
+end fn usable
+
+struct Rate
+  per: Int where usable(it),
+end struct Rate
+
+fn rate(n: Int) -> Rate
+  requires n > 0
+do
+  return Rate(per: n)
+end fn rate

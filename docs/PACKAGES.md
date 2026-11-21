@@ -20,9 +20,11 @@ import "@shapes/shapes.vow" as shapes
 
 The name (`shapes` here) is yours to choose; the package does not declare it. A pin is
 an exact commit, so a build does not change when someone moves a tag or pushes to a
-branch. To move to a newer version, run `vowc add` again with the new ref. Commit
-`vow.pkg`; after a fresh clone, `vowc fetch` fetches everything it lists, and the
-packages those list in turn.
+branch. The ref is a tag, a branch or a commit, by its exact name (`main` is never
+`feature/main`); if a tag and a branch share a name, write `refs/tags/<name>` or
+`refs/heads/<name>`. To move to a newer version, run `vowc add` again with the new
+ref. Commit `vow.pkg`; after a fresh clone, `vowc fetch` fetches everything it lists,
+and the packages those list in turn.
 
 A package's code is checked and verified with your program, like any file of your own.
 Nothing is trusted because it was published, and fetching runs nothing but `git`. A

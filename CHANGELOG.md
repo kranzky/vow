@@ -56,6 +56,19 @@
   program got empty input before, and its output appeared when it ended.
 - Release binaries are tested before they are attached: the whole test suite runs with
   the packaged `vowc` and `vow-lsp` on each platform.
+- A function is proved again only when the queries its proof sends to Z3 change. Its
+  verification key is now a hash of exactly those queries; it was a hash of the
+  function's text, the contracts it calls, and every type and specification function in
+  the program, so an edit to any type or one-line function proved the whole program
+  again. In the compiler (585 functions), editing a one-line function now proves one
+  function again, and adding a struct none. The key cannot miss something a proof
+  depends on, as hand-listed keys did twice. `vowc hash` prints the new key. With every
+  proof cached, Z3 is not started.
+- `vowc add lib <url> main` pins the branch `main`. It could pin `feature/main`: git
+  matches a short name against the end of every ref. A short name is now the branch or
+  the tag of exactly that name, an annotated tag pins its commit (it could not be
+  pinned at all: the fetch failed), and a name that is both a branch and a tag is
+  refused until it is written as `refs/heads/<name>` or `refs/tags/<name>`.
 
 ## v0.9.9
 

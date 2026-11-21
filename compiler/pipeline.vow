@@ -73,23 +73,54 @@ struct Verified
   undecided: Bool,
 end struct Verified
 
-// Verifies a checked program, skipping functions whose verification key is in the
-// cache next to file (and recording the keys of those proved). v03 (VOW_SMT_V03, for
-// tests/differential.sh) proves with the v0.3 encoding, which lacks facts later found
-// to be needed: such a run neither reads the cache nor writes it.
+// A function's verification key: a hash of the verifier version and of exactly what
+// its proof sends to Z3 (the shared declarations it names, and its part of the script).
+// So the key changes when anything the proof depends on does, wherever in the program
+// that is, and only then.
+fn query_key(vc: FnVc) -> String do
+  let globals = join(parts: vc.globals, sep: "\n")
+  let none: Option<Ob> = Option.None
+  let block = join(parts: fn_block(vc: vc, model: none), sep: "\n")
+  return hash(verifier_version() ++ "\n" ++ globals ++ "\n\n" ++ block)
+end fn query_key
+
+struct FnKey
+  name: String,
+  key: String,
+end struct FnKey
+
+// Each function's verification key, for `vowc hash`.
+fn query_keys(src: Source, c: Checker) -> List<FnKey> do
+  var v = new_verifier(c.info)
+  var out: List<FnKey> = []
+  for item in src.items do
+    match item
+    case FnItem(decl: f) then
+      let vc = verify_fn(v: inout v, f: f)
+      set out = push(list: out, item: FnKey(name: f.name, key: query_key(vc)))
+    else
+    end match
+  end for
+  return out
+end fn query_keys
+
+// Verifies a checked program. Every function's queries are generated, which is quick;
+// those whose verification key is in the cache next to file are not sent to Z3, and
+// the keys of those proved are recorded. v03 (VOW_SMT_V03, for tests/differential.sh)
+// proves with the v0.3 encoding, which lacks facts later found to be needed: such a
+// run neither reads the cache nor writes it.
 fn verify_source(src: Source, c: Checker, file: String, no_cache: Bool, v03: Bool) -> Verified uses fs, proc do
   let none: List<Diag> = []
   let uncached = no_cache or v03
-  let hashes = hash_program(items: src.items, info: c.info)
   let cache_path = file ++ ".vowcache"
-  var cached: List<String> = []
+  var cached: Map<String, Bool> = {}
   if not uncached then
     match read_file(cache_path)
     case Some(value: text) then
       for l in split(s: text, sep: '\n') do
         let parts = split(s: l, sep: ' ')
         if (len(parts) > 0) and (len(parts[0]) > 0) then
-          set cached = push(list: cached, item: parts[0])
+          set cached = insert(map: cached, key: parts[0], value: true)
         end if
       end for
     case None then
@@ -100,19 +131,20 @@ fn verify_source(src: Source, c: Checker, file: String, no_cache: Bool, v03: Boo
     set v = v with (hyps: false)
   end if
   var vcs: List<FnVc> = []
+  var fn_keys: List<FnKey> = []
   for item in src.items do
     match item
     case FnItem(decl: f) then
-      var key = ""
-      for h in hashes do
-        if h.name == f.name then
-          set key = h.key
+      let vc = verify_fn(v: inout v, f: f)
+      if uncached then
+        set vcs = push(list: vcs, item: vc)
+      else
+        let key = query_key(vc)
+        set fn_keys = push(list: fn_keys, item: FnKey(name: f.name, key: key))
+        if not has(map: cached, key: key) then
+          set vcs = push(list: vcs, item: vc)
         end if
-      end for
-      if contains_str(xs: cached, x: key) and (len(c.info.holes) == 0) then
-        continue
       end if
-      set vcs = push(list: vcs, item: verify_fn(v: inout v, f: f))
     else
     end match
   end for
@@ -124,15 +156,13 @@ fn verify_source(src: Source, c: Checker, file: String, no_cache: Bool, v03: Boo
     return Verified(diags: none, error: r.error, undecided: false)
   end if
   if not uncached then
+    var failed: Map<String, Bool> = {}
+    for f in r.failures do
+      set failed = insert(map: failed, key: f.fn_name, value: true)
+    end for
     var lines: List<String> = []
-    for h in hashes do
-      var failed = false
-      for f in r.failures do
-        if f.fn_name == h.name then
-          set failed = true
-        end if
-      end for
-      if not failed then
+    for h in fn_keys do
+      if not has(map: failed, key: h.name) then
         set lines = push(list: lines, item: h.key ++ " " ++ h.name ++ "\n")
       end if
     end for

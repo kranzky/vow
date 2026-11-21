@@ -129,8 +129,8 @@ Some of Vow's rules exist for models, but they help human readers just as much:
 
 `vowc hash` prints a hash of each function's body and of its contract. In a code
 review, an unchanged contract hash means callers are unaffected, whatever happened to
-the body. The verifier uses the same information to skip re-verifying functions
-whose dependencies didn't change.
+the body. It also prints each function's verification key, a hash of what its proof
+asks Z3: the verifier proves a function again only when that changes.
 
 ## A workflow that uses this
 

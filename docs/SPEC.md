@@ -19,7 +19,7 @@ SMT solver, and nothing depends on counting or on context far away.
 5. **Effects are part of the signature.** A function is pure unless it declares
    `uses console`, `uses fs` or `uses proc`. Callers must declare a superset.
 6. **Content-addressed verification.** Each function's verification result is cached
-   under a hash of its body plus the contracts of everything it calls.
+   under a hash of the queries its proof sends to Z3.
 
 ## Lexical structure
 
@@ -129,8 +129,11 @@ A file imports a package's files as `"@name/path.vow"`, usually as a module:
 nearest one in the file's directory or a directory above it.
 
 - `vowc add <name> <git URL> [ref]` pins the package to the commit that `ref` (a
-  branch, a tag, or `HEAD` when omitted) names now, in the nearest `vow.pkg` (creating
-  `./vow.pkg` if there is none), and fetches it.
+  branch, a tag, a commit, or `HEAD` when omitted) names now, in the nearest `vow.pkg`
+  (creating `./vow.pkg` if there is none), and fetches it. A short name is the branch
+  or the tag of exactly that name: `main` is never `feature/main`. A name that is both
+  a branch and a tag with different commits is refused; write `refs/heads/<name>` or
+  `refs/tags/<name>`.
 - `vowc fetch` fetches every package listed in the nearest `vow.pkg`, and the packages
   those list in their own `vow.pkg`, into `.vow/pkg/` beside it. Each package is
   stored by URL and commit, so two versions of a package can be used side by side.
@@ -622,15 +625,19 @@ only if the caller declares every effect the callee uses. `main` may declare any
 For each function the compiler computes:
 
 - **body hash:** FNV-1a over a canonical rendering of the function;
-- **verification key:** the verifier version, the body hash, the contract hashes of
-  every function called in the body or the specifications, and the hash of all type
-  declarations. The verifier version changes whenever the SMT the verifier emits does,
-  so a result is reused only by the verifier that proved it. A specification function's contract hash covers its body, because
-  callers' proofs see it, and the hash of all type declarations also covers every
-  specification function's body (so a change to one invalidates proofs that use it
-  indirectly).
+- **contract hash:** over what callers see of it: its signature and specifications, and
+  for an expression function its body, which specifications inline;
+- **verification key:** over the verifier version and exactly what the function's proof
+  sends to Z3: its definitions, each obligation with the facts of its path, and the
+  declarations they name. Whatever a proof depends on (a callee's contract, a type's
+  refinement, a specification function's body, the function's recursive group) is in
+  those queries, so the key changes when any of it does, and an edit that leaves the
+  queries as they were (a comment, an unused type, a callee's body) leaves the key.
+  The verifier version changes whenever the SMT the verifier emits does, so a result
+  is reused only by the verifier that proved it.
 
-Verified keys are stored in `<file>.vowcache`. Unchanged functions are not re-verified.
+Verified keys are stored in `<file>.vowcache`. Every function's queries are generated
+on each run, which is quick; those whose key is stored are not sent to Z3.
 `vowc hash file.vow` prints each function's hashes.
 
 ## Testing

@@ -1,6 +1,6 @@
-// Content addressing. A function's body hash covers its canonical text. Its
-// verification key also covers the contracts of everything it calls and all type
-// declarations, which is exactly what its proof depends on.
+// Content addressing. A function's body hash covers its canonical text, and its
+// contract hash what callers see of it. Its verification key (query_key in
+// pipeline.vow) is a hash of the queries its proof sends to Z3.
 
 import "check.vow"
 import "pretty.vow"
@@ -181,102 +181,22 @@ struct FnHash
   name: String,
   body: String,
   contract: String,
-  key: String,
 end struct FnHash
 
+// Each function's body hash, over its canonical text, and its contract hash, over what
+// its callers see: the signature and specifications, and for an expression function
+// the body too, which specifications inline.
 fn hash_program(items: List<Item>, info: Info) -> List<FnHash> do
-  var types: List<String> = []
-  for item in items do
-    match item
-    case FnItem(decl: f) then
-    else
-      set types = push(list: types, item: pretty_item(item) ++ "\n")
-    end match
-  end for
-  // Type refinements may call specification functions, whose bodies are part of the
-  // logic. All of them are covered here, so a change to one invalidates every proof
-  // that could rely on it, however indirectly.
-  for item in items do
-    match item
-    case FnItem(decl: f) then
-      if is_inline(info: info, name: f.name) then
-        set types = push(list: types, item: pretty_item(item) ++ "\n")
-      end if
-    else
-    end match
-  end for
-  let types_hash = hash(join(parts: types, sep: ""))
-  // An expression function is inlined into specifications, so its body is part of
-  // what callers rely on.
-  var contracts: Map<String, String> = {}
-  for item in items do
-    match item
-    case FnItem(decl: f) then
-      if is_inline(info: info, name: f.name) then
-        set contracts = insert(map: contracts, key: f.name, value: hash(pretty_item(item)))
-      else
-        set contracts = insert(map: contracts, key: f.name, value: hash(fn_contract(f)))
-      end if
-    else
-    end match
-  end for
   var out: List<FnHash> = []
   for item in items do
     match item
     case FnItem(decl: f) then
       let body = hash(pretty_item(item))
-      // Calls anywhere the proof looks: the body, its specifications and the
-      // function's own contract (which may call expression functions).
-      var callees: List<String> = []
-      calls_in_block(stmts: f.body, info: info, out: inout callees)
-      calls_in_all(es: f.pre, info: info, out: inout callees)
-      calls_in_all(es: f.post, info: info, out: inout callees)
-      for p in f.params do
-        calls_in_opt_expr(e: p.ty.refine, info: info, out: inout callees)
-      end for
-      calls_in_all(es: f.dec, info: info, out: inout callees)
-      // Sorted, like the bootstrap compiler's BTreeSet.
-      var sorted: Map<String, String> = {}
-      for c in callees do
-        match lookup(map: contracts, key: c)
-        case Some(value: h) then
-          set sorted = insert(map: sorted, key: c, value: h)
-        case None then
-        end match
-      end for
-      var material = verifier_version() ++ "\n" ++ body ++ "\n" ++ types_hash ++ "\n"
-      // A program with structural measures gives every function the facts about ranks
-      // (see rank_part in verify.vow), so the SMT a function gets depends on it.
-      if info.structural then
-        set material = material ++ "structural\n"
+      var contract = hash(fn_contract(f))
+      if is_inline(info: info, name: f.name) then
+        set contract = body
       end if
-      // The function's group of mutually recursive functions: a call into the group
-      // must decrease the measure, so the proof changes when the group does (say, when
-      // a callee's body starts calling back), even if this function does not.
-      let k = value_or(opt: lookup(map: info.scc, key: f.name), default: -1)
-      if k >= 0 then
-        var group: List<String> = []
-        for g in keys(info.scc) do
-          if value_or(opt: lookup(map: info.scc, key: g), default: -1) == k then
-            set group = push(list: group, item: g)
-          end if
-        end for
-        set material = material ++ "group=" ++ join(parts: group, sep: ",") ++ "\n"
-      end if
-      for c in keys(sorted) do
-        match lookup(map: sorted, key: c)
-        case Some(value: h) then
-          set material = material ++ c ++ "=" ++ h ++ "\n"
-        case None then
-        end match
-      end for
-      var contract = ""
-      match lookup(map: contracts, key: f.name)
-      case Some(value: h) then
-        set contract = h
-      case None then
-      end match
-      set out = push(list: out, item: FnHash(name: f.name, body: body, contract: contract, key: hash(material)))
+      set out = push(list: out, item: FnHash(name: f.name, body: body, contract: contract))
     else
     end match
   end for

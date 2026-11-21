@@ -312,29 +312,71 @@ fn fetch_packages(manifest: String) -> Bool uses console, fs, proc do
   return ok
 end fn fetch_packages
 
-// The commit a ref (a branch, tag or HEAD) names in the repository at url, or "".
-fn resolve_ref(url: String, ref: String) -> String uses proc do
-  if is_commit(ref) then
-    return ref
-  end if
-  let o = git(["ls-remote", url, ref])
-  if o.code != 0 then
-    return ""
-  end if
-  var found = ""
-  for line in lines(o.out) do
+struct PinnedRef
+  commit: String,
+  // Why there is no commit, when commit is "".
+  problem: String,
+end struct PinnedRef
+
+// The hash `git ls-remote` listed for exactly the ref called name, or "".
+fn listed(rows: List<String>, name: String) -> String do
+  for line in rows do
     let cols = fields(line)
-    if len(cols) == 2 then
-      // An annotated tag is listed twice; the line ending in ^{} names its commit.
-      if ends_with(s: cols[1], p: "^{}") or (len(found) == 0) then
-        set found = cols[0]
-      end if
+    if (len(cols) == 2) and (cols[1] == name) then
+      return cols[0]
     end if
   end for
-  if not is_commit(found) then
-    return ""
+  return ""
+end fn listed
+
+// The commit listed for the ref called name. An annotated tag is listed twice: under
+// its own name with the hash of the tag, and under name^{} with the hash of its commit.
+fn listed_commit(rows: List<String>, name: String) -> String do
+  let peeled = listed(rows: rows, name: name ++ "^{}")
+  if len(peeled) > 0 then
+    return peeled
   end if
-  return found
+  return listed(rows: rows, name: name)
+end fn listed_commit
+
+// The commit a ref names in the repository at url: a commit, HEAD, a branch, a tag, or
+// a full name such as refs/heads/main. A short name is the branch or the tag of exactly
+// that name (git itself would also match feature/main for main), and must not be both.
+fn resolve_ref(url: String, ref: String) -> PinnedRef uses proc do
+  if is_commit(ref) then
+    return PinnedRef(commit: ref, problem: "")
+  end if
+  let full = (ref == "HEAD") or starts_with(s: ref, p: "refs/")
+  let branch_name = "refs/heads/" ++ ref
+  let tag_name = "refs/tags/" ++ ref
+  var names = [branch_name, tag_name, tag_name ++ "^{}"]
+  if full then
+    set names = [ref, ref ++ "^{}"]
+  end if
+  let o = git(["ls-remote", url] ++ names)
+  if o.code != 0 then
+    return PinnedRef(commit: "", problem: "cannot list the branches and tags of " ++ url)
+  end if
+  let rows = lines(o.out)
+  var found = ""
+  if full then
+    set found = listed_commit(rows: rows, name: ref)
+  else
+    let branch = listed(rows: rows, name: branch_name)
+    let tag = listed_commit(rows: rows, name: tag_name)
+    if (len(branch) > 0) and (len(tag) > 0) and (branch != tag) then
+      let hint = ": give " ++ branch_name ++ " or " ++ tag_name
+      return PinnedRef(commit: "", problem: "'" ++ ref ++ "' is both a branch and a tag in " ++ url ++ hint)
+    end if
+    set found = branch
+    if len(found) == 0 then
+      set found = tag
+    end if
+  end if
+  if not is_commit(found) then
+    return PinnedRef(commit: "", problem: "cannot find '" ++ ref ++ "' in " ++ url)
+  end if
+  return PinnedRef(commit: found, problem: "")
 end fn resolve_ref
 
 // Pins the package name to the commit ref names at url in the nearest vow.pkg
@@ -344,11 +386,12 @@ fn add_package(name: String, url: String, ref: String) -> Bool uses console, fs,
     eprint("vowc: '" ++ name ++ "' is not a package name (letters, digits, '_' and '-')\n")
     return false
   end if
-  let commit = resolve_ref(url: url, ref: ref)
-  if len(commit) == 0 then
-    eprint("vowc: cannot find '" ++ ref ++ "' in " ++ url ++ "\n")
+  let resolved = resolve_ref(url: url, ref: ref)
+  if len(resolved.commit) == 0 then
+    eprint("vowc: " ++ resolved.problem ++ "\n")
     return false
   end if
+  let commit = resolved.commit
   var manifest = find_manifest(".")
   var text = "# Packages, imported as \"@name/file.vow\". `vowc fetch` fetches them into .vow/pkg/.\n"
   if len(manifest) == 0 then

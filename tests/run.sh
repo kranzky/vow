@@ -145,6 +145,23 @@ if [ -z "$VOW_FROZEN" ] && command -v git >/dev/null 2>&1; then
   rm -rf "$pdir/proj/.vow"
   (cd "$pdir/proj" && "$VOWC" check src/main.vow 2>&1 | grep -qF "the package 'shapes' has not been fetched") || pkg_ok=false
   (cd "$pdir/proj" && "$VOWC" fetch >/dev/null && "$VOWC" check src/main.vow >/dev/null) || pkg_ok=false
+  # A short name is the branch or the tag of exactly that name: `main` is not
+  # feature/main, an annotated tag gives its commit, and a name that is both a branch
+  # and a tag is refused until it is written in full.
+  mkdir -p "$pdir/refs" "$pdir/pin" && git init -q "$pdir/refs" && (
+    cd "$pdir/refs" && g="git -c user.email=t@example.com -c user.name=t" &&
+    git symbolic-ref HEAD refs/heads/main && cp ../units/units.vow . && git add -A &&
+    $g commit -qm one && $g tag -a v1 -m v1 && git checkout -q -b feature/main &&
+    echo "// two" >> units.vow && $g commit -qam two && git tag both && git branch both main
+  ) || pkg_ok=false
+  one=$(git -C "$pdir/refs" rev-parse main)
+  two=$(git -C "$pdir/refs" rev-parse feature/main)
+  for pin in "main $one" "v1 $one" "feature/main $two" "refs/tags/both $two" "refs/heads/both $one"; do
+    (cd "$pdir/pin" && "$VOWC" add lib "$pdir/refs" "${pin%% *}" >/dev/null 2>&1 &&
+      grep -q "^lib .* ${pin##* }\$" vow.pkg) || { pkg_ok=false; echo "packages: ${pin%% *} is not pinned to ${pin##* }"; }
+  done
+  (cd "$pdir/pin" && "$VOWC" add lib "$pdir/refs" both 2>&1 | grep -qF "'both' is both a branch and a tag") || pkg_ok=false
+  (cd "$pdir/pin" && grep -q "^lib .* $one\$" vow.pkg) || pkg_ok=false
   rm -rf "$pdir"
   if $pkg_ok; then
     pass=$((pass + 1))
@@ -173,6 +190,39 @@ if [ -z "$VOW_FROZEN" ]; then
     fi
     rm -rf "$cdir"
   done
+fi
+# ... and it reuses every proof whose queries are unchanged: after an edit, only the
+# functions whose proofs the edit reaches are sent to Z3 (VOW_SMT_DUMP holds what is
+# sent). Each step edits reuse/main.vow and names the functions that must be proved.
+if [ -z "$VOW_FROZEN" ]; then
+  rdir=$(mktemp -d)
+  cp reuse/main.vow "$rdir/"
+  reuse_ok=true
+  proved() {
+    VOW_SMT_DUMP="$rdir/dump" "$VOWC" check "$rdir/main.vow" >/dev/null 2>&1 || { reuse_ok=false; echo "reuse: $1: does not verify"; }
+    got=$(sed -n 's/^(push 1) ; fn //p' "$rdir/dump" | tr '\n' ' ')
+    [ "$got" = "$2" ] || { reuse_ok=false; echo "reuse: $1: proved [$got], expected [$2]"; }
+  }
+  proved "the first check" "clamp twice capped origin main "
+  proved "no edit" ""
+  printf '\n// A comment.\nstruct Unused\n  a: Int,\nend struct Unused\n' >> "$rdir/main.vow"
+  proved "an unused struct" ""
+  sed -i.bak 's/return n + n/return n * 2/' "$rdir/main.vow"
+  proved "a body, its contract unchanged" "twice "
+  sed -i.bak 's/return 10/return 20/' "$rdir/main.vow"
+  proved "the body of a function specifications inline" "capped "
+  sed -i.bak 's/x: Int where it >= 0,/x: Int where it >= (0 - 5),/' "$rdir/main.vow"
+  proved "a field refinement" "origin "
+  sed -i.bak 's/ensures result >= 0/ensures (result >= 0) and (result >= n)/' "$rdir/main.vow"
+  proved "a contract" "clamp origin main "
+  # With every proof cached, Z3 is not needed at all.
+  VOW_Z3=/nonexistent/z3 "$VOWC" check "$rdir/main.vow" >/dev/null 2>&1 || { reuse_ok=false; echo "reuse: a cached check ran Z3"; }
+  rm -rf "$rdir"
+  if $reuse_ok; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1)); echo "FAIL the cache proved more or less than an edit reaches"
+  fi
 fi
 # A proof made with VOW_SMT_V03 (the v0.3 encoding, for differential.sh) is not cached:
 # that encoding accepts fail/unreal_struct.vow, and a normal run after it must not.

@@ -397,18 +397,23 @@ irrational) satisfies these facts.
 
 ## The cache
 
-A function is not verified again when its verification key is in the program's cache
-file. The key is a hash of everything the proof depended on: the verifier version; the
-function's own text; every type declaration and every specification function's whole
-text (refinements and specifications may use them, however indirectly); the contracts
-of the functions it calls, measures included; the members of its recursive group,
-since a call into the group carries a measure obligation that a call outside it does
-not; and whether the program has structural measures, which add the rank facts to every
-function's queries. The verifier version changes whenever the SMT the verifier emits does
+A function's queries are not sent to Z3 again when its verification key is in the
+program's cache file. The key is a hash of the verifier version and of exactly what the
+proof sends: the function's definitions, each obligation with the facts of its path,
+and the declarations of the shared symbols they name. The queries are generated on
+every run, so nothing has to list what a proof depends on: a change to a callee's
+contract, a type's refinement, a specification function's body or the function's
+recursive group changes the queries, and so the key. Earlier keys hashed a list of
+such dependencies, and twice the list missed one (see the history below). What the key
+does not cover is outside the queries: the two fixed axioms every script starts with
+and Z3's options, which change only with the verifier version, and the version of Z3
+itself. The verifier version changes whenever the SMT the verifier emits does
 (`tests/fingerprint.sh` enforces this), so a result proved by an older verifier, which
 may have had a bug since fixed, is proved again. `tests/cache/` edits programs between
-two checks with the cache on. A run with `VOW_SMT_V03` set (the v0.3 encoding, kept
-for `tests/differential.sh`) neither reads the cache nor writes it.
+two checks with the cache on, and `tests/run.sh` checks which functions are proved
+again after each of a series of edits to `tests/reuse/main.vow`. A run with
+`VOW_SMT_V03` set (the v0.3 encoding, kept for `tests/differential.sh`) neither reads
+the cache nor writes it.
 
 ## Known limits
 

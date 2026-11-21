@@ -62,8 +62,9 @@ holds the target, `-1` means the target is absent, and the loop terminates.
   you mutation without aliasing.
 - **Typed holes.** Write `?name` and the compiler reports the expected type, the
   variables in scope and every fact it knows at that point.
-- **Content-addressed verification.** A function is re-verified only when its body, or
-  the *contracts* of what it calls, change.
+- **Content-addressed verification.** A function is proved again only when the queries
+  its proof sends to Z3 change: not for an edit to a callee's body, or to a type it
+  does not use.
 
 ## Standard library
 

@@ -1,0 +1,43 @@
+// language: 0.9
+// tests/run.sh edits this program between checks and looks at which functions are
+// proved again: only those whose proofs the edit reaches.
+struct Point
+  x: Int where it >= 0,
+end struct Point
+
+fn limit() -> Int do
+  return 10
+end fn limit
+
+fn clamp(n: Int) -> Int
+  ensures result >= 0
+do
+  if n < 0 then
+    return 0
+  end if
+  return n
+end fn clamp
+
+fn twice(n: Int) -> Int
+  requires n >= 0
+  ensures result >= n
+do
+  return n + n
+end fn twice
+
+fn capped(n: Int) -> Int
+  ensures result <= limit()
+do
+  if n > limit() then
+    return limit()
+  end if
+  return n
+end fn capped
+
+fn origin() -> Point do
+  return Point(x: clamp(0 - 1))
+end fn origin
+
+fn main() uses console do
+  print(int_to_str((twice(clamp(3)) + capped(4)) + origin().x) ++ "\n")
+end fn main

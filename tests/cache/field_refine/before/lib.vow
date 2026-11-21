@@ -1,0 +1,10 @@
+// language: 0.9
+struct Account
+  balance: Int where it >= 0,
+end struct Account
+
+fn open(n: Int) -> Account
+  requires n >= 0
+do
+  return Account(balance: n)
+end fn open
