@@ -28,6 +28,9 @@ struct Gen
   strs: List<String>,
   str_index: Map<String, Int>,
   io_params: List<String>,
+  // The variables of the function being generated that it assigns or passes inout
+  // (an inout parameter included): any other keeps its value while it is in scope.
+  changed: List<String>,
   // Owned locals (and scoped temporaries) in enclosing scopes, innermost last.
   owned_vars: List<String>,
   scope_marks: List<Int>,
@@ -133,7 +136,7 @@ end fn c_params
 // `program --vow-test <name>` (vowc test).
 fn generate(items: List<Item>, info: Info, files: List<String>, verified: Bool, lines: Bool,
     tests: List<String>, contracts: Bool) -> String do
-  var g = Gen(info: info, files: files, out: [], ind: 0, tmp: 0, strs: [], str_index: {}, io_params: [],
+  var g = Gen(info: info, files: files, out: [], ind: 0, tmp: 0, strs: [], str_index: {}, io_params: [], changed: [],
     owned_vars: [], scope_marks: [], loop_marks: [], temps: [], temp_marks: [], move_id: -1,
     moved: false, inout_vars: [], steal_ids: [], eqs: [], src: no_pos(), mapped_file: -1, mapped_next: -1, lines: lines,
     contracts: contracts, fname: "", it_c: "", result_c: "", olds: {}, spec_binds: {}, exact: false,
@@ -769,10 +772,66 @@ fn steal_candidates(g: Gen, value: Expr, name: String) -> List<Int> do
       end match
     end for
     return ids
+  case Call(callee: c, args: args) then
+    // set name = set_at(list: name, at: i, value: name[i] with (...)): the element is
+    // moved out of the list, updated where it is and put back (see vlist_steal_at).
+    // The index is a variable or a literal, written the same both times, and nothing
+    // is passed inout, so it is the same element.
+    var io: List<String> = []
+    inout_in_expr(e: value, out: inout io)
+    if len(io) > 0 then
+      return ids
+    end if
+    match call_info(info: g.info, e: value)
+    case Some(value: ci) then
+      if (ci.kind != "builtin") or (ci.name != "set_at") or (len(ci.order) != 3) then
+        return ids
+      end if
+      let li = ci.order[0]
+      let ai = ci.order[1]
+      let vi = ci.order[2]
+      if (li < 0) or (li >= len(args)) or (ai < 0) or (ai >= len(args)) or (vi < 0) or (vi >= len(args)) then
+        return ids
+      end if
+      if var_id(e: args[li].value, name: name) < 0 then
+        return ids
+      end if
+      match args[vi].value.kind
+      case With(obj: o, args: wargs) then
+        match o.kind
+        case Index(obj: lo, idx: ie) then
+          if (var_id(e: lo, name: name) >= 0) and same_place(a: ie, b: args[ai].value) then
+            set ids = push(list: ids, item: o.id)
+          end if
+        else
+        end match
+      else
+      end match
+      return ids
+    case None then
+      return ids
+    end match
   else
     return ids
   end match
 end fn steal_candidates
+
+// Whether two index expressions are the same variable or the same literal.
+fn same_place(a: Expr, b: Expr) -> Bool do
+  match a.kind
+  case Var(name: n) then
+    return var_id(e: b, name: n) >= 0
+  case IntLit(value: x) then
+    match b.kind
+    case IntLit(value: y) then
+      return x == y
+    else
+      return false
+    end match
+  else
+    return false
+  end match
+end fn same_place
 
 fn var_id(e: Expr, name: String) -> Int do
   match e.kind
@@ -786,6 +845,74 @@ fn var_id(e: Expr, name: String) -> Int do
   end match
 end fn var_id
 
+// The variables that statements assign or pass inout.
+fn changed_in(stmts: List<Stmt>, out: inout List<String>) do
+  for s in stmts do
+    match s.kind
+    case Let(name: n, ty: ty, value: v, mutable: m) then
+      inout_in_expr(e: v, out: inout out)
+    case Set(name: n, value: v) then
+      set out = push(list: out, item: n)
+      inout_in_expr(e: v, out: inout out)
+    case Return(value: v) then
+      match v
+      case Some(value: x) then
+        inout_in_expr(e: x, out: inout out)
+      case None then
+      end match
+    case If(arms: arms, els: els) then
+      for a in arms do
+        inout_in_expr(e: a.cond, out: inout out)
+        changed_in(stmts: a.body, out: inout out)
+      end for
+      match els
+      case Some(value: b) then
+        changed_in(stmts: b, out: inout out)
+      case None then
+      end match
+    case While(cond: c, invs: invs, dec: d, body: b) then
+      inout_in_expr(e: c, out: inout out)
+      changed_in(stmts: b, out: inout out)
+    case ForRange(name: n, lo: lo, hi: hi, invs: invs, body: b) then
+      inout_in_expr(e: lo, out: inout out)
+      inout_in_expr(e: hi, out: inout out)
+      changed_in(stmts: b, out: inout out)
+    case ForEach(name: n, list: l, invs: invs, body: b) then
+      inout_in_expr(e: l, out: inout out)
+      changed_in(stmts: b, out: inout out)
+    case Match(scrut: sc, cases: cases, els: els) then
+      inout_in_expr(e: sc, out: inout out)
+      for c in cases do
+        changed_in(stmts: c.body, out: inout out)
+      end for
+      match els
+      case Some(value: b) then
+        changed_in(stmts: b, out: inout out)
+      case None then
+      end match
+    case ExprStmt(e: e) then
+      inout_in_expr(e: e, out: inout out)
+    else
+    end match
+  end for
+end fn changed_in
+
+// Whether the value of e stays as it is, and alive, for as long as the variable it is
+// read from is in scope: a variable the function never assigns or passes inout, or a
+// field of such a value. A match or a loop over it need not hold a reference of its
+// own. (Nothing reachable from such a variable is changed in place either: that takes
+// a sole owner, and the variable is one more.)
+fn stays(g: Gen, e: Expr) -> Bool do
+  match e.kind
+  case Var(name: n) then
+    return not contains_str(xs: g.changed, x: n)
+  case Field(obj: o, name: f) then
+    return stays(g: g, e: o)
+  else
+    return false
+  end match
+end fn stays
+
 // ---- functions and statements ----
 
 fn gen_function(g: inout Gen, f: FnDecl) do
@@ -795,7 +922,9 @@ fn gen_function(g: inout Gen, f: FnDecl) do
       set io = push(list: io, item: p.name)
     end if
   end for
-  set g = g with (io_params: io, owned_vars: [], scope_marks: [], loop_marks: [], temps: [], temp_marks: [], src: f.pos,
+  var changed = io
+  changed_in(stmts: f.body, out: inout changed)
+  set g = g with (io_params: io, changed: changed, owned_vars: [], scope_marks: [], loop_marks: [], temps: [], temp_marks: [], src: f.pos,
     fname: f.name, olds: {}, var_preds: {}, loop_invs: [], loop_dec: [], loop_m: [], dec_c: [], dec_lazy: [])
   line(g: inout g, s: "static V " ++ c_fn(f.name) ++ "(" ++ c_params(f) ++ ") {")
   indent(inout g)
@@ -988,13 +1117,19 @@ fn gen_stmt(g: inout Gen, s: Stmt) do
     dedent(inout g)
     line(g: inout g, s: "}")
   case ForEach(name: v, list: l, invs: invs, body: body) then
-    // The loop owns the list it iterates, so the body may reassign the variable it came from.
+    // The loop owns the list it iterates, so the body may reassign the variable it came
+    // from. (A list that stays is only borrowed.)
     enter_scope(inout g)
     let lv = gen_top(g: inout g, e: l)
-    let owned_list = take(g: inout g, v: lv, heap: true)
-    let owner = bind(g: inout g, rhs: owned_list)
-    flush(inout g)
-    declare_owned(g: inout g, c: owner)
+    var owner = lv.c
+    if (not lv.owned) and stays(g: g, e: l) then
+      flush(inout g)
+    else
+      let owned_list = take(g: inout g, v: lv, heap: true)
+      set owner = bind(g: inout g, rhs: owned_list)
+      flush(inout g)
+      declare_owned(g: inout g, c: owner)
+    end if
     let k = fresh_tmp(inout g)
     line(g: inout g, s: "for (int64_t " ++ k ++ " = 0; " ++ k ++ " < VL(" ++ owner ++ ")->len; " ++ k ++ "++) {")
     indent(inout g)
@@ -1773,9 +1908,9 @@ fn gen_match(g: inout Gen, scrut: Expr, cases: List<Case>, els: Option<List<Stmt
   enter_scope(inout g)
   let sv = gen_top(g: inout g, e: scrut)
   var v = sv.c
-  if is_heap(st) then
+  if is_heap(st) and not ((not sv.owned) and stays(g: g, e: scrut)) then
     // The match owns its scrutinee, so binders stay valid even if the arm reassigns
-    // the variable it came from.
+    // the variable it came from. (A value that stays is only borrowed.)
     let owned_scrut = take(g: inout g, v: sv, heap: true)
     set v = bind(g: inout g, rhs: owned_scrut)
     declare_owned(g: inout g, c: v)
@@ -2079,7 +2214,14 @@ fn gen_expr(g: inout Gen, e: Expr) -> Val do
     let ov = gen_expr(g: inout g, e: o)
     return plain_val(bind(g: inout g, rhs: "VP(" ++ ov.c ++ ")[" ++ int_to_str(fi) ++ "]"))
   case With(obj: o, args: args) then
-    let ov = gen_expr(g: inout g, e: o)
+    // An element that `set xs = set_at(list: xs, at: i, value: xs[i] with (...))`
+    // moves out of xs (see steal_candidates): taken once the new fields are computed,
+    // which may read it.
+    let stolen = int_list_contains(xs: g.steal_ids, x: o.id) and is_index(o)
+    var ov = plain_val("0")
+    if not stolen then
+      set ov = gen_expr(g: inout g, e: o)
+    end if
     var sn = ""
     match type_of(info: g.info, e: o)
     case TStruct(name: n) then
@@ -2092,7 +2234,12 @@ fn gen_expr(g: inout Gen, e: Expr) -> Val do
       let v = gen_expr(g: inout g, e: a.value)
       set vals = push(list: vals, item: v)
     end for
-    let base = take(g: inout g, v: ov, heap: true)
+    var base = ""
+    if stolen then
+      set base = gen_stolen(g: inout g, e: o)
+    else
+      set base = take(g: inout g, v: ov, heap: true)
+    end if
     var cs: List<String> = []
     for i in 0..len(args) do
       if i < len(vals) then
@@ -2554,6 +2701,13 @@ fn gen_call(g: inout Gen, e: Expr, args: List<Arg>) -> Val do
     set ci = x
   case None then
   end match
+  if (ci.kind == "builtin") and ((ci.name == "value_or") or (ci.name == "is_some") or (ci.name == "is_none")) then
+    match gen_looked_up(g: inout g, e: e, name: ci.name, args: args, order: ci.order)
+    case Some(value: made) then
+      return made
+    case None then
+    end match
+  end if
   // Evaluate arguments in written order, then pass them in parameter order.
   var vals: List<Val> = []
   for a in args do
@@ -2647,6 +2801,84 @@ fn gen_call(g: inout Gen, e: Expr, args: List<Arg>) -> Val do
   end if
   return gen_builtin(g: inout g, e: e, name: ci.name, p: p, pe: pe)
 end fn gen_call
+
+// value_or, is_some or is_none of a map's lookup, without making the Option: the value
+// is read from the map, or the key looked for, directly. None for any other call.
+// The arguments are evaluated in the order they are written, as for any call.
+fn gen_looked_up(g: inout Gen, e: Expr, name: String, args: List<Arg>, order: List<Int>) -> Option<Val> do
+  if (len(order) == 0) or (order[0] < 0) or (order[0] >= len(args)) then
+    return Option.None
+  end if
+  let oi = order[0]
+  var largs: List<Arg> = []
+  var lorder: List<Int> = []
+  match args[oi].value.kind
+  case Call(callee: c, args: inner) then
+    match call_info(info: g.info, e: args[oi].value)
+    case Some(value: li) then
+      if (li.kind != "builtin") or (li.name != "lookup") or (len(li.order) != 2) then
+        return Option.None
+      end if
+      set largs = inner
+      set lorder = li.order
+    case None then
+      return Option.None
+    end match
+  else
+    return Option.None
+  end match
+  if (lorder[0] < 0) or (lorder[0] >= len(largs)) or (lorder[1] < 0) or (lorder[1] >= len(largs)) then
+    return Option.None
+  end if
+  var lvals: List<Val> = []
+  var other = plain_val("0")
+  for i in 0..len(args) do
+    if i == oi then
+      for a in largs do
+        let lv = gen_expr(g: inout g, e: a.value)
+        set lvals = push(list: lvals, item: lv)
+      end for
+    else
+      set other = gen_expr(g: inout g, e: args[i].value)
+    end if
+  end for
+  if len(lvals) != len(largs) then
+    return Option.None
+  end if
+  let mt = type_of(info: g.info, e: largs[lorder[0]].value)
+  let found = map_ops(mt) ++ "_has(" ++ lvals[lorder[0]].c ++ ", " ++ lvals[lorder[1]].c ++ ", " ++ map_flags(mt) ++ ")"
+  if name == "is_some" then
+    return Option.Some(value: plain_val(bind(g: inout g, rhs: found)))
+  end if
+  if name == "is_none" then
+    return Option.Some(value: plain_val(bind(g: inout g, rhs: "(V)(" ++ found ++ " == 0)")))
+  end if
+  let rh = heap_of(g: g, e: e)
+  let d = take(g: inout g, v: other, heap: rh)
+  let got = map_ops(mt) ++ "_get_or(" ++ lvals[lorder[0]].c ++ ", " ++ lvals[lorder[1]].c ++ ", " ++ d ++ ", " ++ map_flags(mt) ++ ")"
+  return Option.Some(value: owned_tmp(g: inout g, rhs: got, heap: rh))
+end fn gen_looked_up
+
+fn is_index(e: Expr) -> Bool do
+  match e.kind
+  case Index(obj: o, idx: i) then
+    return true
+  else
+    return false
+  end match
+end fn is_index
+
+// The element xs[i] moved out of the list xs (vlist_steal_at): a value the caller owns.
+fn gen_stolen(g: inout Gen, e: Expr) -> String do
+  match e.kind
+  case Index(obj: o, idx: i) then
+    let lv = gen_expr(g: inout g, e: o)
+    let iv = gen_expr(g: inout g, e: i)
+    return bind(g: inout g, rhs: "vlist_steal(" ++ lv.c ++ ", " ++ iv.c ++ ")")
+  else
+    return "0"
+  end match
+end fn gen_stolen
 
 fn arg_val(p: List<Val>, i: Int) -> Val do
   if (i >= 0) and (i < len(p)) then

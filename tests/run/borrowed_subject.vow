@@ -1,0 +1,77 @@
+// language: 0.9
+// A match, or a loop over a list, borrows a subject that cannot change while it runs
+// (a variable never assigned or passed inout, or a field of one) and owns any other:
+// the binders and elements must stay valid when the body replaces the variable.
+enum Tree
+  Leaf,
+  Node(left: Tree, label: String, right: Tree),
+end enum Tree
+
+struct Box
+  items: List<String>,
+  tree: Tree,
+end struct Box
+
+fn labels(t: Tree) -> String do
+  match t
+  case Leaf then
+    return "."
+  case Node(left: l, label: s, right: r) then
+    return "(" ++ labels(l) ++ s ++ labels(r) ++ ")"
+  end match
+end fn labels
+
+fn grow(t: inout Tree, s: String) do
+  set t = Tree.Node(left: t, label: s, right: Tree.Leaf)
+end fn grow
+
+fn main() uses console do
+  let leaf = Tree.Leaf
+  let fixed = Tree.Node(left: leaf, label: "a", right: Tree.Node(left: leaf, label: "b", right: leaf))
+  print(labels(fixed) ++ "\n")
+  // A field of a value that stays.
+  let box = Box(items: ["x", "y"], tree: fixed)
+  var seen = ""
+  for s in box.items do
+    set seen = seen ++ s
+  end for
+  match box.tree
+  case Node(left: l, label: s, right: r) then
+    print(seen ++ " " ++ s ++ labels(r) ++ "\n")
+  case Leaf then
+    print("leaf\n")
+  end match
+  // The arm replaces the variable matched on: the binders are of the old value.
+  var t = fixed
+  match t
+  case Node(left: l, label: s, right: r) then
+    set t = Tree.Leaf
+    print(s ++ labels(r) ++ " then " ++ labels(t) ++ "\n")
+  case Leaf then
+    print("leaf\n")
+  end match
+  // The arm passes it inout.
+  var u = Tree.Node(left: Tree.Leaf, label: "u", right: Tree.Leaf)
+  match u
+  case Node(left: l, label: s, right: r) then
+    grow(t: inout u, s: "v")
+    print(s ++ " then " ++ labels(u) ++ "\n")
+  case Leaf then
+    print("leaf\n")
+  end match
+  // The body replaces the list it loops over.
+  var names = ["p", "q", "r"]
+  var out = ""
+  for n in names do
+    set names = push(list: names, item: n ++ n)
+    set out = out ++ n
+  end for
+  print(out ++ " " ++ join(parts: names, sep: ",") ++ "\n")
+  // A variable that is assigned elsewhere in the function is owned too.
+  var later = ["m"]
+  for n in later do
+    print(n ++ "\n")
+  end for
+  set later = []
+  print(int_to_str(len(later)) ++ "\n")
+end fn main

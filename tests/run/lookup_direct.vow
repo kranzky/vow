@@ -1,0 +1,26 @@
+// language: 0.9
+// value_or, is_some and is_none of a lookup read the map directly, with no Option made.
+fn note(log: inout List<String>, s: String) -> String do
+  set log = push(list: log, item: s)
+  return s
+end fn note
+
+fn main() uses console do
+  var m: Map<String, List<Int>> = {}
+  set m = insert(map: m, key: "a", value: [1, 2])
+  var h: HashMap<Int, String> = {}
+  set h = insert(map: h, key: 7, value: "seven")
+  let none: List<Int> = []
+  print(int_to_str(len(value_or(opt: lookup(map: m, key: "a"), default: none))) ++ "\n")
+  print(int_to_str(len(value_or(default: [9, 9, 9], opt: lookup(key: "b", map: m)))) ++ "\n")
+  print(value_or(opt: lookup(map: h, key: 7), default: "none") ++ " " ++ value_or(opt: lookup(map: h, key: 8), default: "none") ++ "\n")
+  if is_some(lookup(map: h, key: 7)) and is_none(lookup(map: h, key: 8)) and is_none(lookup(map: m, key: "zz")) then
+    print("found\n")
+  end if
+  // The arguments are evaluated in the order they are written.
+  var log: List<String> = []
+  let v = value_or(default: note(log: inout log, s: "default"), opt: lookup(map: h, key: len(note(log: inout log, s: "key"))))
+  print(v ++ " " ++ join(parts: log, sep: ",") ++ "\n")
+  let e: HashMap<Int, Int> = {}
+  print(int_to_str(value_or(opt: lookup(map: e, key: 1), default: -1)) ++ "\n")
+end fn main

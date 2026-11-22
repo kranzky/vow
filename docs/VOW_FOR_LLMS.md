@@ -713,7 +713,16 @@ the old value is moved into the operation, so nothing is copied. A second refere
 (`let copy = xs`) makes the next update copy once, which is what keeps `copy`
 unchanged. The same holds for a field: in `set s = s with (items: push(list: s.items, item: x))`
 the list is moved out of `s` and updated in place, as long as the right-hand side reads
-`s.items` only once.
+`s.items` only once. And for an element of a list:
+`set ps = set_at(list: ps, at: i, value: ps[i] with (x: ps[i].x + 1))` updates the
+struct where it is, when the index is the same variable or number both times. So a
+list of structs costs no more to update than a struct of lists.
+
+A `match` on a variable, or a `for` over one, costs nothing extra when the function
+never assigns that variable (a parameter, a `let`, a binder); prefer those to a `var`
+for values that are only read. A variant without fields (`Tree.Leaf`) is one shared
+object, and `value_or(opt: lookup(...), default: d)`, `is_some(lookup(...))` and
+`is_none(lookup(...))` read the map directly, so neither needs a workaround.
 
 **`Map` or `HashMap`.** Both have the same operations (`insert`, `lookup`, `has`,
 `keys`, `len`, `{}`), and `keys` is sorted for both. Use `HashMap` for counting and
@@ -724,8 +733,9 @@ when you keep old versions around (`let before = m` and then insert), because a 
 **Removing the last list element.** `set xs = slice(of: xs, from: 0, to: len(xs) - 1)`
 after checking `len(xs) > 0`. Written like this, in one `set` of the list to a slice of
 itself from 0, it takes constant time: the list is shortened where it is. A stack is a
-list used with this and `push`. Through a helper function (`set xs = pop(xs)`) the list
-is copied each time.
+list used with this and `push`. A helper function that returns such a slice
+(`set xs = pop(xs)`) takes constant time too: the beginning of a list shares the
+list's storage when it is at least half of it.
 
 **A loop with a flag:**
 

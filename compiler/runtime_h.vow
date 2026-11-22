@@ -33,6 +33,7 @@ fn runtime_header() -> String do
     "#include <errno.h>\n" ++
     "#include <math.h>\n" ++
     "#include <fcntl.h>\n" ++
+    "#include <float.h>\n" ++
     "#include <stdint.h>\n" ++
     "#include <stdio.h>\n" ++
     "#include <stdlib.h>\n" ++
@@ -199,9 +200,9 @@ fn runtime_header() -> String do
     "}\n" ++
     "\n" ++
     "static void vow_destroy(V x);\n" ++
-    "\n" ++
-    "static inline void vdrop(V x) {\n") ++
-    ("    if (x) {\n" ++
+    "\n") ++
+    ("static inline void vdrop(V x) {\n" ++
+    "    if (x) {\n" ++
     "        VHdr *h = VH(x);\n" ++
     "        VOW_ALIVE(h);\n" ++
     "        if (h->rc > 0 && --h->rc == 0) vow_destroy(x);\n" ++
@@ -399,9 +400,9 @@ fn runtime_header() -> String do
     "}\n" ++
     "\n" ++
     "// Every rank step begins with this: 1 when the run should go no further.\n" ++
-    "static inline int vow_rank_skip(V a, V d) {\n" ++
-    "    if (vow_rank_left < 0) return 0;\n") ++
-    ("    vow_rank_meet(a, d);\n" ++
+    "static inline int vow_rank_skip(V a, V d) {\n") ++
+    ("    if (vow_rank_left < 0) return 0;\n" ++
+    "    vow_rank_meet(a, d);\n" ++
     "    if (vow_rank_found || vow_rank_left == 0) return 1;\n" ++
     "    vow_rank_left--;\n" ++
     "    return 0;\n" ++
@@ -599,9 +600,9 @@ fn runtime_header() -> String do
     "    for (int64_t i = 0; i < k; i++) need += VS(parts[i])->len;\n" ++
     "    VHdr *h = VH(a);\n" ++
     "    V s = a;\n" ++
-    "    if (h->rc == 1) {\n" ++
-    "        size_t fixed = sizeof(VHdr) + sizeof(VStr) + 1;\n") ++
-    ("        int64_t room = (int64_t)(vow_round(fixed + (size_t)(h->mask ? (int64_t)h->mask : la)) - fixed);\n" ++
+    "    if (h->rc == 1) {\n") ++
+    ("        size_t fixed = sizeof(VHdr) + sizeof(VStr) + 1;\n" ++
+    "        int64_t room = (int64_t)(vow_round(fixed + (size_t)(h->mask ? (int64_t)h->mask : la)) - fixed);\n" ++
     "        if (need <= room) {\n" ++
     "            h->mask = (uint64_t)room;\n" ++
     "        } else {\n" ++
@@ -671,10 +672,28 @@ fn runtime_header() -> String do
     "    if (isinf(d)) return d > 0 ? vstr_new(\"inf\", 3) : vstr_new(\"-inf\", 4);\n" ++
     "    // The fewest significant digits that read back as d; then, as Python's repr does,\n" ++
     "    // plain notation for magnitudes from 1e-4 up to 1e16 and an exponent otherwise.\n" ++
+    "    // A double holds any 15 digits, so if d rounded to 15 reads back as d, the fewest\n" ++
+    "    // are those 15 without their trailing zeros: any shorter text that reads back as\n" ++
+    "    // d is d rounded to 15 digits too (two such decimals are further apart than the\n" ++
+    "    // doubles around d). If not, 16 are the fewest when they read back, and 17 always\n" ++
+    "    // do. Subnormal numbers hold fewer digits, so there each count is tried.\n" ++
     "    int p = 1;\n" ++
-    "    for (; p < 17; p++) {\n" ++
-    "        snprintf(buf, sizeof buf, \"%.*e\", p - 1, d);\n" ++
-    "        if (strtod(buf, NULL) == d) break;\n" ++
+    "    if (d == 0 || fabs(d) >= DBL_MIN) {\n" ++
+    "        snprintf(buf, sizeof buf, \"%.14e\", d);\n" ++
+    "        if (strtod(buf, NULL) == d) {\n" ++
+    "            // d.dddddddddddddde+xx, or -d.ddd...: the digits end before the 'e'.\n" ++
+    "            const char *e = strchr(buf, 'e');\n" ++
+    "            p = 15;\n" ++
+    "            while (p > 1 && e[p - 16] == '0') p--;\n" ++
+    "        } else {\n" ++
+    "            snprintf(buf, sizeof buf, \"%.15e\", d);\n" ++
+    "            p = strtod(buf, NULL) == d ? 16 : 17;\n" ++
+    "        }\n" ++
+    "    } else {\n" ++
+    "        for (; p < 17; p++) {\n" ++
+    "            snprintf(buf, sizeof buf, \"%.*e\", p - 1, d);\n" ++
+    "            if (strtod(buf, NULL) == d) break;\n" ++
+    "        }\n" ++
     "    }\n" ++
     "    snprintf(buf, sizeof buf, \"%.*e\", p - 1, d);\n" ++
     "    int e = atoi(strchr(buf, 'e') + 1);\n" ++
@@ -754,7 +773,21 @@ fn runtime_header() -> String do
     "    return vdup(VP(base)[i]);\n" ++
     "}\n" ++
     "\n" ++
+    "// A variant without fields: one object for each tag, shared by every use and never\n" ++
+    "// freed, as None is (a variant is only its tag, so variants of different enums with\n" ++
+    "// the same tag share one too). Beyond the 256th variant of an enum each use allocates.\n" ++
+    "#define VOW_VARIANT0_SHARED 256\n" ++
+    "static V vow_variant0_obj[VOW_VARIANT0_SHARED];\n" ++
+    "\n" ++
     "static V vow_variant0(int64_t tag) {\n" ++
+    "    if (tag >= 0 && tag < VOW_VARIANT0_SHARED) {\n" ++
+    "        if (!vow_variant0_obj[tag]) {\n" ++
+    "            V r = vow_immortal(vow_fields(1, 0));\n" ++
+    "            VP(r)[0] = (V)tag;\n" ++
+    "            vow_variant0_obj[tag] = r;\n" ++
+    "        }\n" ++
+    "        return vow_variant0_obj[tag];\n" ++
+    "    }\n" ++
     "    V r = vow_fields(1, 0);\n" ++
     "    VP(r)[0] = (V)tag;\n" ++
     "    return r;\n" ++
@@ -767,8 +800,8 @@ fn runtime_header() -> String do
     "    return vow_none_obj;\n" ++
     "}\n" ++
     "\n" ++
-    "// Consumes x.\n" ++
-    "static V vsome(V x, int heap) {\n" ++
+    "// Consumes x.\n") ++
+    ("static V vsome(V x, int heap) {\n" ++
     "    V r = vow_fields(2, heap ? 2 : 0);\n" ++
     "    VP(r)[0] = 1;\n" ++
     "    VP(r)[1] = x;\n" ++
@@ -800,8 +833,8 @@ fn runtime_header() -> String do
     "    free(buf);\n" ++
     "    return s;\n" ++
     "}\n" ++
-    "\n") ++
-    ("// The whole string must be a number (as C's strtod reads it).\n" ++
+    "\n" ++
+    "// The whole string must be a number (as C's strtod reads it).\n" ++
     "static V vstr_to_float(V s) {\n" ++
     "    const char *p = VS(s)->data;\n" ++
     "    if (VS(s)->len == 0 || isspace((unsigned char)p[0])) return vnone();\n" ++
@@ -883,6 +916,17 @@ fn runtime_header() -> String do
     "        vdrop(l);\n" ++
     "        return r;\n" ++
     "    }\n" ++
+    "    if (b && VH(l)->rc == 1 && VH(b)->rc == 1 && n < VB(b)->used) {\n" ++
+    "        // The only list on a buffer that holds elements past its end (it is the\n" ++
+    "        // beginning of a list that is gone, see vlist_cut_at): they are released, and\n" ++
+    "        // the new element goes where the first of them was.\n" ++
+    "        if (heap)\n" ++
+    "            for (int64_t i = n; i < VB(b)->used; i++) vdrop(VB(b)->items[i]);\n" ++
+    "        VB(b)->items[n] = x;\n" ++
+    "        VB(b)->used = n + 1;\n" ++
+    "        L->len = n + 1;\n" ++
+    "        return l;\n" ++
+    "    }\n" ++
     "    V nb = vbuf_new(n * 2, heap);\n" ++
     "    if (n) {\n" ++
     "        memcpy(VB(nb)->items, VB(b)->items, (size_t)n * sizeof(V));\n" ++
@@ -942,6 +986,23 @@ fn runtime_header() -> String do
     "\n" ++
     "#define vlist_set_at(l, i, x) vlist_set_at_at((l), (i), (x), __FILE__, __LINE__)\n" ++
     "\n" ++
+    "// Takes element i out of l for an update that set_at then writes back (`set ps =\n" ++
+    "// set_at(list: ps, at: i, value: ps[i] with (...))`): when l and its buffer are\n" ++
+    "// unshared the element is moved out and its slot left empty, so that the update can be\n" ++
+    "// made where the element is; otherwise it is duplicated. Borrows l.\n" ++
+    "static inline V vlist_steal_at(V l, V i, VOW_AT) {\n" ++
+    "    VOW_REQUIRE(VI(i) >= 0 && VI(i) < VL(l)->len, \"list index out of bounds\");\n" ++
+    "    V b = VL(l)->buf;\n" ++
+    "    V x = VB(b)->items[VI(i)];\n" ++
+    "    if (VH(l)->rc == 1 && VH(b)->rc == 1) {\n" ++
+    "        VB(b)->items[VI(i)] = 0;\n" ++
+    "        return x;\n" ++
+    "    }\n" ++
+    "    return vdup(x);\n" ++
+    "}\n" ++
+    "\n") ++
+    ("#define vlist_steal(l, i) vlist_steal_at((l), (i), __FILE__, __LINE__)\n" ++
+    "\n" ++
     "// Consumes l. The beginning of a list that nothing else refers to stays where it is\n" ++
     "// (`set xs = slice(of: xs, from: 0, to: len(xs) - 1)` takes the last element off in\n" ++
     "// constant time): the list is made shorter, and if nothing else shares its buffer the\n" ++
@@ -959,6 +1020,16 @@ fn runtime_header() -> String do
     "        }\n" ++
     "        VL(l)->len = n;\n" ++
     "        return l;\n" ++
+    "    }\n" ++
+    "    // The beginning of a list that something else refers to (a parameter, in a helper\n" ++
+    "    // that takes the last element off): a new list on the same buffer, when it is at\n" ++
+    "    // least half of what the buffer holds, so that a short piece does not keep a long\n" ++
+    "    // buffer and its elements alive. A push to it then finds elements past its end,\n" ++
+    "    // and releases them if by then it is the buffer's only list (vlist_push).\n" ++
+    "    if (VI(from) == 0 && VL(l)->buf && n * 2 >= VB(VL(l)->buf)->used) {\n" ++
+    "        V r = vlist_make(n, vdup(VL(l)->buf), heap);\n" ++
+    "        vdrop(l);\n" ++
+    "        return r;\n" ++
     "    }\n" ++
     "    V nb = vbuf_new(n, heap);\n" ++
     "    if (n) {\n" ++
@@ -1000,8 +1071,8 @@ fn runtime_header() -> String do
     "            p += VS(sep)->len;\n" ++
     "        }\n" ++
     "        V x = VB(VL(parts)->buf)->items[i];\n" ++
-    "        memcpy(p, VS(x)->data, (size_t)VS(x)->len);\n") ++
-    ("        p += VS(x)->len;\n" ++
+    "        memcpy(p, VS(x)->data, (size_t)VS(x)->len);\n" ++
+    "        p += VS(x)->len;\n" ++
     "    }\n" ++
     "    *p = 0;\n" ++
     "    return s;\n" ++
@@ -1129,6 +1200,19 @@ fn runtime_header() -> String do
     "}\n" ++
     "\n" ++
     "static V vmap_has(V m, V k, int flags) { return (V)(vn_find(m, k, flags) != 0); }\n" ++
+    "\n") ++
+    ("// value_or(opt: lookup(map: m, key: k), default: d) without the Option: borrows m and\n" ++
+    "// k and consumes d; the result owns a reference to the value.\n" ++
+    "static V vmap_get_or(V m, V k, V d, int flags) {\n" ++
+    "    V n = vn_find(m, k, flags);\n" ++
+    "    if (!n) return d;\n" ++
+    "    V v = VN(n)->val;\n" ++
+    "    if (flags & VN_VAL_HEAP) {\n" ++
+    "        vdup(v);\n" ++
+    "        vdrop(d);\n" ++
+    "    }\n" ++
+    "    return v;\n" ++
+    "}\n" ++
     "\n" ++
     "static V vn_keys(V n, V acc, int flags) {\n" ++
     "    if (!n) return acc;\n" ++
@@ -1200,8 +1284,8 @@ fn runtime_header() -> String do
     "        if (vhm_hashes(h)[i]) vhm_place(n, vhm_hashes(h)[i], vhm_keyarr(h)[i], vhm_valarr(h)[i], flags);\n" ++
     "    vow_free_shell(h);\n" ++
     "    return n;\n" ++
-    "}\n") ++
-    ("\n" ++
+    "}\n" ++
+    "\n" ++
     "// Consumes h, k and v. An unshared table is updated in place; a shared one is copied\n" ++
     "// first (so value semantics hold).\n" ++
     "static V vhm_insert(V h, V k, V v, int flags) {\n" ++
@@ -1247,6 +1331,18 @@ fn runtime_header() -> String do
     "}\n" ++
     "\n" ++
     "static V vhm_has(V h, V k, int flags) { return (V)(vhm_find(h, k, flags) >= 0); }\n" ++
+    "\n" ++
+    "// As vmap_get_or.\n" ++
+    "static V vhm_get_or(V h, V k, V d, int flags) {\n" ++
+    "    int64_t i = vhm_find(h, k, flags);\n" ++
+    "    if (i < 0) return d;\n" ++
+    "    V v = vhm_valarr(h)[i];\n" ++
+    "    if (flags & VN_VAL_HEAP) {\n" ++
+    "        vdup(v);\n" ++
+    "        vdrop(d);\n" ++
+    "    }\n" ++
+    "    return v;\n" ++
+    "}\n" ++
     "static inline V vhm_len(V h) { return h ? (V)VHM(h)->count : 0; }\n" ++
     "\n" ++
     "static int vow_int_cmp(const void *a, const void *b) {\n" ++
@@ -1304,8 +1400,8 @@ fn runtime_header() -> String do
     "    struct rlimit lim;\n" ++
     "    vow_stack_top = (char *)top;\n" ++
     "    vow_stack_limit = (size_t)1 << 30;\n" ++
-    "    if (getrlimit(RLIMIT_STACK, &lim) == 0 && lim.rlim_cur != RLIM_INFINITY) vow_stack_limit = (size_t)lim.rlim_cur;\n" ++
-    "    stack_t alt;\n" ++
+    "    if (getrlimit(RLIMIT_STACK, &lim) == 0 && lim.rlim_cur != RLIM_INFINITY) vow_stack_limit = (size_t)lim.rlim_cur;\n") ++
+    ("    stack_t alt;\n" ++
     "    alt.ss_sp = vow_fault_stack;\n" ++
     "    alt.ss_size = sizeof vow_fault_stack;\n" ++
     "    alt.ss_flags = 0;\n" ++
@@ -1400,8 +1496,8 @@ fn runtime_header() -> String do
     "        if (p[i] == '/') {\n" ++
     "            p[i] = 0;\n" ++
     "            mkdir(p, 0777);\n" ++
-    "            p[i] = '/';\n") ++
-    ("        }\n" ++
+    "            p[i] = '/';\n" ++
+    "        }\n" ++
     "    }\n" ++
     "    mkdir(p, 0777);\n" ++
     "    struct stat st;\n" ++
@@ -1504,8 +1600,8 @@ fn runtime_header() -> String do
     "        const char *dir = getenv(\"TMPDIR\");\n" ++
     "        if (!dir || !*dir) dir = \"/tmp\";\n" ++
     "        size_t dlen = strlen(dir);\n" ++
-    "        char *tmpl = (char *)vow_xmalloc(dlen + 32);\n" ++
-    "        snprintf(tmpl, dlen + 32, \"%s/vow-run-XXXXXX\", dir);\n" ++
+    "        char *tmpl = (char *)vow_xmalloc(dlen + 32);\n") ++
+    ("        snprintf(tmpl, dlen + 32, \"%s/vow-run-XXXXXX\", dir);\n" ++
     "        in_fd = mkstemp(tmpl);\n" ++
     "        if (in_fd >= 0) {\n" ++
     "            unlink(tmpl);\n" ++
@@ -1600,8 +1696,8 @@ fn runtime_header() -> String do
     "        sigaction(SIGQUIT, &old_quit, 0);\n" ++
     "        execvp(av[0], av);\n" ++
     "        _exit(127);\n" ++
-    "    }\n") ++
-    ("    free(av);\n" ++
+    "    }\n" ++
+    "    free(av);\n" ++
     "    int64_t code = -1;\n" ++
     "    if (pid > 0) {\n" ++
     "        int status = 0;\n" ++

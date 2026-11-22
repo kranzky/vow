@@ -1,0 +1,51 @@
+// language: 0.9
+// The beginning of a list shares the list's buffer when it is at least half of it,
+// so a helper that takes the last element off a list does not copy the list; a push
+// to it afterwards releases what was past its end.
+fn pop(xs: List<String>) -> List<String>
+  requires len(xs) > 0
+  ensures len(result) == (len(xs) - 1)
+do
+  return slice(of: xs, from: 0, to: len(xs) - 1)
+end fn pop
+
+fn show(xs: List<String>) -> String do
+  return "[" ++ join(parts: xs, sep: ",") ++ "]"
+end fn show
+
+fn main() uses console do
+  var st: List<String> = []
+  for i in 0..6 invariant len(st) == i do
+    set st = push(list: st, item: "s" ++ int_to_str(i))
+  end for
+  set st = pop(st)
+  set st = pop(st)
+  print(show(st) ++ "\n")
+  set st = push(list: st, item: "new")
+  print(show(st) ++ "\n")
+  // Both lists are in use: neither sees the other's changes.
+  let whole = st
+  let most = pop(whole)
+  var grown = push(list: most, item: "x")
+  set grown = set_at(list: grown, at: 0, value: "first")
+  print(show(whole) ++ " " ++ show(most) ++ " " ++ show(grown) ++ "\n")
+  // A short piece of a long list is a list of its own.
+  let head = slice(of: whole, from: 0, to: 1)
+  print(show(head) ++ " " ++ show(push(list: head, item: "y")) ++ " " ++ show(whole) ++ "\n")
+  // A stack through the helper: 200,000 pushes and pops.
+  var big: List<String> = []
+  var n = 0
+  for i in 0..200000 do
+    set big = push(list: big, item: "e")
+    set big = push(list: big, item: "f")
+    set big = pop(big)
+    set n = n + len(big)
+  end for
+  print(int_to_str(len(big)) ++ " " ++ int_to_str(n) ++ "\n")
+  var gone = 0
+  while len(big) > 0 decreases len(big) do
+    set big = pop(big)
+    set gone = gone + 1
+  end while
+  print(int_to_str(gone) ++ "\n")
+end fn main

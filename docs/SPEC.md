@@ -500,7 +500,7 @@ SMT-LIB. The divisor must be provably non-zero.
 | `len(x) -> Int where it >= 0` | List, String, Map or HashMap |
 | `push(list: xs, item: x) -> List<T>` | amortised O(1) |
 | `set_at(list: xs, at: i, value: v) -> List<T>` | `xs` with element `i` replaced; requires `0 <= i < len(xs)`; in place when `xs` is unshared |
-| `slice(of: x, from: a, to: b)` | List or String; requires `0 <= a <= b <= len(x)`; of a list from 0, in place when the list is unshared |
+| `slice(of: x, from: a, to: b)` | List or String; requires `0 <= a <= b <= len(x)`; of a list from 0, in place when the list is unshared, and sharing its buffer when it is at least half of it |
 | `join(parts: List<String>, sep: String) -> String` | |
 | `int_to_str(n) -> String` | |
 | `str_to_int(s) -> Option<Int>` | |
@@ -751,12 +751,24 @@ values are immutable). When an object has a single reference, `with`, `push`, `s
 `insert` and `++` update it in place instead of copying, and `slice` of a list from 0
 shortens it in place (`set xs = slice(of: xs, from: 0, to: len(xs) - 1)` takes the last
 element off in constant time); nothing else can observe the
-difference, so value semantics are preserved. A chain of `++` on strings is joined in
+difference, so value semantics are preserved. The beginning of a list that has other
+references shares the list's buffer when it is at least half of what the buffer holds,
+so a function that returns its parameter without the last element does not copy it. A chain of `++` on strings is joined in
 one step (string literals next to each other in it are joined by the compiler), and a string that is appended to repeatedly is given room to grow, so
 building one with `set s = s ++ x` costs time in proportion to its final length. In `set x = op(x, ...)`, the old value of
 `x` is moved into `op`, which is what makes such updates in place. In
 `set s = s with (f: op(s.f, ...))`, where `s.f` is read only once, the field is moved
 out of `s` as well, so a list, map or string held in a struct is updated in place too.
+In `set xs = set_at(list: xs, at: i, value: xs[i] with (...))`, where the index is the
+same variable or literal both times, the element is moved out of the list, so a struct
+held in a list is updated in place.
+
+A `match`, or a `for` over a list, holds a reference to its subject while it runs,
+unless the subject is a variable that the function never assigns or passes `inout`
+(or a field of one): that cannot change or be released meanwhile, and is borrowed. A
+variant without fields is one shared object for each of an enum's first 256 variants.
+`value_or`, `is_some` and `is_none` applied directly to a `lookup` read the map
+without making the `Option`.
 
 A `Map` is a balanced tree: a shared map copies only the path to the changed key, so
 snapshots are cheap. A `HashMap` is an open-addressing hash table: lookups and inserts

@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- Faster programs, with no change to what any program computes:
+  - a struct in a list is updated where it is: `set ps = set_at(list: ps, at: i, value:
+    ps[i] with (x: ...))` no longer copies the struct (20 million updates take 0.06 s,
+    from 0.38 s), so a list of structs costs no more than a struct of lists;
+  - a `match` on a variable, and a `for` over one, no longer take and release a
+    reference when the function never assigns that variable (`bench/binarytrees` at
+    depth 18: 0.84 s, from 1.04 s);
+  - `value_or(opt: lookup(...), default: d)`, `is_some(lookup(...))` and
+    `is_none(lookup(...))` read the map directly; they made an `Option` each time (a
+    counting loop of 25 million: 0.32 s, from 0.61 s; `bench/knucleotide` 0.16 s, from
+    0.20 s);
+  - a variant without fields (`Tree.Leaf`) is one shared object; each use allocated
+    one (a tree benchmark written the natural way: 26 MB, from 43 MB);
+  - `float_to_str` finds the shortest text in at most three tries, where it made up
+    to seventeen (a million calls: 1.4 s, from 3.8 s). The text is the same: compared
+    on 12 million values;
+  - a function that returns its list parameter without the last element
+    (`slice(of: xs, from: 0, to: len(xs) - 1)`) no longer copies the list: the
+    beginning of a list shares the list's buffer when it is at least half of it. A
+    stack popped through such a helper: 200,000 pushes and pops in 0.3 s, from 41 s.
 - Proofs run in several Z3 processes at once when there is enough to prove: 8, or
   `$VOW_JOBS`, and never more than the machine has processors. The compiler checks
   itself from nothing in 0.6 s, from 1.7 s; a small program is proved by one process,

@@ -1,0 +1,10 @@
+// language: 0.9
+// float_to_str writes the fewest digits that read back as the same Float.
+fn main() uses console do
+  let xs = [0.0, 1.0, 0.1, 0.2, 0.1 + 0.2, 100.0, 123.456, 1.0e15, 1.0e16, 1.0e17, 0.0001, 0.00001, 5.0e-324,
+    2.2250738585072014e-308, 1.7976931348623157e308, 9007199254740993.0, 1.0e22, 1.0e23, 4.35, 2.675,
+    123456789012345.0, 1234567890123456.0, 12345678901234567.0, 1.0 / 3.0, 2.0 / 3.0, 3.0e-310]
+  for x in xs do
+    print(float_to_str(x) ++ " " ++ float_to_str(0.0 - x) ++ "\n")
+  end for
+end fn main

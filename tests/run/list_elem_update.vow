@@ -1,0 +1,49 @@
+// language: 0.9
+// set xs = set_at(list: xs, at: i, value: xs[i] with (...)) updates the element where
+// it is when nothing else refers to the list or the element, and copies otherwise.
+struct Acct
+  name: String,
+  log: List<Int>,
+  total: Int,
+end struct Acct
+
+fn show(a: Acct) -> String do
+  var parts: List<String> = []
+  for x in a.log do
+    set parts = push(list: parts, item: int_to_str(x))
+  end for
+  return a.name ++ "=" ++ int_to_str(a.total) ++ "[" ++ join(parts: parts, sep: ",") ++ "]"
+end fn show
+
+fn show_all(xs: List<Acct>) -> String do
+  var parts: List<String> = []
+  for a in xs do
+    set parts = push(list: parts, item: show(a))
+  end for
+  return join(parts: parts, sep: " ")
+end fn show_all
+
+fn main() uses console do
+  var xs = [Acct(name: "a", log: [], total: 0), Acct(name: "b", log: [], total: 0)]
+  // Unshared: in place, and the new fields may read the element.
+  for i in 0..len(xs) invariant len(xs) == 2 do
+    for k in 1..4 invariant len(xs) == 2 do
+      set xs = set_at(list: xs, at: i, value: xs[i] with (log: push(list: xs[i].log, item: k), total: xs[i].total + k))
+    end for
+  end for
+  print(show_all(xs) ++ "\n")
+  // A literal index, and a field that is another field of the same element.
+  set xs = set_at(list: xs, at: 0, value: xs[0] with (name: xs[0].name ++ xs[1].name, total: len(xs[0].log)))
+  print(show_all(xs) ++ "\n")
+  // The list is shared: the other list keeps its elements.
+  let before = xs
+  set xs = set_at(list: xs, at: 1, value: xs[1] with (total: -1))
+  print(show_all(before) ++ " / " ++ show_all(xs) ++ "\n")
+  // The element is shared: the other reference keeps its value.
+  let kept = xs[0]
+  set xs = set_at(list: xs, at: 0, value: xs[0] with (name: "z", log: push(list: xs[0].log, item: 9)))
+  print(show(kept) ++ " / " ++ show_all(xs) ++ "\n")
+  // Not the same element: an ordinary set_at.
+  set xs = set_at(list: xs, at: 0, value: xs[1] with (name: "copy"))
+  print(show_all(xs) ++ "\n")
+end fn main

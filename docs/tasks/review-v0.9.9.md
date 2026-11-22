@@ -691,6 +691,14 @@ soundness bug, and slowness limits what can be fuzzed.
 - **Fix (tried in a copy; all `tests/run` programs still pass with no leaks):** a
   slice from 0 shares the buffer, and `push` truncates in place when it is the only
   owner. 200,000 pops then take no measurable time.
+- **Done.** With B6, `vlist_cut` shortens an unshared list where it is (the idiom
+  written directly in a `set`). Now a slice from 0 of a list with other references (a
+  parameter, in a helper) is a new list on the same buffer, and `vlist_push` releases
+  the elements past the end of a list that has become the buffer's only one and
+  appends there. The buffer is shared only when the piece is at least half of what it
+  holds, so a short piece does not keep a long list's elements alive. A stack popped
+  through a helper: 200,000 pushes and pops in 0.3 s, from 41 s. Test:
+  `tests/run/slice_shared.vow`.
 
 ### P3. Updating one element of a list of structs allocates a struct (measured by one reviewer)
 
@@ -698,6 +706,12 @@ soundness bug, and slowness limits what can be fuzzed.
   element borrowed, so `with` copies it. 20,000,000 updates: 0.44 s, against 0.02 s
   for a `List<Int>`. `bench/nbody` is written as a struct of lists to avoid this.
 - **Fix:** move the element out of the slot when the list is unshared.
+- **Done.** `steal_candidates` recognises `set xs = set_at(list: xs, at: i, value:
+  xs[i] with (...))` (the index the same variable or literal both times, nothing
+  passed inout), and the `with` takes its base with `vlist_steal`, after the new
+  fields are computed: the element is moved out of an unshared list (its slot left
+  empty until `set_at` fills it) and duplicated otherwise. 20,000,000 updates: 0.06 s,
+  from 0.38 s. Test: `tests/run/list_elem_update.vow`.
 
 ### P4. Every `match` and `for x in xs` dups and drops its subject (measured by one reviewer)
 
@@ -706,6 +720,11 @@ soundness bug, and slowness limits what can be fuzzed.
   reassign. Removing it by hand from `bench/binarytrees` took depth 18 from 0.97 s to
   0.78 s.
 - **Fix:** borrow when the subject is a parameter, `let`, binder or loop variable.
+- **Done.** A function's generator knows the variables it assigns or passes inout
+  (`Gen.changed`, from `changed_in`); a `match` or `for` whose subject is any other
+  variable, or a field of one, borrows it (`stays`). A `var` that is never assigned
+  counts as one that stays. `bench/binarytrees` at depth 18: 0.84 s, from 1.04 s.
+  Test: `tests/run/borrowed_subject.vow`.
 
 ### P5. `value_or(opt: lookup(...), default: d)` allocates an Option per call (measured by one reviewer)
 
@@ -713,6 +732,10 @@ soundness bug, and slowness limits what can be fuzzed.
 - **What:** the counting idiom in the docs and in `bench/knucleotide`. Replacing it by
   hand with a direct read took 0.44 s to 0.36 s.
 - **Fix:** recognise the pair in code generation (and `is_some(lookup(...))` as `has`).
+- **Done.** `gen_looked_up` generates `value_or`, `is_some` and `is_none` of a
+  `lookup` as `vmap_get_or`/`vhm_get_or` or `_has`, with the arguments evaluated in
+  the order they are written. A counting loop of 25 million: 0.32 s, from 0.61 s;
+  `bench/knucleotide`: 0.16 s, from 0.20 s. Test: `tests/run/lookup_direct.vow`.
 
 ### P6. Variants without fields allocate, and the object header is 16 bytes (measured by one reviewer)
 
@@ -723,6 +746,14 @@ soundness bug, and slowness limits what can be fuzzed.
 - **Fix:** one static object per variant without fields. Then an 8-byte header with a
   per-type descriptor in place of the per-object mask: a three-word node goes from 48
   to 32 bytes, and the 63-field limit (A3) goes away.
+- **Done, the first part.** `vow_variant0` keeps one object, never freed, for each
+  tag below 256 (a variant without fields is only its tag, so the object is shared by
+  enums too). A tree benchmark with `Tree.Leaf` written where a leaf is wanted: 26 MB
+  and 1.54 s, from 43 MB and 1.67 s. Test: `tests/run/variant_shared.vow`.
+- **Not done.** The 8-byte header. It changes the layout of every object the runtime
+  makes and every place that reads a header (`with`, release, equality, measures,
+  strings' capacity), and the generated C that makes objects. Its gain is memory for
+  objects with an even number of payload words; it is a task of its own (P6b).
 
 ### P7. `float_to_str` makes up to 17 print-and-parse round trips (measured by one reviewer)
 
@@ -730,6 +761,11 @@ soundness bug, and slowness limits what can be fuzzed.
   `int_to_str`.
 - **Fix:** try 15, 16, then 17 digits (1.2 s per million, identical output except for
   subnormals, which keep the loop), or a shortest-digits algorithm.
+- **Done.** As proposed: 15 digits without their trailing zeros if they read back,
+  else 16, else 17; subnormal numbers keep the loop. A million calls: 1.4 s, from
+  3.8 s. Compared with the loop on 12 million doubles (random bits, short decimals,
+  subnormals, large integers, neighbours of short decimals): the same text for all.
+  Test: `tests/run/float_shortest.vow`.
 
 ## L. The language server
 

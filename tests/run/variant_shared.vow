@@ -1,0 +1,63 @@
+// language: 0.9
+// A variant without fields is one shared object, however often it is made.
+enum Color
+  Red,
+  Green,
+  Blue,
+end enum Color
+
+enum Shape
+  Dot,
+  Line(len: Int),
+  Blank,
+end enum Shape
+
+fn name(c: Color) -> String do
+  match c
+  case Red then
+    return "red"
+  case Green then
+    return "green"
+  case Blue then
+    return "blue"
+  end match
+end fn name
+
+fn size(s: Shape) -> Int do
+  match s
+  case Dot then
+    return 1
+  case Line(len: n) then
+    return n
+  case Blank then
+    return 0
+  end match
+end fn size
+
+fn main() uses console do
+  var cs: List<Color> = []
+  for i in 0..9 do
+    if (i % 3) == 0 then
+      set cs = push(list: cs, item: Color.Red)
+    elif (i % 3) == 1 then
+      set cs = push(list: cs, item: Color.Green)
+    else
+      set cs = push(list: cs, item: Color.Blue)
+    end if
+  end for
+  var parts: List<String> = []
+  for c in cs do
+    set parts = push(list: parts, item: name(c))
+  end for
+  print(join(parts: parts, sep: " ") ++ "\n")
+  // The same tag in another enum is another variant.
+  let shapes = [Shape.Dot, Shape.Line(len: 5), Shape.Blank, Shape.Dot]
+  var total = 0
+  for s in shapes do
+    set total = total + size(s)
+  end for
+  print(int_to_str(total) ++ "\n")
+  if (Color.Green == Color.Green) and (Color.Red != Color.Blue) then
+    print("equal\n")
+  end if
+end fn main

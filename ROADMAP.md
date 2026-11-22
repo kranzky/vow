@@ -201,15 +201,16 @@ Speed of the runtime and generated code:
 - [x] P1: string `++` in place for `set s = s ++ x` (proved string builders, and
       `std/text`'s `to_lower` and `to_upper`, were quadratic), and one allocation for a
       chain of `++`
-- [ ] P2: the documented "remove the last element" idiom copies the list; share the
+- [x] P2: the documented "remove the last element" idiom copies the list; share the
       buffer and truncate in place
-- [ ] P3: updating one element of a list of structs allocates a struct
-- [ ] P4: borrow the subject of a `match` or `for x in xs` that cannot be reassigned
+- [x] P3: updating one element of a list of structs allocates a struct
+- [x] P4: borrow the subject of a `match` or `for x in xs` that cannot be reassigned
       (binarytrees: 0.97 s to 0.78 s)
-- [ ] P5: `value_or(opt: lookup(...), default: d)` without allocating an Option
-- [ ] P6: shared constants for variants without fields; an 8-byte object header with
-      per-type descriptors (which also removes the limit in A3)
-- [ ] P7: `float_to_str` without 17 print-and-parse round trips
+- [x] P5: `value_or(opt: lookup(...), default: d)` without allocating an Option
+- [x] P6a: shared constants for variants without fields
+- [ ] P6b: an 8-byte object header with per-type descriptors (a three-word node goes
+      from 48 to 32 bytes; also removes the special case for wide objects in A3)
+- [x] P7: `float_to_str` without 17 print-and-parse round trips
 
 Language server:
 - [ ] L1: checking one file clears the diagnostics of every other open file

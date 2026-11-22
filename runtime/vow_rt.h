@@ -30,6 +30,7 @@
 #include <errno.h>
 #include <math.h>
 #include <fcntl.h>
+#include <float.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -668,10 +669,28 @@ static V vfloat_to_str(V x) {
     if (isinf(d)) return d > 0 ? vstr_new("inf", 3) : vstr_new("-inf", 4);
     // The fewest significant digits that read back as d; then, as Python's repr does,
     // plain notation for magnitudes from 1e-4 up to 1e16 and an exponent otherwise.
+    // A double holds any 15 digits, so if d rounded to 15 reads back as d, the fewest
+    // are those 15 without their trailing zeros: any shorter text that reads back as
+    // d is d rounded to 15 digits too (two such decimals are further apart than the
+    // doubles around d). If not, 16 are the fewest when they read back, and 17 always
+    // do. Subnormal numbers hold fewer digits, so there each count is tried.
     int p = 1;
-    for (; p < 17; p++) {
-        snprintf(buf, sizeof buf, "%.*e", p - 1, d);
-        if (strtod(buf, NULL) == d) break;
+    if (d == 0 || fabs(d) >= DBL_MIN) {
+        snprintf(buf, sizeof buf, "%.14e", d);
+        if (strtod(buf, NULL) == d) {
+            // d.dddddddddddddde+xx, or -d.ddd...: the digits end before the 'e'.
+            const char *e = strchr(buf, 'e');
+            p = 15;
+            while (p > 1 && e[p - 16] == '0') p--;
+        } else {
+            snprintf(buf, sizeof buf, "%.15e", d);
+            p = strtod(buf, NULL) == d ? 16 : 17;
+        }
+    } else {
+        for (; p < 17; p++) {
+            snprintf(buf, sizeof buf, "%.*e", p - 1, d);
+            if (strtod(buf, NULL) == d) break;
+        }
     }
     snprintf(buf, sizeof buf, "%.*e", p - 1, d);
     int e = atoi(strchr(buf, 'e') + 1);
@@ -751,7 +770,21 @@ static V vow_steal(V base, int64_t i) {
     return vdup(VP(base)[i]);
 }
 
+// A variant without fields: one object for each tag, shared by every use and never
+// freed, as None is (a variant is only its tag, so variants of different enums with
+// the same tag share one too). Beyond the 256th variant of an enum each use allocates.
+#define VOW_VARIANT0_SHARED 256
+static V vow_variant0_obj[VOW_VARIANT0_SHARED];
+
 static V vow_variant0(int64_t tag) {
+    if (tag >= 0 && tag < VOW_VARIANT0_SHARED) {
+        if (!vow_variant0_obj[tag]) {
+            V r = vow_immortal(vow_fields(1, 0));
+            VP(r)[0] = (V)tag;
+            vow_variant0_obj[tag] = r;
+        }
+        return vow_variant0_obj[tag];
+    }
     V r = vow_fields(1, 0);
     VP(r)[0] = (V)tag;
     return r;
@@ -880,6 +913,17 @@ static V vlist_push(V l, V x) {
         vdrop(l);
         return r;
     }
+    if (b && VH(l)->rc == 1 && VH(b)->rc == 1 && n < VB(b)->used) {
+        // The only list on a buffer that holds elements past its end (it is the
+        // beginning of a list that is gone, see vlist_cut_at): they are released, and
+        // the new element goes where the first of them was.
+        if (heap)
+            for (int64_t i = n; i < VB(b)->used; i++) vdrop(VB(b)->items[i]);
+        VB(b)->items[n] = x;
+        VB(b)->used = n + 1;
+        L->len = n + 1;
+        return l;
+    }
     V nb = vbuf_new(n * 2, heap);
     if (n) {
         memcpy(VB(nb)->items, VB(b)->items, (size_t)n * sizeof(V));
@@ -939,6 +983,23 @@ static inline V vlist_set_at_at(V l, V i, V x, VOW_AT) {
 
 #define vlist_set_at(l, i, x) vlist_set_at_at((l), (i), (x), __FILE__, __LINE__)
 
+// Takes element i out of l for an update that set_at then writes back (`set ps =
+// set_at(list: ps, at: i, value: ps[i] with (...))`): when l and its buffer are
+// unshared the element is moved out and its slot left empty, so that the update can be
+// made where the element is; otherwise it is duplicated. Borrows l.
+static inline V vlist_steal_at(V l, V i, VOW_AT) {
+    VOW_REQUIRE(VI(i) >= 0 && VI(i) < VL(l)->len, "list index out of bounds");
+    V b = VL(l)->buf;
+    V x = VB(b)->items[VI(i)];
+    if (VH(l)->rc == 1 && VH(b)->rc == 1) {
+        VB(b)->items[VI(i)] = 0;
+        return x;
+    }
+    return vdup(x);
+}
+
+#define vlist_steal(l, i) vlist_steal_at((l), (i), __FILE__, __LINE__)
+
 // Consumes l. The beginning of a list that nothing else refers to stays where it is
 // (`set xs = slice(of: xs, from: 0, to: len(xs) - 1)` takes the last element off in
 // constant time): the list is made shorter, and if nothing else shares its buffer the
@@ -956,6 +1017,16 @@ static V vlist_cut_at(V l, V from, V to, VOW_AT) {
         }
         VL(l)->len = n;
         return l;
+    }
+    // The beginning of a list that something else refers to (a parameter, in a helper
+    // that takes the last element off): a new list on the same buffer, when it is at
+    // least half of what the buffer holds, so that a short piece does not keep a long
+    // buffer and its elements alive. A push to it then finds elements past its end,
+    // and releases them if by then it is the buffer's only list (vlist_push).
+    if (VI(from) == 0 && VL(l)->buf && n * 2 >= VB(VL(l)->buf)->used) {
+        V r = vlist_make(n, vdup(VL(l)->buf), heap);
+        vdrop(l);
+        return r;
     }
     V nb = vbuf_new(n, heap);
     if (n) {
@@ -1127,6 +1198,19 @@ static V vmap_lookup(V m, V k, int flags) {
 
 static V vmap_has(V m, V k, int flags) { return (V)(vn_find(m, k, flags) != 0); }
 
+// value_or(opt: lookup(map: m, key: k), default: d) without the Option: borrows m and
+// k and consumes d; the result owns a reference to the value.
+static V vmap_get_or(V m, V k, V d, int flags) {
+    V n = vn_find(m, k, flags);
+    if (!n) return d;
+    V v = VN(n)->val;
+    if (flags & VN_VAL_HEAP) {
+        vdup(v);
+        vdrop(d);
+    }
+    return v;
+}
+
 static V vn_keys(V n, V acc, int flags) {
     if (!n) return acc;
     acc = vn_keys(VN(n)->left, acc, flags);
@@ -1244,6 +1328,18 @@ static V vhm_lookup(V h, V k, int flags) {
 }
 
 static V vhm_has(V h, V k, int flags) { return (V)(vhm_find(h, k, flags) >= 0); }
+
+// As vmap_get_or.
+static V vhm_get_or(V h, V k, V d, int flags) {
+    int64_t i = vhm_find(h, k, flags);
+    if (i < 0) return d;
+    V v = vhm_valarr(h)[i];
+    if (flags & VN_VAL_HEAP) {
+        vdup(v);
+        vdrop(d);
+    }
+    return v;
+}
 static inline V vhm_len(V h) { return h ? (V)VHM(h)->count : 0; }
 
 static int vow_int_cmp(const void *a, const void *b) {
