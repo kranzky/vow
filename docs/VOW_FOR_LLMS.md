@@ -501,6 +501,26 @@ The counterexample shows the values at the failing point. Here, after one iterat
 `total` is 2 and `i` is 1. Ask whether the claim is false (fix the code or the
 invariant) or merely unproved (add a fact).
 
+For an `inout` parameter that has changed, the counterexample shows its value on entry
+too (`a = 3, old(a) = 0`). When a variable it shows is assigned in a loop, a note says
+so:
+
+```
+    counterexample: s = -1, len(xs) = 0
+    s is assigned in a loop, of which the verifier knows only the invariants: if no run reaches these values, add the invariant that excludes them
+```
+
+After a loop (and inside it) the verifier knows of such a variable only what the
+invariants say. So values that no run could produce (here a negative sum of no
+elements) mean a missing invariant, not a bug in the code.
+
+A *possible counterexample* comes with "not proved: it may be false, or need facts the
+verifier does not have". This happens in a function that uses a recursive
+specification function or one of `int_to_float`, `abs_float`, `floor`, `ceil`, `sqrt`
+and Float negation. The values fit every fact the verifier used. Check them against
+the code by hand: if they are a real failing case, fix the code or the claim; if not,
+state the fact that rules them out.
+
 No counterexample means Z3 found the claim unprovable from what it knows, but
 couldn't present values for the variables involved:
 
@@ -531,7 +551,8 @@ never compiles, so it can't be shipped by accident.
 {"kind":"error","file":"tests/fail/index.vow","line":3,"col":10,"message":"cannot prove index in bounds: 0 <= 0 < len(xs)","notes":["counterexample: len(xs) = 0","in function 'first'"]}
 ```
 
-`kind` is `"error"` or `"hole"`.
+`kind` is `"error"` or `"hole"`. Trouble with Z3 itself (not installed, stopped) is an
+`"error"` too, at the function being proved, or at line 0 when no function is to blame.
 
 **Runtime panics** name the source line: `vow: panic at calc.vow:12: integer overflow
 in '*'` (exit status 101). In a verified program the only runtime failures are integer

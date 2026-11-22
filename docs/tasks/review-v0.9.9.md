@@ -438,6 +438,21 @@ obligation, so "incremental solving" in the usual sense is done.
 - Ask for the model in the same run (`(get-value ...)` after each `check-sat`,
   ignoring the error after `unsat`), instead of one more Z3 process per failed
   obligation (from reading).
+- **Done.** `proof_scripts` divides the functions, in order, among up to `z3_jobs()`
+  scripts of about the same amount of text (8, or `$VOW_JOBS`), and `run_z3_all`
+  writes them to a temporary directory and has one `sh` start a Z3 for each, as many
+  at once as the machine has processors (`getconf _NPROCESSORS_ONLN`). The compiler's
+  cold check goes from 1.7 s to 0.6 s (Z3 alone from 1.6 s to 0.3 s with eight
+  processes). Starting them costs about 25 ms, so a script gets at least 100,000 bytes
+  (`script_share`) and a small program is proved by one process, with no shell. If the
+  shell cannot be run, the scripts run one after the other. The dump (`VOW_SMT_DUMP`)
+  and the answers are the same with one process and with several.
+- **Done, another way.** The models: the scripts that ask for them (one per failed
+  obligation, as before) are run together through `run_z3_all` when there are three
+  or more. Asking in the main run would have put an error after every `unsat`.
+- **Not done.** A program with little text but hard proofs (a few functions that each
+  run to the work limit) is still proved by one process: how long a query will take
+  cannot be told from its text.
 
 ### V3. There is no overall time limit (reproduced by one reviewer)
 
@@ -513,6 +528,18 @@ obligation, so "incremental solving" in the usual sense is done.
   in Z3.
 - **Fix:** assert each new fact once, in nested `push` levels that follow the path.
   No gain at today's sizes; it removes the blow-up.
+- **Done.** `fn_block` keeps the facts asserted in nested levels: for each obligation
+  it pops the levels holding facts the obligation does not have and pushes one with
+  those it lacks (and one for the part shared with the obligation before, when that
+  was inside a larger level, so that the next one keeps it). 2,000 asserts in a row:
+  57 MB and 8.4 s before, 220 KB and 0.17 s now. Measured on 6,531 queries (compiler,
+  language server, examples, `tests/run`, `total`, `panic`, `vtest`): every answer is
+  the same, the work in all is 11% less, and the largest proof needs 141,373 units
+  (123,223 before; the limit is 2,000,000). Verifier version `vow-verifier-16`. The
+  v0.3 layout (`VOW_SMT_V03`) and the scripts that ask for a model are as they were.
+- **Not done.** A function of N steps that each assign a variable and assert about it
+  still takes Z3 time that grows with the square of N (1,000 steps 3 s, 2,000 steps
+  19 s): the script is linear, but every query has all the function's definitions.
 
 ### V7. A function that mentions a Float never gets a counterexample (reproduced by one reviewer)
 
@@ -525,6 +552,16 @@ obligation, so "incremental solving" in the usual sense is done.
   unused Float parameter and the same function prints `counterexample: m = -1, n = 0`.
 - **Fix:** turn it off per obligation, for those whose facts or goal use the
   axiomatised symbols; do not count this case as undecided.
+- **Done, another way.** The six Float axioms were sent for every function that
+  mentions a Float; `float_axiom` now sends the axiom of an operation only when the
+  function's queries use it, so a function that only has a Float parameter, or
+  compares and adds Floats, has none and gets counterexamples. Turning model-based
+  instantiation on for single obligations was tried and does not work while an axiom
+  is asserted: with the `int_to_float` axiom alone Z3 runs to the work limit. Instead,
+  in a function with axioms each answer is followed by `(get-info :reason-unknown)`:
+  "incomplete quantifiers" is the undecidable case, reported as before plus the values
+  Z3 had in mind as a "possible counterexample", and not counted as undecided (no note
+  about the Z3 version); any other reason is Z3 giving up, and is now reported as that.
 
 ### V8. Counterexamples omit `old(x)` and can show states no run reaches (reproduced by one reviewer)
 
@@ -534,6 +571,11 @@ obligation, so "incremental solving" in the usual sense is done.
   which no run produces (the state is the loop's summary).
 - **Fix:** show `old(p)` for inout parameters the goal names; say "possible state
   after the loop" when a shown variable was assigned in a loop.
+- **Done.** `obligation` shows `old(p)` for every inout parameter whose value has
+  changed (whether or not the goal names it), and records which of the variables it
+  shows have been assigned in a loop met so far in the function (`Verifier.looped`);
+  `failure_diag` adds a note naming them. The record is by name and in program order,
+  not by path: a variable assigned in a loop on another branch is named too.
 
 ### V9. With `--json`, solver trouble is plain text on stderr (reproduced by one reviewer)
 
@@ -542,6 +584,11 @@ obligation, so "incremental solving" in the usual sense is done.
   killed mid-run gets the hint "is Z3 installed?". A Z3 error is reported with the
   script's line number and no function name.
 - **Fix:** a JSON diagnostic for driver errors, naming the function.
+- **Done.** `discharge` reads the answers script by script and knows which function
+  each is for, so an `(error ...)` or a run that stops short names the function it
+  was in (`Discharged.fn_name`). A Z3 that is not there (status 127, no answers) is
+  reported as that, and one ended by a signal no longer gets "is Z3 installed?". With
+  `--json`, `vowc` prints the error as a diagnostic at the function, or at line 0.
 
 ## K. Checked builds (`--check-contracts`)
 

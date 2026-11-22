@@ -174,7 +174,7 @@ Verifier time and stability (the compiler checks itself in 34 s; with V1, under 
       three sanity checks that timed out (the compiler checks itself in 1.9 s, from
       33.5 s). Sanity checks still use model-based instantiation: without it every one
       answers `unknown`, for 0.4 s more
-- [ ] V2: run chunks of functions in parallel Z3 processes (measured at 0.82 s to
+- [x] V2: run chunks of functions in parallel Z3 processes (measured at 0.82 s to
       0.24 s for Z3 alone), and ask for the model in the same run
 - [x] V3: an overall time limit: a hung or overrunning Z3 hangs `vowc`, and a function
       with k hard obligations costs k times 10 s
@@ -182,11 +182,11 @@ Verifier time and stability (the compiler checks itself in 34 s; with V1, under 
       does not depend on machine load or on what ran before
 - [x] V5: cache keys cover only the types and specification functions a function can
       reach: today, editing any one-line function re-verifies the whole program
-- [ ] V6: assert each fact once per path (script size is quadratic in a path's facts)
-- [ ] V7: a function that mentions a Float never gets a counterexample, and blames the
+- [x] V6: assert each fact once per path (script size is quadratic in a path's facts)
+- [x] V7: a function that mentions a Float never gets a counterexample, and blames the
       Z3 version
-- [ ] V8: counterexamples show `old(x)`, and say when a state is a loop's summary
-- [ ] V9: with `--json`, report solver trouble as a JSON diagnostic naming the function
+- [x] V8: counterexamples show `old(x)`, and say when a state is a loop's summary
+- [x] V9: with `--json`, report solver trouble as a JSON diagnostic naming the function
 
 Checked builds (`--check-contracts`, the fuzzers' oracle):
 - [x] K1: a contract that holds can panic with an overflow, because it was proved over

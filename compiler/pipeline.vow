@@ -67,8 +67,10 @@ end fn check_source
 struct Verified
   // Holes (with the facts known at each) or failed proofs.
   diags: List<Diag>,
-  // Trouble running Z3, or "".
+  // Trouble running Z3, or "", and where: the function it was proving, or the start
+  // of the program.
   error: String,
+  error_pos: Pos,
   // Whether Z3 left some proof undecided.
   undecided: Bool,
 end struct Verified
@@ -151,6 +153,7 @@ end fn query_keys
 // neither reads the store nor adds to it.
 fn verify_source(src: Source, c: Checker, no_cache: Bool, v03: Bool) -> Verified uses fs, proc do
   let none: List<Diag> = []
+  let nowhere = Pos(file: 0, line: 0, col: 0)
   var store = ""
   if not (no_cache or v03) then
     set store = proof_store()
@@ -179,11 +182,27 @@ fn verify_source(src: Source, c: Checker, no_cache: Bool, v03: Bool) -> Verified
     end match
   end for
   if len(c.info.holes) > 0 then
-    return Verified(diags: hole_diags(c: c, v: v), error: "", undecided: false)
+    return Verified(diags: hole_diags(c: c, v: v), error: "", error_pos: nowhere, undecided: false)
   end if
   let r = discharge(pre: order_preamble(v.preamble), vcs: vcs, every: v03)
   if len(r.error) > 0 then
-    return Verified(diags: none, error: r.error, undecided: false)
+    var at = nowhere
+    for item in src.items do
+      match item
+      case FnItem(decl: f) then
+        if f.name == r.fn_name then
+          set at = f.pos
+        end if
+      else
+      end match
+    end for
+    // The function named as its file names it.
+    var msg = r.error
+    let named = shown(src: src, diags: [diag(pos: at, msg: r.error)])
+    if len(named) > 0 then
+      set msg = named[0].msg
+    end if
+    return Verified(diags: none, error: msg, error_pos: at, undecided: false)
   end if
   var failed: Map<String, Bool> = {}
   for f in r.failures do
@@ -201,11 +220,12 @@ fn verify_source(src: Source, c: Checker, no_cache: Bool, v03: Bool) -> Verified
   var undecided = false
   for f in r.failures do
     set diags = push(list: diags, item: failure_diag(f))
-    if starts_with(s: f.verdict, p: "unknown") then
+    // Z3 gave up; not "unknown-unfolded", which no Z3 decides.
+    if f.verdict == "unknown" then
       set undecided = true
     end if
   end for
-  return Verified(diags: diags, error: "", undecided: undecided)
+  return Verified(diags: diags, error: "", error_pos: nowhere, undecided: undecided)
 end fn verify_source
 
 fn hole_diags(c: Checker, v: Verifier) -> List<Diag> do

@@ -9,7 +9,7 @@ import "pretty.vow"
 // changes (tests/fingerprint.sh enforces this), so that results proved by an earlier
 // verifier, which might have had a soundness bug since fixed, are not reused.
 fn verifier_version() -> String do
-  return "vow-verifier-15"
+  return "vow-verifier-16"
 end fn verifier_version
 
 // The walkers below collect names from expressions and statements: with what "calls",

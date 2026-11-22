@@ -21,6 +21,9 @@ struct Ob
   facts: List<String>,
   goal: String,
   show: List<Shown>,
+  // The variables shown that a loop assigns: after the loop, or in it, all that is
+  // known of them is what its invariants say (see failure_diag).
+  loose: List<String>,
 end struct Ob
 
 // qdefs are quantified content axioms about fresh constants. They are consistent by
@@ -32,9 +35,11 @@ struct FnVc
   defs: List<String>,
   qdefs: List<String>,
   obs: List<Ob>,
-  // Whether the queries define recursive specification functions by axioms. Z3's
-  // model-based instantiation then spends its whole timeout on a false claim, so it is
-  // turned off: such a claim is reported as not proved at once.
+  // Whether the queries have axioms: the definitions of recursive specification
+  // functions, or what is known of a Float operation. Z3's model-based instantiation
+  // then spends its whole budget on a false claim, so it is turned off: such a claim is
+  // not decided, and is reported at once as not proved, with the values Z3 had in mind
+  // as a possible counterexample.
   axioms: Bool,
   // The declarations, shared by the whole script, that these queries name.
   globals: List<String>,
@@ -102,9 +107,13 @@ struct Verifier
   // structural equality predicates it defines.
   sf_done: List<String>,
   eq_done: List<String>,
-  // Float literals defined in this function's queries, and whether it uses floats.
+  // Float literals defined in this function's queries, whether it uses floats, and the
+  // Float operations whose axioms it has (see float_axiom).
   flits: List<FloatLit>,
   floats: Bool,
+  fax: List<String>,
+  // The variables assigned in the loops met so far in this function.
+  looped: List<String>,
   // For the language server: the line (in the root file) whose known facts to record
   // in probe when its first statement is reached, or -1.
   probe_line: Int,
@@ -135,7 +144,7 @@ fn new_verifier(info: Info) -> Verifier do
   end for
   let loops: List<LoopCtx> = []
   return Verifier(info: info, n: 0, decls: [], defs: [], qdefs: [], obs: [], preamble: pre, sigs: {}, used: {}, strs: {}, loops: loops,
-    fname: "", ret: plain(Ty.TUnit), post: [], dec: [], params: {}, hole_facts: {}, sf_done: [], eq_done: [], flits: [], floats: false, probe_line: -1, probe: [],
+    fname: "", ret: plain(Ty.TUnit), post: [], dec: [], params: {}, hole_facts: {}, sf_done: [], eq_done: [], flits: [], floats: false, fax: [], looped: [], probe_line: -1, probe: [],
     hyps: true)
 end fn new_verifier
 
@@ -601,29 +610,45 @@ fn obligation(v: inout Verifier, st: St, pos: Pos, what: String, goal: String) d
     return
   end if
   var show: List<Shown> = []
+  var loose: List<String> = []
   for n in keys(st.env) do
     match lookup(map: st.env, key: n)
     case Some(value: x) then
-      match x.ty
-      case TInt then
-        set show = push(list: show, item: Shown(name: n, term: x.term))
-      case TBool then
-        set show = push(list: show, item: Shown(name: n, term: x.term))
-      case TList(elem: e) then
-        set show = push(list: show, item: Shown(name: "len(" ++ n ++ ")", term: "(len " ++ x.term ++ ")"))
-      case TStr then
-        set show = push(list: show, item: Shown(name: "len(" ++ n ++ ")", term: "(len " ++ x.term ++ ")"))
-      case TMap(key: k, val: vv) then
-        set show = push(list: show, item: Shown(name: "len(" ++ n ++ ")", term: "(len " ++ x.term ++ ")"))
-      case THashMap(key: k, val: vv) then
-        set show = push(list: show, item: Shown(name: "len(" ++ n ++ ")", term: "(len " ++ x.term ++ ")"))
-      else
-      end match
+      let before = len(show)
+      show_var(show: inout show, name: n, ty: x.ty, term: x.term)
+      if (len(show) > before) and contains_str(xs: v.looped, x: n) then
+        set loose = push(list: loose, item: n)
+      end if
+      // An inout parameter that has changed: its value on entry too.
+      let entry = value_or(opt: lookup(map: v.params, key: n), default: x.term)
+      if entry != x.term then
+        show_var(show: inout show, name: "old(" ++ n ++ ")", ty: x.ty, term: entry)
+      end if
     case None then
     end match
   end for
-  set v = v with (obs: push(list: v.obs, item: Ob(pos: pos, what: what, facts: st.facts, goal: goal, show: show)))
+  set v = v with (obs: push(list: v.obs, item: Ob(pos: pos, what: what, facts: st.facts, goal: goal, show: show, loose: loose)))
 end fn obligation
+
+// What a counterexample shows of a variable: an Int or a Bool, or the length of a
+// String or a collection.
+fn show_var(show: inout List<Shown>, name: String, ty: Ty, term: String) do
+  match ty
+  case TInt then
+    set show = push(list: show, item: Shown(name: name, term: term))
+  case TBool then
+    set show = push(list: show, item: Shown(name: name, term: term))
+  case TList(elem: e) then
+    set show = push(list: show, item: Shown(name: "len(" ++ name ++ ")", term: "(len " ++ term ++ ")"))
+  case TStr then
+    set show = push(list: show, item: Shown(name: "len(" ++ name ++ ")", term: "(len " ++ term ++ ")"))
+  case TMap(key: k, val: vv) then
+    set show = push(list: show, item: Shown(name: "len(" ++ name ++ ")", term: "(len " ++ term ++ ")"))
+  case THashMap(key: k, val: vv) then
+    set show = push(list: show, item: Shown(name: "len(" ++ name ++ ")", term: "(len " ++ term ++ ")"))
+  else
+  end match
+end fn show_var
 
 fn str_const(v: inout Verifier, s: String) -> String do
   match lookup(map: v.strs, key: s)
@@ -660,7 +685,7 @@ fn verify_fn(v: inout Verifier, f: FnDecl) -> FnVc do
   // A generic function is verified once, with its type parameters as unknown types
   // (values of the uninterpreted sort Val), which covers every instance.
   let info = v.info
-  set v = v with (n: 0, decls: [], defs: [], qdefs: [], obs: [], used: {}, strs: {}, loops: empty_loops, fname: f.name, params: {}, sf_done: [], eq_done: [], flits: [], floats: false,
+  set v = v with (n: 0, decls: [], defs: [], qdefs: [], obs: [], used: {}, strs: {}, loops: empty_loops, fname: f.name, params: {}, sf_done: [], eq_done: [], flits: [], floats: false, fax: [], looped: [],
     info: info with (tenv: identity_env(f.tparams), eq_tparams: f.eq, ord_tparams: f.ord))
   var fi = FnInfo(name: f.name, params: [], io: [], ret: plain(Ty.TUnit), effects: [], pre: [], post: [],
     dec: [], inline: Option.None, spec_body: Option.None, spec_rec: false, pos: f.pos)
@@ -701,7 +726,7 @@ fn verify_fn(v: inout Verifier, f: FnDecl) -> FnVc do
   if (not st.dead) and (ty_show(fi.ret.ty) == "Unit") then
     check_post(v: inout v, st: st, pos: f.pos, val: "0")
   end if
-  return FnVc(name: f.name, decls: v.decls, defs: v.defs, qdefs: v.qdefs, obs: v.obs, axioms: (len(v.sf_done) > 0) or v.floats,
+  return FnVc(name: f.name, decls: v.decls, defs: v.defs, qdefs: v.qdefs, obs: v.obs, axioms: (len(v.sf_done) > 0) or (len(v.fax) > 0),
     globals: keys(v.used))
 end fn verify_fn
 
@@ -2032,26 +2057,43 @@ fn use_floats(v: inout Verifier) do
     return
   end if
   set v = v with (floats: true)
-  // Sound facts about the operations that are exact or monotone, as axioms that fire
-  // only on the operations a function uses.
-  var ax: List<String> = []
   for d in ["(declare-sort Flt 0)", "(declare-fun fkey (Flt) Real)", "(declare-fun fnan (Flt) Bool)",
       "(declare-fun elem_Flt (Val Int) Flt)", "(declare-fun fneg (Flt) Flt)", "(declare-fun i2f (Int) Flt)",
       "(declare-fun fabs_ (Flt) Flt)", "(declare-fun ffloor (Flt) Flt)", "(declare-fun fceil (Flt) Flt)",
       "(declare-fun fsqrt (Flt) Flt)"] do
     set v = v with (preamble: insert(map: v.preamble, key: d, value: true), used: insert(map: v.used, key: d, value: true))
   end for
-  let n = "(not (fnan x))"
-  set ax = push(list: ax, item: "(forall ((x Flt)) (! (and (= (fnan (fneg x)) (fnan x)) (=> " ++ n ++ " (= (fkey (fneg x)) (- (fkey x))))) :pattern ((fneg x))))")
-  set ax = push(list: ax, item: "(forall ((i Int)) (! (and (not (fnan (i2f i))) (=> (and (<= (- 9007199254740992) i) (<= i 9007199254740992)) (= (fkey (i2f i)) (to_real i)))) :pattern ((i2f i))))")
-  set ax = push(list: ax, item: "(forall ((x Flt)) (! (and (= (fnan (fabs_ x)) (fnan x)) (=> " ++ n ++ " (= (fkey (fabs_ x)) (ite (>= (fkey x) 0.0) (fkey x) (- (fkey x)))))) :pattern ((fabs_ x))))")
-  set ax = push(list: ax, item: "(forall ((x Flt)) (! (and (= (fnan (ffloor x)) (fnan x)) (=> " ++ n ++ " (<= (fkey (ffloor x)) (fkey x)))) :pattern ((ffloor x))))")
-  set ax = push(list: ax, item: "(forall ((x Flt)) (! (and (= (fnan (fceil x)) (fnan x)) (=> " ++ n ++ " (>= (fkey (fceil x)) (fkey x)))) :pattern ((fceil x))))")
-  set ax = push(list: ax, item: "(forall ((x Flt)) (! (=> (and " ++ n ++ " (>= (fkey x) 0.0)) (and (not (fnan (fsqrt x))) (>= (fkey (fsqrt x)) 0.0))) :pattern ((fsqrt x))))")
-  for a in ax do
-    add_qdef(v: inout v, d: "(assert " ++ a ++ ")")
-  end for
 end fn use_floats
+
+// What the verifier knows about a Float operation that is exact or monotone: a sound
+// fact, as an axiom that fires on its uses. A function has the axioms of the
+// operations its queries use and no others: with any, Z3 cannot show that a false
+// claim is false (see FnVc.axioms), so a function that only mentions a Float, or
+// compares and adds them, must have none.
+fn float_axiom(v: inout Verifier, f: String) do
+  if contains_str(xs: v.fax, x: f) then
+    return
+  end if
+  let n = "(not (fnan x))"
+  var a = ""
+  if f == "fneg" then
+    set a = "(forall ((x Flt)) (! (and (= (fnan (fneg x)) (fnan x)) (=> " ++ n ++ " (= (fkey (fneg x)) (- (fkey x))))) :pattern ((fneg x))))"
+  elif f == "i2f" then
+    set a = "(forall ((i Int)) (! (and (not (fnan (i2f i))) (=> (and (<= (- 9007199254740992) i) (<= i 9007199254740992)) (= (fkey (i2f i)) (to_real i)))) :pattern ((i2f i))))"
+  elif f == "fabs_" then
+    set a = "(forall ((x Flt)) (! (and (= (fnan (fabs_ x)) (fnan x)) (=> " ++ n ++ " (= (fkey (fabs_ x)) (ite (>= (fkey x) 0.0) (fkey x) (- (fkey x)))))) :pattern ((fabs_ x))))"
+  elif f == "ffloor" then
+    set a = "(forall ((x Flt)) (! (and (= (fnan (ffloor x)) (fnan x)) (=> " ++ n ++ " (<= (fkey (ffloor x)) (fkey x)))) :pattern ((ffloor x))))"
+  elif f == "fceil" then
+    set a = "(forall ((x Flt)) (! (and (= (fnan (fceil x)) (fnan x)) (=> " ++ n ++ " (>= (fkey (fceil x)) (fkey x)))) :pattern ((fceil x))))"
+  elif f == "fsqrt" then
+    set a = "(forall ((x Flt)) (! (=> (and " ++ n ++ " (>= (fkey x) 0.0)) (and (not (fnan (fsqrt x))) (>= (fkey (fsqrt x)) 0.0))) :pattern ((fsqrt x))))"
+  else
+    return
+  end if
+  set v = v with (fax: push(list: v.fax, item: f))
+  add_qdef(v: inout v, d: "(assert " ++ a ++ ")")
+end fn float_axiom
 
 // The term for a Float built-in the logic knows something about (see use_floats), or "".
 // round has no facts; float_to_int, float_to_str and str_to_float are unknown values.
@@ -2077,11 +2119,13 @@ fn float_builtin(v: inout Verifier, name: String, a: String) -> String do
     return ""
   end match
   use_floats(inout v)
+  float_axiom(v: inout v, f: f)
   return "(" ++ f ++ " " ++ a ++ ")"
 end fn float_builtin
 
 fn float_neg(v: inout Verifier, a: String) -> String do
   use_floats(inout v)
+  float_axiom(v: inout v, f: "fneg")
   return "(fneg " ++ a ++ ")"
 end fn float_neg
 
@@ -2667,6 +2711,9 @@ fn havoc(v: inout Verifier, body: List<Stmt>, st: St, invs: List<Expr>) -> St do
   for n in names do
     match lookup(map: st.env, key: n)
     case Some(value: x) then
+      if not contains_str(xs: v.looped, x: n) then
+        set v = v with (looped: push(list: v.looped, item: n))
+      end if
       let t = fresh(v: inout v, sort: sort_of(x.ty))
       set h = h with (env: insert(map: h.env, key: n, value: x with (term: t)))
       assume_preds(v: inout v, st: inout h, name: n, preds: x.preds, term: t)
@@ -3393,10 +3440,19 @@ struct Failure
   model: List<Shown>,
 end struct Failure
 
+// error is trouble running Z3 ("" if none), and fn_name the function whose proof it
+// was in, if that is known.
 struct Discharged
   error: String,
+  fn_name: String,
   failures: List<Failure>,
 end struct Discharged
+
+// The scripts that prove a program, and how many functions each one proves.
+struct Scripts
+  texts: List<String>,
+  fns: List<Int>,
+end struct Scripts
 
 // The Z3 release Vow is tested with (tools/install-z3.sh installs it). Whether a hard
 // query times out can differ between versions.
@@ -3418,6 +3474,124 @@ fn run_z3(script: String, queries: Int) -> Output uses proc do
   return run(argv: [z3_path(), "-in", "-smt2", "-T:" ++ int_to_str(script_backstop(queries))], input: script)
 end fn run_z3
 
+// How many Z3 processes may run at once: $VOW_JOBS if it is a number above zero (1 for
+// one after the other), or else 8, and never more than the machine has processors
+// (see run_z3_all).
+fn z3_jobs() -> Int uses proc do
+  match getenv("VOW_JOBS")
+  case Some(value: x) then
+    let n = value_or(opt: str_to_int(trim(x)), default: 0)
+    if n > 0 then
+      return n
+    end if
+    return 8
+  case None then
+    return 8
+  end match
+end fn z3_jobs
+
+// s as one word of a shell command.
+fn shell_word(s: String) -> String do
+  var parts: List<String> = ["'"]
+  for i in 0..len(s) do
+    if s[i] == '\'' then
+      set parts = push(list: parts, item: "'\\''")
+    else
+      set parts = push(list: parts, item: char(s[i]))
+    end if
+  end for
+  return join(parts: push(list: parts, item: "'"), sep: "")
+end fn shell_word
+
+// Shell commands that run Z3 on the scripts 0.smt2, 1.smt2, ... of the directory given
+// as their first argument, jobs of them at once (fewer on a machine with fewer
+// processors), then print for each, in order, a line "vow-z3-job", what Z3 printed and
+// a line "vow-z3-exit <status>", and remove the directory.
+fn z3_shell(count: Int, queries: Int, jobs: Int) -> String uses proc do
+  let z3 = shell_word(z3_path())
+  var names: List<String> = []
+  for k in 0..count do
+    set names = push(list: names, item: int_to_str(k))
+  end for
+  let all = join(parts: names, sep: " ")
+  let s = ["d=$1", "trap 'rm -rf \"$d\"' EXIT", "trap 'exit 130' INT TERM HUP",
+    "command -v " ++ z3 ++ " >/dev/null 2>&1 || exit 127", "n=$(getconf _NPROCESSORS_ONLN 2>/dev/null) || n=4",
+    "case $n in ''|*[!0-9]*) n=4;; esac", "[ \"$n\" -gt " ++ int_to_str(jobs) ++ " ] && n=" ++ int_to_str(jobs),
+    "[ \"$n\" -lt 1 ] && n=1", "i=0", "for k in " ++ all ++ "; do",
+    "  { " ++ z3 ++ " -in -smt2 -T:" ++ int_to_str(script_backstop(queries)) ++ " < \"$d/$k.smt2\"; echo \"vow-z3-exit $?\"; } > \"$d/$k.out\" &",
+    "  i=$((i + 1)); [ $((i % n)) -eq 0 ] && wait", "done", "wait",
+    "for k in " ++ all ++ "; do echo vow-z3-job; cat \"$d/$k.out\"; done"]
+  return join(parts: s, sep: "\n") ++ "\n"
+end fn z3_shell
+
+// What z3_shell's commands printed, as the output of each run: nothing if it is not
+// that of `count` runs that each ended.
+fn shell_outputs(text: String, count: Int) -> List<Output> do
+  var outs: List<Output> = []
+  var lines: List<String> = []
+  var open = false
+  for l in split(s: text, sep: '\n') do
+    if l == "vow-z3-job" then
+      if open then
+        return []
+      end if
+      set open = true
+      set lines = []
+    elif starts_with(s: l, p: "vow-z3-exit ") then
+      if not open then
+        return []
+      end if
+      let code = value_or(opt: str_to_int(trim(slice(of: l, from: 12, to: len(l)))), default: -1)
+      set outs = push(list: outs, item: Output(code: code, out: join(parts: push(list: lines, item: ""), sep: "\n")))
+      set open = false
+    elif open then
+      set lines = push(list: lines, item: l)
+    end if
+  end for
+  if open or (len(outs) != count) then
+    return []
+  end if
+  return outs
+end fn shell_outputs
+
+// Runs Z3 on each script and gives what each run printed, in order. If together, with
+// more than one script and more than one job (z3_jobs), the scripts are written to a
+// temporary directory and the runs are started by a shell, several at once; if that
+// cannot be done (no shell, say), or otherwise, they run one after the other. Starting
+// them together costs about 25 ms, so it is for work that takes longer. Each function's
+// proof is a solver of its own (script_for), so how the functions are divided among
+// the runs changes no answer.
+fn run_z3_all(scripts: List<String>, queries: Int, together: Bool) -> List<Output> uses proc, fs do
+  var outs: List<Output> = []
+  let jobs = z3_jobs()
+  if together and (len(scripts) > 1) and (jobs > 1) then
+    let dir = make_temp_dir()
+    var written = len(dir) > 0
+    for k in 0..len(scripts) do
+      if written then
+        set written = write_file(path: dir ++ "/" ++ int_to_str(k) ++ ".smt2", contents: scripts[k])
+      end if
+    end for
+    if written then
+      // The shell removes the directory.
+      let o = run(argv: ["sh", "-c", z3_shell(count: len(scripts), queries: queries, jobs: jobs), "sh", dir], input: "")
+      if o.code == 0 then
+        set outs = shell_outputs(text: o.out, count: len(scripts))
+      end if
+    elif len(dir) > 0 then
+      let _ = run(argv: ["rm", "-rf", dir], input: "")
+    end if
+    if len(outs) == len(scripts) then
+      return outs
+    end if
+    set outs = []
+  end if
+  for sc in scripts do
+    set outs = push(list: outs, item: run_z3(script: sc, queries: queries))
+  end for
+  return outs
+end fn run_z3_all
+
 // The version of the Z3 that run_z3 uses ("5.3.2"), or "" if it cannot be run.
 fn z3_version() -> String uses proc do
   let o = run(argv: [z3_path(), "--version"], input: "")
@@ -3427,6 +3601,22 @@ fn z3_version() -> String uses proc do
   end if
   return ""
 end fn z3_version
+
+// How many of the first strings of a and b are the same.
+fn shared_prefix(a: List<String>, b: List<String>) -> Int
+  ensures result >= 0
+  ensures result <= len(a)
+  ensures result <= len(b)
+do
+  var n = 0
+  while (n < len(a)) and (n < len(b)) invariant n >= 0 invariant n <= len(a) invariant n <= len(b) do
+    if a[n] != b[n] then
+      return n
+    end if
+    set n = n + 1
+  end while
+  return n
+end fn shared_prefix
 
 // every: also send the functions with nothing to prove, as the v0.3 verifier does
 // (VOW_SMT_V03, for tests/differential.sh).
@@ -3463,22 +3653,74 @@ fn fn_block(vc: FnVc, model: Option<Ob>, legacy: Bool) -> List<String> do
     end if
   end match
   set s = s ++ vc.qdefs
-  for ob in obs do
-    set s = push(list: s, item: "(push 1)")
-    for f in ob.facts do
-      set s = push(list: s, item: "(assert " ++ f ++ ")")
-    end for
-    set s = push(list: s, item: "(assert (not " ++ ob.goal ++ "))")
-    set s = push(list: s, item: "(check-sat)")
-    if is_model and (len(ob.show) > 0) then
-      var terms: List<String> = []
-      for x in ob.show do
-        set terms = push(list: terms, item: x.term)
+  if is_model or legacy then
+    for ob in obs do
+      set s = push(list: s, item: "(push 1)")
+      for f in ob.facts do
+        set s = push(list: s, item: "(assert " ++ f ++ ")")
       end for
-      set s = push(list: s, item: "(get-value (" ++ join(parts: terms, sep: " ") ++ "))")
-    end if
-    set s = push(list: s, item: "(pop 1)")
-  end for
+      set s = push(list: s, item: "(assert (not " ++ ob.goal ++ "))")
+      set s = push(list: s, item: "(check-sat)")
+      if is_model and (len(ob.show) > 0) then
+        var terms: List<String> = []
+        for x in ob.show do
+          set terms = push(list: terms, item: x.term)
+        end for
+        set s = push(list: s, item: "(get-value (" ++ join(parts: terms, sep: " ") ++ "))")
+      end if
+      set s = push(list: s, item: "(pop 1)")
+    end for
+  else
+    // Each fact is asserted once for the obligations that share it: the facts of an
+    // obligation mostly begin with those of the one before (the path so far), so they
+    // are kept in nested levels, and an obligation pops the levels with facts it does
+    // not have and adds one with those it lacks. (Asserting them all for each made a
+    // script whose size grew with the square of the facts on a path.) held is what is
+    // asserted now, and levels how much of it there was as each level began.
+    var held: List<String> = []
+    var levels: List<Int> = []
+    for ob in obs do
+      let same = shared_prefix(a: held, b: ob.facts)
+      while (len(levels) > 0) and (len(held) > same) invariant same <= len(ob.facts) do
+        let start = levels[len(levels) - 1]
+        set levels = slice(of: levels, from: 0, to: len(levels) - 1)
+        if (start >= 0) and (start <= len(held)) then
+          set held = slice(of: held, from: 0, to: start)
+        end if
+        set s = push(list: s, item: "(pop 1)")
+      end while
+      // What is shared and no longer asserted (it was in a level with more) goes in a
+      // level of its own, so that the next obligation with it keeps it.
+      if len(held) < same then
+        set s = push(list: s, item: "(push 1)")
+        set levels = push(list: levels, item: len(held))
+        for i in len(held)..same do
+          set s = push(list: s, item: "(assert " ++ ob.facts[i] ++ ")")
+          set held = push(list: held, item: ob.facts[i])
+        end for
+      end if
+      if len(held) < len(ob.facts) then
+        set s = push(list: s, item: "(push 1)")
+        set levels = push(list: levels, item: len(held))
+        for i in len(held)..len(ob.facts) do
+          set s = push(list: s, item: "(assert " ++ ob.facts[i] ++ ")")
+          set held = push(list: held, item: ob.facts[i])
+        end for
+      end if
+      set s = push(list: s, item: "(push 1)")
+      set s = push(list: s, item: "(assert (not " ++ ob.goal ++ "))")
+      set s = push(list: s, item: "(check-sat)")
+      if vc.axioms then
+        // Why, if the answer is `unknown`: for want of a model of the axioms (the
+        // claim may be false), or for want of work (see discharge).
+        set s = push(list: s, item: "(get-info :reason-unknown)")
+      end if
+      set s = push(list: s, item: "(pop 1)")
+    end for
+    for l in levels do
+      set s = push(list: s, item: "(pop 1)")
+    end for
+  end if
   set s = push(list: s, item: "(pop 1)")
   if vc.axioms then
     set s = push(list: s, item: "(set-option :smt.mbqi true)")
@@ -3627,61 +3869,173 @@ fn split_pair(pair: String) -> String do
   return val
 end fn split_pair
 
+// How much text a script has, at least, when the proofs are divided among several: Z3
+// takes about 50 ms for this much, which is twice what running several at once costs.
+fn script_share() -> Int do
+  return 100000
+end fn script_share
+
+// The scripts that prove vcs: one for all of them with the v0.3 layout (every), and
+// otherwise up to `jobs` of them (fewer for less text than jobs times script_share),
+// each proving some of the functions, in order, and about the same amount of text. Run
+// one after another they are the one script.
+fn proof_scripts(pre: List<String>, vcs: List<FnVc>, every: Bool, jobs: Int) -> Scripts do
+  if every then
+    return Scripts(texts: [script_for(pre: pre, vcs: vcs, model: Option.None, legacy: true)], fns: [len(vcs)])
+  end if
+  var pieces: List<String> = []
+  var size = 0
+  for vc in vcs do
+    if len(vc.obs) > 0 then
+      let piece = script_for(pre: pre, vcs: [vc], model: Option.None, legacy: false)
+      set pieces = push(list: pieces, item: piece)
+      set size = size + len(piece)
+    end if
+  end for
+  if len(pieces) == 0 then
+    return Scripts(texts: ["\n"], fns: [0])
+  end if
+  var count = jobs
+  if count > len(pieces) then
+    set count = len(pieces)
+  end if
+  if count > (size / script_share()) then
+    set count = size / script_share()
+  end if
+  if count < 1 then
+    set count = 1
+  end if
+  // A script is closed once the text up to its end is its share of the whole.
+  var scripts: List<String> = []
+  var fns: List<Int> = []
+  var part: List<String> = []
+  var done = 0
+  for piece in pieces do
+    set part = push(list: part, item: piece)
+    set done = done + len(piece)
+    if (done * count) >= (size * (len(scripts) + 1)) then
+      set scripts = push(list: scripts, item: join(parts: part, sep: ""))
+      set fns = push(list: fns, item: len(part))
+      set part = []
+    end if
+  end for
+  if len(part) > 0 then
+    set scripts = push(list: scripts, item: join(parts: part, sep: ""))
+    set fns = push(list: fns, item: len(part))
+  end if
+  return Scripts(texts: scripts, fns: fns)
+end fn proof_scripts
+
+// What went wrong in a run of Z3 that did not answer every query of its script: it
+// answered `got` of `want`, and stopped in the proof of the function `name`.
+fn z3_trouble(o: Output, got: Int, want: Int, name: String, cut_short: Bool, backstop: Int) -> String do
+  if (o.code == 127) and (got == 0) then
+    return "Z3 was not found: install it (tools/install-z3.sh installs the version vowc is tested with) or set VOW_Z3 to its path"
+  end if
+  let place = "in the proof of '" ++ name ++ "', after answering " ++ int_to_str(got) ++ " of " ++ int_to_str(want) ++ " queries"
+  if cut_short then
+    // Z3 ended itself at the script's limit: it hung, or stopped counting its work.
+    return "Z3 stopped answering " ++ place ++ "; it was ended after " ++ int_to_str(backstop) ++ " s"
+  end if
+  if o.code == -1 then
+    return "Z3 stopped " ++ place ++ " (it was ended by a signal, or could not be started)"
+  end if
+  if o.code != 0 then
+    return "Z3 stopped " ++ place ++ " (its exit status was " ++ int_to_str(o.code) ++ ")"
+  end if
+  return "Z3 stopped " ++ place
+end fn z3_trouble
+
 fn discharge(pre: List<String>, vcs: List<FnVc>, every: Bool) -> Discharged uses proc, fs do
-  let script = script_for(pre: pre, vcs: vcs, model: Option.None, legacy: every)
+  let scripts = proof_scripts(pre: pre, vcs: vcs, every: every, jobs: z3_jobs())
   match getenv("VOW_SMT_DUMP")
   case Some(value: path) then
-    let _ = write_file(path: path, contents: script)
+    let _ = write_file(path: path, contents: join(parts: scripts.texts, sep: ""))
   case None then
   end match
   let none: List<Failure> = []
-  // One answer per obligation, and one for the sanity check of each function that has
-  // any (script_for).
+  // The functions sent, in order, and for each one answer per obligation and one for
+  // its sanity check (script_for).
+  var sent: List<FnVc> = []
   var total = 0
   for vc in vcs do
     if (len(vc.obs) > 0) or every then
+      set sent = push(list: sent, item: vc)
       set total = total + (len(vc.obs) + 1)
     end if
   end for
   // Nothing to prove (every proof was cached, say): Z3 is not started.
   if total == 0 then
-    return Discharged(error: "", failures: none)
+    return Discharged(error: "", fn_name: "", failures: none)
   end if
-  let o = run_z3(script: script, queries: total)
+  let outs = run_z3_all(scripts: scripts.texts, queries: total, together: true)
   var answers: List<String> = []
-  var cut_short = false
-  for l0 in split(s: o.out, sep: '\n') do
-    let l = trim(l0)
-    if (l == "sat") or (l == "unsat") or (l == "unknown") or starts_with(s: l, p: "(error") then
-      set answers = push(list: answers, item: l)
-    elif l == "timeout" then
-      set cut_short = true
+  // The first function of the script whose answers are being read.
+  var first = 0
+  for si in 0..len(outs) invariant first >= 0 do
+    let o = outs[si]
+    var count = 0
+    if (si < len(scripts.fns)) and (scripts.fns[si] > 0) then
+      set count = scripts.fns[si]
     end if
-  end for
-  for a in answers do
-    if starts_with(s: a, p: "(error") then
-      return Discharged(error: "Z3 rejected the generated query: " ++ a, failures: none)
+    // The function each answer of this script is for.
+    var owner: List<String> = []
+    for fi in first..(first + count) do
+      if (fi >= 0) and (fi < len(sent)) then
+        for q in 0..(len(sent[fi].obs) + 1) do
+          set owner = push(list: owner, item: sent[fi].name)
+        end for
+      end if
+    end for
+    set first = first + count
+    var got = 0
+    var cut_short = false
+    for l0 in split(s: o.out, sep: '\n') invariant got >= 0 do
+      let l = trim(l0)
+      if (l == "sat") or (l == "unsat") or (l == "unknown") then
+        set answers = push(list: answers, item: l)
+        set got = got + 1
+      elif starts_with(s: l, p: "(error") then
+        var name = ""
+        if got < len(owner) then
+          set name = owner[got]
+        end if
+        return Discharged(error: "Z3 rejected the query made for '" ++ name ++ "': " ++ l, fn_name: name, failures: none)
+      elif l == "timeout" then
+        set cut_short = true
+      elif starts_with(s: l, p: "(:reason-unknown") and (find(s: l, p: "incomplete", from: 0) >= 0) and (len(answers) > 0) then
+        // Asked after each answer of a function with axioms (fn_block).
+        if answers[len(answers) - 1] == "unknown" then
+          set answers = slice(of: answers, from: 0, to: len(answers) - 1)
+          set answers = push(list: answers, item: "unknown-incomplete")
+        end if
+      end if
+    end for
+    if got != len(owner) then
+      // No function is to blame for a Z3 that is not there.
+      var stuck = ""
+      if (got < len(owner)) and not ((o.code == 127) and (got == 0)) then
+        set stuck = owner[got]
+      end if
+      return Discharged(error: z3_trouble(o: o, got: got, want: len(owner), name: stuck, cut_short: cut_short, backstop: script_backstop(total)),
+        fn_name: stuck, failures: none)
     end if
   end for
   if len(answers) != total then
-    let msg = "Z3 answered " ++ int_to_str(len(answers)) ++ " of " ++ int_to_str(total) ++ " queries"
-    if cut_short then
-      // Z3 ended itself at the script's limit: it hung, or stopped counting its work.
-      return Discharged(error: msg ++ " and then stopped answering; it was ended after " ++ int_to_str(script_backstop(total)) ++ " s", failures: none)
-    end if
-    if o.code != 0 then
-      return Discharged(error: msg ++ " (is Z3 installed? set VOW_Z3 to its path)", failures: none)
-    end if
-    return Discharged(error: msg, failures: none)
+    return Discharged(error: "Z3 answered " ++ int_to_str(len(answers)) ++ " of " ++ int_to_str(total) ++ " queries", fn_name: "", failures: none)
   end if
   var failures: List<Failure> = []
+  // For each failure with values to show, its place in failures and the script that
+  // asks for them: these run together afterwards.
+  var asked: List<Int> = []
+  var asks: List<String> = []
   var k = 0
   for vc in vcs invariant k >= 0 do
     if (len(vc.obs) == 0) and not every then
       continue
     end if
     if (k < len(answers)) and (answers[k] == "unsat") then
-      return Discharged(error: "internal verifier error: the definitions for '" ++ vc.name ++ "' are inconsistent", failures: none)
+      return Discharged(error: "internal verifier error: the definitions for '" ++ vc.name ++ "' are inconsistent", fn_name: vc.name, failures: none)
     end if
     set k = k + 1
     for ob in vc.obs invariant k >= 0 do
@@ -3693,30 +4047,58 @@ fn discharge(pre: List<String>, vcs: List<FnVc>, every: Bool) -> Discharged uses
       if a == "unsat" then
         continue
       end if
-      var model: List<Shown> = []
-      if (a == "sat") and (len(ob.show) > 0) then
-        let mo = run_z3(script: script_for(pre: pre, vcs: [vc], model: Option.Some(value: ob), legacy: every), queries: 1)
-        let vals = parse_values(mo.out)
-        for i in 0..len(ob.show) do
-          if i < len(vals) then
-            set model = push(list: model, item: Shown(name: ob.show[i].name, term: vals[i]))
-          end if
-        end for
+      // The values of a counterexample, or of what may be one: where Z3 could not
+      // decide for want of a model of the axioms, it has values that fit every fact
+      // it used.
+      if ((a == "sat") or (a == "unknown-incomplete")) and (len(ob.show) > 0) then
+        set asked = push(list: asked, item: len(failures))
+        set asks = push(list: asks, item: script_for(pre: pre, vcs: [vc], model: Option.Some(value: ob), legacy: every))
       end if
       var verdict = a
-      if vc.axioms and (a == "unknown") then
+      if a == "unknown-incomplete" then
         set verdict = "unknown-unfolded"
       end if
-      set failures = push(list: failures, item: Failure(fn_name: vc.name, ob: ob, verdict: verdict, model: model))
+      let unshown: List<Shown> = []
+      set failures = push(list: failures, item: Failure(fn_name: vc.name, ob: ob, verdict: verdict, model: unshown))
     end for
   end for
-  return Discharged(error: "", failures: failures)
+  if len(asks) == 0 then
+    return Discharged(error: "", fn_name: "", failures: failures)
+  end if
+  // Three or more together: a run is short, and so is starting one.
+  let told = run_z3_all(scripts: asks, queries: 1, together: len(asks) >= 3)
+  var shown: List<Failure> = []
+  var next = 0
+  for fi in 0..len(failures) invariant next >= 0 do
+    let f = failures[fi]
+    if (next < len(asked)) and (next < len(told)) and (asked[next] == fi) then
+      let vals = parse_values(told[next].out)
+      var model: List<Shown> = []
+      for i in 0..len(f.ob.show) do
+        if i < len(vals) then
+          set model = push(list: model, item: Shown(name: f.ob.show[i].name, term: vals[i]))
+        end if
+      end for
+      set shown = push(list: shown, item: f with (model: model))
+      set next = next + 1
+    else
+      set shown = push(list: shown, item: f)
+    end if
+  end for
+  return Discharged(error: "", fn_name: "", failures: shown)
 end fn discharge
 
 fn failure_diag(f: Failure) -> Diag do
   var d = diag(pos: f.ob.pos, msg: "cannot prove " ++ f.ob.what)
   if f.verdict == "unknown-unfolded" then
     set d = with_note(d: d, note: "not proved: it may be false, or need facts the verifier does not have (it knows only order and NaN-ness of Float values, and unfolds a recursive specification function at most twice per use); state them with check, assert or a contract")
+    if len(f.model) > 0 then
+      var vals: List<String> = []
+      for m in f.model do
+        set vals = push(list: vals, item: m.name ++ " = " ++ m.term)
+      end for
+      set d = with_note(d: d, note: "possible counterexample: " ++ join(parts: vals, sep: ", ") ++ " (not confirmed: these values fit the facts the verifier used)")
+    end if
   elif f.verdict == "unknown" then
     set d = with_note(d: d, note: "Z3 gave up (it reached its work limit, or the theory is incomplete); add an assertion, invariant or check to help it")
   elif len(f.model) > 0 then
@@ -3725,6 +4107,14 @@ fn failure_diag(f: Failure) -> Diag do
       set parts = push(list: parts, item: m.name ++ " = " ++ m.term)
     end for
     set d = with_note(d: d, note: "counterexample: " ++ join(parts: parts, sep: ", "))
+  end if
+  // The values of variables a loop assigns are any that its invariants allow.
+  if (len(f.model) > 0) and (len(f.ob.loose) > 0) then
+    var verb = " is"
+    if len(f.ob.loose) > 1 then
+      set verb = " are"
+    end if
+    set d = with_note(d: d, note: list_and(f.ob.loose) ++ verb ++ " assigned in a loop, of which the verifier knows only the invariants: if no run reaches these values, add the invariant that excludes them")
   end if
   return with_note(d: d, note: "in function '" ++ f.fn_name ++ "'")
 end fn failure_diag

@@ -595,16 +595,34 @@ obligations to Z3 in SMT-LIB 2.
   whose `while` loops and recursion are measured and which call only such functions.
   Built-in functions are taken to terminate.
 - A query that Z3 answers `unknown`, or does not finish within its limit, counts as a
-  failure. Failed obligations are reported with a counterexample when Z3 provides one.
+  failure. Failed obligations are reported with a counterexample when Z3 provides one:
+  the `Int` and `Bool` variables in scope and the lengths of strings and collections,
+  with `old(x)` beside an `inout` parameter that has changed. When a variable shown is
+  assigned in a loop, a note says so: of such a variable the verifier knows only what
+  the loop's invariants say, so the state shown may be one that no run reaches.
+- A function whose queries have axioms (the definition of a recursive specification
+  function, or what is known of `int_to_float`, `abs_float`, `floor`, `ceil`, `sqrt`
+  or a Float's negation) is proved without Z3's model-based instantiation, which
+  would spend the whole limit on a false claim. A claim that is not proved there is
+  not decided either: it is reported as not proved, with the values Z3 had in mind as
+  a *possible counterexample*. They fit every fact the verifier used, but may break
+  one it knows only in part.
 - The limit on a query is an amount of work (2,000,000 of Z3's resource units), not a
   time, and each function is proved by a solver of its own. So whether a proof goes
   through does not depend on the machine, on its load, or on which other functions
   are being proved; with one Z3 version, the same program gets the same answers
   everywhere. No proof in the tests, the examples, the standard library or the
-  compiler needs more than a sixteenth of the limit. A query at the limit takes from
+  compiler needs more than a twelfth of the limit. A query at the limit takes from
   half a second to a few seconds. Two clocks stand behind it, for a solver that stops
   counting its work: 30 s for a query, and for the whole run 120 s plus 30 s for each
   query, after which Z3 ends itself and `vowc` reports that it stopped answering.
+- Since the functions are proved independently, a program with much to prove is
+  divided among several Z3 processes that run at once: 8, or `$VOW_JOBS`, and never
+  more than the machine has processors. This changes how long a check takes and
+  nothing else. A small program is proved by one process.
+- Trouble with the solver itself (Z3 is not installed, stops, or rejects a query) is
+  an error that names the function being proved. With `--json` it is a diagnostic
+  like any other, at that function.
 
 Specification expressions (`requires`, `ensures`, `where`, `invariant`, `decreases`,
 `assert`, `check`) are restricted to pure, total-in-the-logic forms: literals,

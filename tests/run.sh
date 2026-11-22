@@ -289,7 +289,7 @@ if [ -z "$VOW_FROZEN" ]; then
   [ "$(grep -c '^(reset)$' "$rdir/a.smt2")" = 2 ] || { reuse_ok=false; echo "reuse: not one solver for each function"; }
   # A solver that stops answering is ended by its own limit, and vowc says so.
   printf '#!/bin/sh\ncat > /dev/null\necho sat\necho timeout\n' > "$rdir/stuck" && chmod +x "$rdir/stuck"
-  VOW_Z3="$rdir/stuck" "$VOWC" check "$rdir/a.vow" --no-cache 2>&1 | grep -q 'Z3 answered 1 of 4 queries and then stopped answering' ||
+  VOW_Z3="$rdir/stuck" "$VOWC" check "$rdir/a.vow" --no-cache 2>&1 | grep -q "Z3 stopped answering in the proof of 'a', after answering 1 of 4 queries" ||
     { reuse_ok=false; echo "reuse: a solver that stops is not reported"; }
   # With every proof in the store, Z3 is not needed at all.
   VOW_CACHE="$rdir/store" VOW_Z3=/nonexistent/z3 "$VOWC" check "$rdir/main.vow" >/dev/null 2>&1 ||
@@ -620,6 +620,133 @@ VOW
     fail=$((fail + 1)); echo "FAIL unnamed arguments are reported once: $got"
   fi
   rm -rf "$cdir"
+fi
+
+# The verifier's runs of Z3 (not in the frozen bootstrap compiler).
+if [ -z "$VOW_FROZEN" ]; then
+  zdir=$(mktemp -d)
+  zok=true
+  real_z3=${VOW_Z3:-z3}
+  # Proofs are divided among several Z3 processes when there is enough to prove
+  # (VOW_JOBS at once, 8 unless set), and the result is the same as with one: here 300
+  # functions, of which three, far apart, are false. A stand-in for Z3 counts the runs.
+  awk 'BEGIN {
+    for (i = 0; i < 300; i++) {
+      bound = (i == 7 || i == 150 || i == 293) ? "result > n" : "result >= n"
+      printf "fn f%d(n: Int, m: Int) -> Int\n  requires n >= 0\n  requires m >= 0\n  requires n < 1000\n  requires m < 1000\n  ensures %s\ndo\n  let a = n + m\n  assert a >= m\n  return a\nend fn f%d\n\n", i, bound, i
+    }
+    print "fn main() uses console do\n  print(int_to_str(f0(n: 1, m: 2)) ++ \"\\n\")\nend fn main"
+  }' > "$zdir/many.vow"
+  printf '#!/bin/sh\necho run >> "%s/runs"\nexec "%s" "$@"\n' "$zdir" "$real_z3" > "$zdir/counting" && chmod +x "$zdir/counting"
+  one=$(VOW_JOBS=1 VOW_Z3="$zdir/counting" VOW_SMT_DUMP="$zdir/one.smt2" "$VOWC" check "$zdir/many.vow" --no-cache 2>&1)
+  runs_one=$(wc -l < "$zdir/runs" | tr -d ' '); rm -f "$zdir/runs"
+  four=$(VOW_JOBS=4 VOW_Z3="$zdir/counting" VOW_SMT_DUMP="$zdir/four.smt2" "$VOWC" check "$zdir/many.vow" --no-cache 2>&1)
+  runs_four=$(wc -l < "$zdir/runs" | tr -d ' ')
+  [ "$one" = "$four" ] || { zok=false; echo "z3: several processes give another result than one"; }
+  cmp -s "$zdir/one.smt2" "$zdir/four.smt2" || { zok=false; echo "z3: several processes are sent other queries than one"; }
+  [ "$(printf '%s\n' "$four" | grep -c "cannot prove postcondition")" = 3 ] || { zok=false; echo "z3: not the three failures: $four" | head -5; }
+  [ "$(printf '%s\n' "$four" | grep -c "counterexample: ")" = 3 ] || { zok=false; echo "z3: not three counterexamples"; }
+  # One run for the proofs and one for each counterexample; or several for the proofs
+  # (as many as there is text for, four at most) and three for the counterexamples.
+  [ "$runs_one" = 4 ] && [ "$runs_four" -gt 4 ] && [ "$runs_four" -le 7 ] || { zok=false; echo "z3: $runs_one runs with one job and $runs_four with four (wanted 4, and 5 to 7)"; }
+  # A small program is proved by one process whatever VOW_JOBS says.
+  rm -f "$zdir/runs"
+  printf 'fn a(n: Int) -> Int\n  requires n < 9\n  ensures result > n\ndo\n  return n + 1\nend fn a\n\nfn b(n: Int) -> Int\n  requires n < 9\n  ensures result > n\ndo\n  return n + 2\nend fn b\n\nfn main() uses console do\n  print(int_to_str(a(1) + b(1)) ++ "\\n")\nend fn main\n' > "$zdir/small.vow"
+  VOW_JOBS=4 VOW_Z3="$zdir/counting" "$VOWC" check "$zdir/small.vow" --no-cache >/dev/null 2>&1
+  [ "$(wc -l < "$zdir/runs" | tr -d ' ')" = 1 ] || { zok=false; echo "z3: a small program is not proved by one process"; }
+  # A fact is sent once for the obligations that share it: 400 asserts in a row make a
+  # script of about 50,000 bytes (it was 2,200,000, growing with the square).
+  awk 'BEGIN {
+    print "fn f(a: Int) -> Int\n  requires a > 0\n  requires a < 1000\ndo"
+    for (i = 0; i < 400; i++) printf "  assert (a + %d) > %d\n", i, i
+    print "  return a\nend fn f\n\nfn main() uses console do\n  print(int_to_str(f(1)) ++ \"\\n\")\nend fn main"
+  }' > "$zdir/asserts.vow"
+  got=$(VOW_SMT_DUMP="$zdir/asserts.smt2" "$VOWC" check "$zdir/asserts.vow" --no-cache 2>&1)
+  [ "$got" = "ok" ] && [ "$(wc -c < "$zdir/asserts.smt2")" -lt 100000 ] || { zok=false; echo "z3: 400 asserts: $got, $(wc -c < "$zdir/asserts.smt2") bytes"; }
+  # A false claim in a function that only mentions a Float gets a counterexample (the
+  # Float axioms made every such claim "not proved"). In one that uses an operation
+  # with an axiom it is not decided, and what Z3 had in mind is shown as a possible
+  # counterexample; that is not Z3 giving up, so no note about Z3's version follows.
+  cat > "$zdir/float.vow" <<'VOW'
+fn gap(m: Int, n: Int, scale: Float) -> Int
+  ensures result >= 0
+do
+  return m - n
+end fn gap
+
+fn main() uses console do
+  print(int_to_str(gap(m: 3, n: 1, scale: 1.0)) ++ "\n")
+end fn main
+VOW
+  got=$("$VOWC" check "$zdir/float.vow" --no-cache 2>&1)
+  printf '%s\n' "$got" | grep -q '^    counterexample: m = ' || { zok=false; echo "z3: no counterexample beside an unused Float: $got"; }
+  cat > "$zdir/float2.vow" <<'VOW'
+fn gap(m: Int, n: Int) -> Int
+  ensures result >= 0
+do
+  let f = int_to_float(m)
+  if f < 0.0 then
+    return 0
+  end if
+  return m - n
+end fn gap
+
+fn main() uses console do
+  print(int_to_str(gap(m: 3, n: 1)) ++ "\n")
+end fn main
+VOW
+  got=$("$VOWC" check "$zdir/float2.vow" --no-cache 2>&1)
+  printf '%s\n' "$got" | grep -q '^    possible counterexample: m = .* (not confirmed' || { zok=false; echo "z3: no possible counterexample: $got"; }
+  printf '%s\n' "$got" | grep -q 'did not decide' && { zok=false; echo "z3: an undecidable claim is blamed on Z3's version"; }
+  # A counterexample shows an inout parameter's value on entry beside its value now,
+  # and says which of its variables a loop assigns: of those the verifier knows only
+  # the loop's invariants, so the state shown may be one no run reaches.
+  cat > "$zdir/shown.vow" <<'VOW'
+fn bump(a: inout Int)
+  ensures a > (old(a) + 5)
+do
+  set a = a + 3
+end fn bump
+
+fn total(xs: List<Int>, start: Int) -> Int
+  ensures result >= 0
+do
+  var s = 0
+  var k = start
+  for x in xs do
+    set s = s + x
+    set k = k + 1
+  end for
+  return s
+end fn total
+
+fn main() uses console do
+  var a = 1
+  bump(inout a)
+  print(int_to_str(a + total(xs: [1, 2], start: 0)) ++ "\n")
+end fn main
+VOW
+  got=$("$VOWC" check "$zdir/shown.vow" --no-cache 2>&1)
+  printf '%s\n' "$got" | grep -q '^    counterexample: a = .*, old(a) = ' || { zok=false; echo "z3: old(a) is not shown: $got"; }
+  printf '%s\n' "$got" | grep -q '^    k and s are assigned in a loop, of which the verifier knows only the invariants' || { zok=false; echo "z3: a loop summary is not marked: $got"; }
+  # Trouble with the solver names the function being proved, and with --json is a
+  # diagnostic at that function (it was text on stderr, with nothing for a tool).
+  printf '#!/bin/sh\ncat > /dev/null\necho sat\necho unsat\necho sat\necho "(error \\"line 9 column 2: unknown constant\\")"\n' > "$zdir/rejects" && chmod +x "$zdir/rejects"
+  printf '#!/bin/sh\ncat > /dev/null\necho sat\necho unsat\necho sat\nexit 3\n' > "$zdir/dies" && chmod +x "$zdir/dies"
+  got=$(VOW_Z3="$zdir/rejects" "$VOWC" check "$zdir/small.vow" --no-cache 2>&1)
+  [ "$got" = "vowc: Z3 rejected the query made for 'b': (error \"line 9 column 2: unknown constant\")" ] || { zok=false; echo "z3: a rejected query: $got"; }
+  got=$(VOW_Z3="$zdir/dies" "$VOWC" check "$zdir/small.vow" --no-cache 2>&1)
+  [ "$got" = "vowc: Z3 stopped in the proof of 'b', after answering 3 of 7 queries (its exit status was 3)" ] || { zok=false; echo "z3: a solver that dies: $got"; }
+  got=$(cd "$zdir" && VOW_Z3="$zdir/dies" "$VOWC" check small.vow --no-cache --json 2>&1)
+  [ "$got" = "{\"kind\":\"error\",\"file\":\"small.vow\",\"line\":8,\"col\":1,\"message\":\"Z3 stopped in the proof of 'b', after answering 3 of 7 queries (its exit status was 3)\",\"notes\":[]}" ] || { zok=false; echo "z3: a solver that dies, as JSON: $got"; }
+  got=$(cd "$zdir" && VOW_Z3="$zdir/no-such-z3" "$VOWC" check small.vow --no-cache --json 2>&1)
+  [ "$got" = "{\"kind\":\"error\",\"file\":\"small.vow\",\"line\":0,\"col\":0,\"message\":\"Z3 was not found: install it (tools/install-z3.sh installs the version vowc is tested with) or set VOW_Z3 to its path\",\"notes\":[]}" ] || { zok=false; echo "z3: no Z3, as JSON: $got"; }
+  if $zok; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1)); echo "FAIL the verifier's runs of Z3"
+  fi
+  rm -rf "$zdir"
 fi
 
 # The pinned Z3 version must be the same in the compiler and the installer.

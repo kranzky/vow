@@ -69,14 +69,6 @@ fn option_commands(opt: String) -> List<String> do
   return ["run"]
 end fn option_commands
 
-// "a", "a and b", "a, b and c".
-fn list_and(xs: List<String>) -> String do
-  if len(xs) < 2 then
-    return join(parts: xs, sep: "")
-  end if
-  return join(parts: slice(of: xs, from: 0, to: len(xs) - 1), sep: ", ") ++ " and " ++ xs[len(xs) - 1]
-end fn list_and
-
 fn plural_does(xs: List<String>) -> String do
   if len(xs) == 1 then
     return "does"
@@ -303,14 +295,6 @@ fn basename_stem(path: String) -> String do
   return base
 end fn basename_stem
 
-fn make_temp_dir() -> String uses proc do
-  let o = run(argv: ["mktemp", "-d"], input: "")
-  if o.code != 0 then
-    return ""
-  end if
-  return trim(o.out)
-end fn make_temp_dir
-
 // Returns an error message, or "" on success.
 fn compile_c(c: String, exe: String) -> String uses fs, proc do
   let dir = make_temp_dir()
@@ -517,7 +501,13 @@ fn main() uses console, fs, proc do
   if (not no_verify) or (len(c.info.holes) > 0) then
     let vr = verify_source(src: src, c: c, no_cache: no_cache, v03: is_some(getenv("VOW_SMT_V03")))
     if len(vr.error) > 0 then
-      eprint("vowc: " ++ vr.error ++ "\n")
+      // Trouble with the solver: with --json a diagnostic like any other, at the
+      // function it was proving when that is known.
+      if json then
+        report(diags: [diag(pos: vr.error_pos, msg: vr.error)], files: src.files, json: true)
+      else
+        eprint("vowc: " ++ vr.error ++ "\n")
+      end if
       exit(1)
     end if
     if len(vr.diags) > 0 then

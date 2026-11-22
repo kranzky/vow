@@ -2,6 +2,33 @@
 
 ## Unreleased
 
+- Proofs run in several Z3 processes at once when there is enough to prove: 8, or
+  `$VOW_JOBS`, and never more than the machine has processors. The compiler checks
+  itself from nothing in 0.6 s, from 1.7 s; a small program is proved by one process,
+  as before. Each function was already proved by a solver of its own, so the answers
+  are the same however the functions are divided. The values for several
+  counterexamples are fetched at once too.
+- A fact is sent to Z3 once for the obligations that share it. Each obligation used to
+  repeat every fact of its path, so a function's script grew with the square of its
+  length: 2,000 asserts in a row made 57 MB and took 8.4 s to check, and now make
+  220 KB and take 0.17 s. Every one of the 6,531 queries of the compiler, the tools,
+  the examples and the tests gets the answer it got, for 11% less work in all.
+- A false claim in a function that mentions a `Float` gets a counterexample again. The
+  facts about Float operations were sent for every such function, and with them Z3
+  cannot show a claim false; they are now sent only for the operations a function
+  uses (`int_to_float`, `abs_float`, `floor`, `ceil`, `sqrt`, negation).
+- Where Z3 cannot decide a claim for that reason (also with a recursive specification
+  function), the values it had in mind are shown as a `possible counterexample`, and
+  the note that another Z3 version might decide the proof is no longer printed: none
+  would. A proof that ran out of work in such a function is now reported as that.
+- A counterexample shows `old(x)` beside an `inout` parameter that has changed, and
+  says which of its variables are assigned in a loop: the verifier knows of those only
+  what the loop's invariants say, so the state may be one no run reaches, and the
+  remedy is an invariant.
+- Trouble with the solver names the function being proved (`Z3 stopped in the proof of
+  'f', after answering 3 of 7 queries`), a missing Z3 is reported as that, and with
+  `--json` both are diagnostics like any other; they were plain text.
+- The verifier version is `vow-verifier-16`, so every proof is made again once.
 - The command line is stricter and more forgiving:
   - options may come before the file: `vowc check --no-verify f.vow` was `unknown
     option 'f.vow'`;

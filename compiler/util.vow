@@ -336,3 +336,20 @@ fn on_cycles(names: List<String>, edges: Map<String, List<String>>) -> Map<Strin
   end for
   return out
 end fn on_cycles
+
+// A new directory for temporary files, or "" if none can be made.
+fn make_temp_dir() -> String uses proc do
+  let o = run(argv: ["mktemp", "-d"], input: "")
+  if o.code != 0 then
+    return ""
+  end if
+  return trim(o.out)
+end fn make_temp_dir
+
+// "a", "a and b", "a, b and c".
+fn list_and(xs: List<String>) -> String do
+  if len(xs) < 2 then
+    return join(parts: xs, sep: "")
+  end if
+  return join(parts: slice(of: xs, from: 0, to: len(xs) - 1), sep: ", ") ++ " and " ++ xs[len(xs) - 1]
+end fn list_and
