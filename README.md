@@ -180,10 +180,16 @@ Emacs (Eglot):
 
 ## Status
 
-The current release is **v0.9.10**, which adds lexicographic termination measures
-(`decreases a, b`), verifies large programs much faster (the compiler checks itself in
-1.9 s, from 33.5 s), keeps proofs in one store shared by every program, appends to
-strings in place, and fixes the findings of five independent reviews of v0.9.9.
+The current release is **v0.9.11**, which completes the fixes from five independent
+reviews of v0.9.9: limits and plain errors where extreme programs crashed the compiler,
+proofs run in several Z3 processes at once (the compiler checks itself in 0.6 s, from
+1.9 s), counterexamples that show `old(x)` and point at a missing loop invariant,
+faster generated code (a struct in a list is updated in place), a `std/json` that
+reads exactly JSON, and a stricter command line.
+v0.9.10 added lexicographic termination measures
+(`decreases a, b`), a much faster verifier (the compiler checked itself in
+1.9 s, from 33.5 s), one proof store shared by every program, and strings appended to
+in place.
 v0.9.9 added the bound `Ord` on type parameters (`<` on
 `T`), order on strings, and bounds on generic structs and enums (`struct Range<T: Ord>`).
 v0.9.8 added the bound `Eq` on type parameters

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.9.11
 
 - `std/json` reads exactly JSON:
   - a `\u` surrogate without its pair becomes U+FFFD and what follows it is kept

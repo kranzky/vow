@@ -7,7 +7,7 @@ import "runtime_h.vow"
 import "attached.vow"
 
 fn vow_version() -> String do
-  return "0.9.10"
+  return "0.9.11"
 end fn vow_version
 
 fn usage() -> String do
