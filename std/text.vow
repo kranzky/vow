@@ -96,6 +96,7 @@ end fn find_last_byte
 
 fn contains(s: String, p: String) -> Bool
   ensures result implies (exists i in 0..((len(s) - len(p)) + 1): starts_at(s: s, at: i, p: p))
+  ensures (not result) implies (forall i in 0..((len(s) - len(p)) + 1): not starts_at(s: s, at: i, p: p))
 do
   return find(s: s, p: p, from: 0) >= 0
 end fn contains
@@ -103,14 +104,18 @@ end fn contains
 // ---- ordering ----
 
 // Byte-wise lexicographic order: -1 if a sorts before b, 0 if equal, 1 if after.
+// The result is 0 exactly for strings with the same bytes. (The second contract says
+// so byte by byte: the verifier cannot conclude `a == b` from equal bytes.)
 fn compare(a: String, b: String) -> Int
   ensures (-1 <= result) and (result <= 1)
+  ensures (a == b) implies (result == 0)
+  ensures (result == 0) implies ((len(a) == len(b)) and (forall i in 0..len(a): a[i] == b[i]))
 do
   var n = len(a)
   if len(b) < n then
     set n = len(b)
   end if
-  for i in 0..n do
+  for i in 0..n invariant forall j in 0..i: a[j] == b[j] do
     if a[i] < b[i] then
       return -1
     elif a[i] > b[i] then
@@ -222,30 +227,43 @@ end fn trim
 
 // ---- building ----
 
-// `s` repeated `n` times.
-fn repeat(s: String, n: Int) -> String do
-  var parts: List<String> = []
-  for i in 0..n do
-    set parts = push(list: parts, item: s)
+// `s` repeated `n` times ("" when n is not positive).
+fn repeat(s: String, n: Int) -> String
+  ensures (n <= 0) implies (len(result) == 0)
+  ensures (n >= 0) implies (len(result) == (n * len(s)))
+do
+  var out = ""
+  for i in 0..n invariant len(out) == (i * len(s)) do
+    set out = out ++ s
   end for
-  return join(parts: parts, sep: "")
+  return out
 end fn repeat
 
-// Every occurrence of `old` replaced by `new`, scanning left to right.
-fn replace(s: String, old: String where len(it) > 0, new: String) -> String do
-  var parts: List<String> = []
-  var i = 0
-  while i < len(s) invariant (0 <= i) and (i <= len(s)) decreases len(s) - i do
+// Every occurrence of `old` replaced by `new`, scanning left to right. A replacement
+// of the same length keeps the length, and a text without `old` keeps its bytes.
+fn replace(s: String, old: String where len(it) > 0, new: String) -> String
+  ensures (len(new) == len(old)) implies (len(result) == len(s))
+  ensures (forall k in 0..((len(s) - len(old)) + 1): not starts_at(s: s, at: k, p: old)) implies ((len(result) == len(s)) and (forall j in 0..len(s): result[j] == s[j]))
+do
+  let first = find(s: s, p: old, from: 0)
+  if first < 0 then
+    return s
+  end if
+  var out = slice(of: s, from: 0, to: first) ++ new
+  var i = first + len(old)
+  while i < len(s)
+    invariant (first < i) and (i <= len(s))
+    invariant (len(new) == len(old)) implies (len(out) == i)
+    decreases len(s) - i
+  do
     let at = find(s: s, p: old, from: i)
     if at < 0 then
       break
     end if
-    set parts = push(list: parts, item: slice(of: s, from: i, to: at))
-    set parts = push(list: parts, item: new)
+    set out = out ++ slice(of: s, from: i, to: at) ++ new
     set i = at + len(old)
   end while
-  set parts = push(list: parts, item: slice(of: s, from: i, to: len(s)))
-  return join(parts: parts, sep: "")
+  return out ++ slice(of: s, from: i, to: len(s))
 end fn replace
 
 fn to_lower(s: String) -> String

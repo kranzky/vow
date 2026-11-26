@@ -99,6 +99,7 @@ fn std_text() -> String do
     "\n" ++
     "fn contains(s: String, p: String) -> Bool\n" ++
     "  ensures result implies (exists i in 0..((len(s) - len(p)) + 1): starts_at(s: s, at: i, p: p))\n" ++
+    "  ensures (not result) implies (forall i in 0..((len(s) - len(p)) + 1): not starts_at(s: s, at: i, p: p))\n" ++
     "do\n" ++
     "  return find(s: s, p: p, from: 0) >= 0\n" ++
     "end fn contains\n" ++
@@ -106,14 +107,18 @@ fn std_text() -> String do
     "// ---- ordering ----\n" ++
     "\n" ++
     "// Byte-wise lexicographic order: -1 if a sorts before b, 0 if equal, 1 if after.\n" ++
+    "// The result is 0 exactly for strings with the same bytes. (The second contract says\n" ++
+    "// so byte by byte: the verifier cannot conclude `a == b` from equal bytes.)\n" ++
     "fn compare(a: String, b: String) -> Int\n" ++
     "  ensures (-1 <= result) and (result <= 1)\n" ++
+    "  ensures (a == b) implies (result == 0)\n" ++
+    "  ensures (result == 0) implies ((len(a) == len(b)) and (forall i in 0..len(a): a[i] == b[i]))\n" ++
     "do\n" ++
     "  var n = len(a)\n" ++
     "  if len(b) < n then\n" ++
     "    set n = len(b)\n" ++
     "  end if\n" ++
-    "  for i in 0..n do\n" ++
+    "  for i in 0..n invariant forall j in 0..i: a[j] == b[j] do\n" ++
     "    if a[i] < b[i] then\n" ++
     "      return -1\n" ++
     "    elif a[i] > b[i] then\n" ++
@@ -195,13 +200,13 @@ fn std_text() -> String do
     "  end while\n" ++
     "  return slice(of: s, from: a, to: len(s))\n" ++
     "end fn trim_start\n" ++
-    "\n" ++
-    "fn trim_end(s: String) -> String\n" ++
+    "\n") ++
+    ("fn trim_end(s: String) -> String\n" ++
     "  ensures len(result) <= len(s)\n" ++
     "  ensures (len(result) > 0) implies not is_space(result[len(result) - 1])\n" ++
     "do\n" ++
-    "  var b = len(s)\n") ++
-    ("  while (b > 0) and is_space(s[b - 1]) invariant (0 <= b) and (b <= len(s)) decreases b do\n" ++
+    "  var b = len(s)\n" ++
+    "  while (b > 0) and is_space(s[b - 1]) invariant (0 <= b) and (b <= len(s)) decreases b do\n" ++
     "    set b = b - 1\n" ++
     "  end while\n" ++
     "  return slice(of: s, from: 0, to: b)\n" ++
@@ -225,30 +230,43 @@ fn std_text() -> String do
     "\n" ++
     "// ---- building ----\n" ++
     "\n" ++
-    "// `s` repeated `n` times.\n" ++
-    "fn repeat(s: String, n: Int) -> String do\n" ++
-    "  var parts: List<String> = []\n" ++
-    "  for i in 0..n do\n" ++
-    "    set parts = push(list: parts, item: s)\n" ++
+    "// `s` repeated `n` times (\"\" when n is not positive).\n" ++
+    "fn repeat(s: String, n: Int) -> String\n" ++
+    "  ensures (n <= 0) implies (len(result) == 0)\n" ++
+    "  ensures (n >= 0) implies (len(result) == (n * len(s)))\n" ++
+    "do\n" ++
+    "  var out = \"\"\n" ++
+    "  for i in 0..n invariant len(out) == (i * len(s)) do\n" ++
+    "    set out = out ++ s\n" ++
     "  end for\n" ++
-    "  return join(parts: parts, sep: \"\")\n" ++
+    "  return out\n" ++
     "end fn repeat\n" ++
     "\n" ++
-    "// Every occurrence of `old` replaced by `new`, scanning left to right.\n" ++
-    "fn replace(s: String, old: String where len(it) > 0, new: String) -> String do\n" ++
-    "  var parts: List<String> = []\n" ++
-    "  var i = 0\n" ++
-    "  while i < len(s) invariant (0 <= i) and (i <= len(s)) decreases len(s) - i do\n" ++
+    "// Every occurrence of `old` replaced by `new`, scanning left to right. A replacement\n" ++
+    "// of the same length keeps the length, and a text without `old` keeps its bytes.\n" ++
+    "fn replace(s: String, old: String where len(it) > 0, new: String) -> String\n" ++
+    "  ensures (len(new) == len(old)) implies (len(result) == len(s))\n" ++
+    "  ensures (forall k in 0..((len(s) - len(old)) + 1): not starts_at(s: s, at: k, p: old)) implies ((len(result) == len(s)) and (forall j in 0..len(s): result[j] == s[j]))\n" ++
+    "do\n" ++
+    "  let first = find(s: s, p: old, from: 0)\n" ++
+    "  if first < 0 then\n" ++
+    "    return s\n" ++
+    "  end if\n" ++
+    "  var out = slice(of: s, from: 0, to: first) ++ new\n" ++
+    "  var i = first + len(old)\n" ++
+    "  while i < len(s)\n" ++
+    "    invariant (first < i) and (i <= len(s))\n" ++
+    "    invariant (len(new) == len(old)) implies (len(out) == i)\n" ++
+    "    decreases len(s) - i\n" ++
+    "  do\n" ++
     "    let at = find(s: s, p: old, from: i)\n" ++
     "    if at < 0 then\n" ++
     "      break\n" ++
     "    end if\n" ++
-    "    set parts = push(list: parts, item: slice(of: s, from: i, to: at))\n" ++
-    "    set parts = push(list: parts, item: new)\n" ++
+    "    set out = out ++ slice(of: s, from: i, to: at) ++ new\n" ++
     "    set i = at + len(old)\n" ++
     "  end while\n" ++
-    "  set parts = push(list: parts, item: slice(of: s, from: i, to: len(s)))\n" ++
-    "  return join(parts: parts, sep: \"\")\n" ++
+    "  return out ++ slice(of: s, from: i, to: len(s))\n" ++
     "end fn replace\n" ++
     "\n" ++
     "fn to_lower(s: String) -> String\n" ++

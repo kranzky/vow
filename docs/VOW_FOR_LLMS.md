@@ -196,14 +196,17 @@ your own string helpers:
 | `starts_at(s: s, at: i, p: p)`, `starts_with(s: s, p: p)`, `ends_with(s: s, p: p)` | transparent: when true, the bounds and every byte of the match are known |
 | `find(s: s, p: p, from: i) -> Int` | `-1`, or an index `>= from` where `p` occurs; `-1` means no occurrence at or after `from` |
 | `find_byte(s: s, c: c, from: i)`, `find_last_byte(s: s, c: c)` | `-1` or an in-bounds index holding `c`; `-1` means absent |
-| `contains(s: s, p: p) -> Bool` | true implies an occurrence exists |
+| `contains(s: s, p: p) -> Bool` | true implies an occurrence exists; false means `p` occurs at no index |
 | `split(s: s, sep: c) -> List<String>` | at least one piece; no piece contains `sep` |
 | `lines(s) -> List<String>` | handles `\n` and `\r\n`; no line contains `\n` |
 | `trim(s)`, `trim_start(s)`, `trim_end(s)` | no longer than `s`; no surrounding space |
-| `replace(s: s, old: o, new: n)`, `repeat(s: s, n: k)` | proved to terminate |
+| `replace(s: s, old: o, new: n)` | the same length when `o` and `n` have the same length; the same bytes when `o` does not occur |
+| `repeat(s: s, n: k)` | length `k * len(s)` for `k >= 0`; empty for `k <= 0` |
 | `to_lower(s)`, `to_upper(s)` | same length; no upper (lower) case letters |
+| `compare(a: x, b: y) -> Int` | byte-wise order: -1, 0 or 1 (the same order as `<` on strings); 0 for equal strings, and 0 means the same length and bytes |
 
-| `compare(a: x, b: y) -> Int` | byte-wise order: -1, 0 or 1 (the same order as `<` on strings) |
+The verifier cannot conclude that two strings are equal from their bytes, so a contract
+about "the same text" is stated as the same length and the same byte at each index.
 
 Import what you use, as in `import "std/text.vow" (split, trim)`, or the whole module
 with `import "std/text.vow" as text` (then `text.split(...)`). A plain
@@ -214,7 +217,9 @@ names, such as `parse` and `get`, are too general to merge). A value is a `json.
 `Null`, `Bool(value)`, `Int(value)`, `Float(value)` (a number that is not an Int),
 `String(value)`, `Array(items)` or `Object(keys, values)`; build one as
 `json.Value.Int(value: 3)`. `json.parse(s) -> Result<json.Value, String>` (the error
-gives the byte offset), `json.text(j)` prints compact JSON, `json.quote(s)` makes a JSON
+gives the byte offset) accepts exactly JSON, nested at most 1000 deep; a number too
+large for a `Float` is an error, and a `\u` surrogate without its pair becomes U+FFFD.
+`json.text(j)` prints compact JSON, `json.quote(s)` makes a JSON
 string literal, and `json.get(j: j, key: k)`, `json.get_string`, `json.get_int`,
 `json.string(j)`, `json.int(j)` and `json.float(j)` read values (`None` when absent or
 of another type).

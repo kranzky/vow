@@ -2,10 +2,12 @@
 // `import "std/json.vow" as json`: then json.parse(s), json.text(j), json.get(j, key)
 // and the type json.Value.
 //
-// A number is an Int variant when it is an integer that fits, and otherwise a Float.
-// An object keeps its members in order, duplicates included; json.get finds the first
-// member with a key. Strings are bytes: \u escapes are decoded
-// to UTF-8, and printing escapes only '"', '\' and control characters.
+// A number is an Int variant when it is an integer that fits, and otherwise a Float;
+// one too large for a Float is an error. An object keeps its members in order,
+// duplicates included; json.get finds the first member with a key. Strings are bytes:
+// \u escapes are decoded to UTF-8 (a surrogate without its pair becomes U+FFFD), and
+// printing escapes only '"', '\' and control characters. Arrays and objects may be
+// nested 1000 deep; json.parse gives an error for more.
 
 import "std/text.vow" (is_digit, is_space, starts_at)
 
@@ -196,8 +198,12 @@ do
 end fn jr_skip_space
 
 private fn jr_error(r: JsonReader, msg: String) -> String do
-  return msg ++ " at byte " ++ int_to_str(r.pos)
+  return jr_error_at(pos: r.pos, msg: msg)
 end fn jr_error
+
+private fn jr_error_at(pos: Int, msg: String) -> String do
+  return msg ++ " at byte " ++ int_to_str(pos)
+end fn jr_error_at
 
 // Consumes the literal word if it comes next.
 private fn jr_word(r: inout JsonReader, word: String) -> Bool
@@ -211,10 +217,16 @@ do
   return false
 end fn jr_word
 
+// How deep arrays and objects may be nested: the reader calls itself for each level,
+// and the stack is not endless.
+fn max_depth() -> Int do
+  return 1000
+end fn max_depth
+
 // Parses a whole JSON text: one value, with only whitespace around it.
 fn parse(s: String) -> Result<Value, String> do
   var r = JsonReader(s: s, pos: 0)
-  let v = try read_value(inout r)
+  let v = try read_value(r: inout r, depth: 0)
   jr_skip_space(inout r)
   if r.pos < len(r.s) then
     return Result.Err(error: jr_error(r: r, msg: "unexpected text after the value"))
@@ -222,13 +234,17 @@ fn parse(s: String) -> Result<Value, String> do
   return Result.Ok(value: v)
 end fn parse
 
-private fn read_value(r: inout JsonReader) -> Result<Value, String> do
+// depth is the number of arrays and objects the value is inside.
+private fn read_value(r: inout JsonReader, depth: Int) -> Result<Value, String> do
   jr_skip_space(inout r)
   let c = jr_peek(r)
+  if ((c == '{') or (c == '[')) and (depth >= max_depth()) then
+    return Result.Err(error: jr_error(r: r, msg: "nested more than " ++ int_to_str(max_depth()) ++ " deep"))
+  end if
   if c == '{' then
-    return read_object(inout r)
+    return read_object(r: inout r, depth: depth + 1)
   elif c == '[' then
-    return read_array(inout r)
+    return read_array(r: inout r, depth: depth + 1)
   elif c == '"' then
     let s = try read_string(inout r)
     return Result.Ok(value: Value.String(value: s))
@@ -244,7 +260,7 @@ private fn read_value(r: inout JsonReader) -> Result<Value, String> do
   return Result.Err(error: jr_error(r: r, msg: "expected a JSON value"))
 end fn read_value
 
-private fn read_object(r: inout JsonReader) -> Result<Value, String> do
+private fn read_object(r: inout JsonReader, depth: Int) -> Result<Value, String> do
   jr_advance(inout r)
   var keys: List<String> = []
   var values: List<Value> = []
@@ -264,22 +280,22 @@ private fn read_object(r: inout JsonReader) -> Result<Value, String> do
       return Result.Err(error: jr_error(r: r, msg: "expected ':'"))
     end if
     jr_advance(inout r)
-    let v = try read_value(inout r)
+    let v = try read_value(r: inout r, depth: depth)
     set keys = push(list: keys, item: k)
     set values = push(list: values, item: v)
     jr_skip_space(inout r)
     let c = jr_peek(r)
+    if (c != '}') and (c != ',') then
+      return Result.Err(error: jr_error(r: r, msg: "expected ',' or '}'"))
+    end if
     jr_advance(inout r)
     if c == '}' then
       return Result.Ok(value: Value.Object(keys: keys, values: values))
     end if
-    if c != ',' then
-      return Result.Err(error: jr_error(r: r, msg: "expected ',' or '}'"))
-    end if
   end while
 end fn read_object
 
-private fn read_array(r: inout JsonReader) -> Result<Value, String> do
+private fn read_array(r: inout JsonReader, depth: Int) -> Result<Value, String> do
   jr_advance(inout r)
   var items: List<Value> = []
   jr_skip_space(inout r)
@@ -288,22 +304,23 @@ private fn read_array(r: inout JsonReader) -> Result<Value, String> do
     return Result.Ok(value: Value.Array(items: items))
   end if
   while true do
-    let v = try read_value(inout r)
+    let v = try read_value(r: inout r, depth: depth)
     set items = push(list: items, item: v)
     jr_skip_space(inout r)
     let c = jr_peek(r)
+    if (c != ']') and (c != ',') then
+      return Result.Err(error: jr_error(r: r, msg: "expected ',' or ']'"))
+    end if
     jr_advance(inout r)
     if c == ']' then
       return Result.Ok(value: Value.Array(items: items))
-    end if
-    if c != ',' then
-      return Result.Err(error: jr_error(r: r, msg: "expected ',' or ']'"))
     end if
   end while
 end fn read_array
 
 // A number: an integer that fits in an Int is an Int variant; one with a fraction or an
-// exponent, or too large for an Int, is a Float.
+// exponent, or too large for an Int, is a Float, and one too large for a Float is an
+// error (it would be an infinity, which JSON cannot write back).
 private fn read_number(r: inout JsonReader) -> Result<Value, String> do
   let start = r.pos
   var negative = false
@@ -313,6 +330,10 @@ private fn read_number(r: inout JsonReader) -> Result<Value, String> do
   end if
   if not is_digit(jr_peek(r)) then
     return Result.Err(error: jr_error(r: r, msg: "expected a digit"))
+  end if
+  let digits = r.pos
+  if (jr_peek(r) == '0') and ((r.pos + 1) < len(r.s)) and is_digit(r.s[r.pos + 1]) then
+    return Result.Err(error: jr_error(r: r, msg: "a number cannot begin with 0 and another digit"))
   end if
   var n = 0
   var fits = true
@@ -325,6 +346,8 @@ private fn read_number(r: inout JsonReader) -> Result<Value, String> do
     end if
     set r = r with (pos: r.pos + 1)
   end while
+  // The smallest Int: its digits are one more than the largest Int's.
+  let smallest = negative and (not fits) and starts_at(s: r.s, at: digits, p: "9223372036854775808") and (r.pos == (digits + 19))
   var float = not fits
   if jr_peek(r) == '.' then
     set float = true
@@ -347,13 +370,19 @@ private fn read_number(r: inout JsonReader) -> Result<Value, String> do
   end if
   if float then
     if (0 <= start) and (start <= r.pos) and (r.pos <= len(r.s)) then
+      if smallest and (r.pos == (digits + 19)) then
+        return Result.Ok(value: Value.Int(value: -9223372036854775808))
+      end if
       match str_to_float(slice(of: r.s, from: start, to: r.pos))
       case Some(value: x) then
+        if (x > 1.7976931348623157e308) or (x < -1.7976931348623157e308) then
+          return Result.Err(error: jr_error_at(pos: start, msg: "a number too large for a Float"))
+        end if
         return Result.Ok(value: Value.Float(value: x))
       case None then
       end match
     end if
-    return Result.Err(error: jr_error(r: r, msg: "malformed number"))
+    return Result.Err(error: jr_error_at(pos: start, msg: "malformed number"))
   end if
   if negative then
     return Result.Ok(value: Value.Int(value: -n))
@@ -384,11 +413,17 @@ private fn read_string(r: inout JsonReader) -> Result<String, String> do
     if c == '"' then
       return Result.Ok(value: join(parts: parts, sep: ""))
     end if
+    if c < 32 then
+      return Result.Err(error: jr_error_at(pos: r.pos - 1, msg: "a control character in a string (write it as an escape)"))
+    end if
     if c != '\\' then
       set parts = push(list: parts, item: char(c))
       continue
     end if
     let e = jr_peek(r)
+    if not ((e == 'n') or (e == 't') or (e == 'r') or (e == 'b') or (e == 'f') or (e == '"') or (e == '\\') or (e == '/') or (e == 'u')) then
+      return Result.Err(error: jr_error(r: r, msg: "unknown escape in a string"))
+    end if
     jr_advance(inout r)
     if e == 'n' then
       set parts = push(list: parts, item: "\n")
@@ -402,18 +437,35 @@ private fn read_string(r: inout JsonReader) -> Result<String, String> do
       set parts = push(list: parts, item: char(12))
     elif (e == '"') or (e == '\\') or (e == '/') then
       set parts = push(list: parts, item: char(e))
-    elif e == 'u' then
+    else
       var code = try read_hex4(inout r)
-      // A surrogate pair is one character.
-      if (code >= 55296) and (code < 56320) and jr_word(r: inout r, word: "\\u") then
+      // A surrogate pair is one character. A high surrogate that another \u escape
+      // follows without completing it is U+FFFD, and that escape is read as any
+      // other: it may itself begin a pair.
+      let whole = r.s
+      let from = r.pos
+      var more = false
+      if (code >= 55296) and (code < 56320) then
+        set more = jr_word(r: inout r, word: "\\u")
+      end if
+      while more invariant r.s == whole invariant r.pos >= from do
         let low = try read_hex4(inout r)
+        set more = false
         if (low >= 56320) and (low < 57344) then
           set code = (65536 + ((code - 55296) * 1024)) + (low - 56320)
+        else
+          set parts = push(list: parts, item: utf8(65533))
+          set code = low
+          if (code >= 55296) and (code < 56320) then
+            set more = jr_word(r: inout r, word: "\\u")
+          end if
         end if
+      end while
+      // A surrogate on its own is no character.
+      if (code >= 55296) and (code < 57344) then
+        set code = 65533
       end if
       set parts = push(list: parts, item: utf8(code))
-    else
-      return Result.Err(error: jr_error(r: r, msg: "unknown escape in a string"))
     end if
   end while
   return Result.Err(error: jr_error(r: r, msg: "unterminated string"))

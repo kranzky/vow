@@ -749,6 +749,54 @@ VOW
   rm -rf "$zdir"
 fi
 
+# install.sh installs nothing that does not run here, and replaces a working vowc only
+# with one that does (it copied the new one over the old and then tried it, with the
+# failure hidden by a pipe). Releases are made here and fetched from a directory.
+if [ -z "$VOW_FROZEN" ] && command -v curl >/dev/null 2>&1; then
+  idir=$(mktemp -d)
+  iok=true
+  case "$(uname -s)" in
+    Darwin) target=macos-universal ;;
+    *) case "$(uname -m)" in x86_64 | amd64) target=linux-x86_64 ;; *) target=linux-arm64 ;; esac ;;
+  esac
+  # release <tag> <text of vowc>: a release with that file as its compiler.
+  release() {
+    rname="vowc-${1#v}-$target"
+    mkdir -p "$idir/rel/$1" "$idir/make/$rname"
+    printf '%s\n' "$2" > "$idir/make/$rname/vowc"
+    printf '#!/bin/sh\necho server\n' > "$idir/make/$rname/vow-lsp"
+    (cd "$idir/make" && tar -czf "$idir/rel/$1/$rname.tar.gz" "$rname" &&
+      cd "$idir/rel/$1" && { shasum -a 256 "$rname.tar.gz" 2>/dev/null || sha256sum "$rname.tar.gz"; } > "$rname.tar.gz.sha256")
+  }
+  install() { VOW_INSTALL_DIR="$idir/bin" VOW_RELEASE_BASE="file://$idir/rel" VOW_VERSION="$1" sh ../install.sh 2>&1; }
+  release v9.9.1 '#!/bin/sh
+echo "vowc 9.9.1 (test)"'
+  release v9.9.2 'not a program'
+  release v9.9.3 '#!/bin/sh
+exit 3'
+  release v9.9.4 '#!/bin/sh
+echo "vowc 9.9.4 (test)"'
+  got=$(install v9.9.1)
+  [ $? -eq 0 ] && [ "$("$idir/bin/vowc" version)" = "vowc 9.9.1 (test)" ] && [ "$("$idir/bin/vow-lsp")" = "server" ] ||
+    { iok=false; echo "install: a release that runs is not installed: $got"; }
+  for bad in v9.9.2 v9.9.3; do
+    got=$(install "$bad")
+    [ $? -ne 0 ] && printf '%s\n' "$got" | grep -q "does not run on this machine; nothing was installed" && [ "$("$idir/bin/vowc" version)" = "vowc 9.9.1 (test)" ] ||
+      { iok=false; echo "install: $bad, whose vowc does not run, replaced the one that does: $got"; }
+  done
+  # A download that is not what its checksum says.
+  echo "more" >> "$idir/rel/v9.9.4/vowc-9.9.4-$target.tar.gz"
+  got=$(install v9.9.4)
+  [ $? -ne 0 ] && [ "$("$idir/bin/vowc" version)" = "vowc 9.9.1 (test)" ] || { iok=false; echo "install: a download with the wrong checksum was installed: $got"; }
+  [ -z "$(ls -A "$idir/bin" | grep -v '^vowc$' | grep -v '^vow-lsp$')" ] || { iok=false; echo "install: files left behind: $(ls -A "$idir/bin")"; }
+  if $iok; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1)); echo "FAIL install.sh"
+  fi
+  rm -rf "$idir"
+fi
+
 # The pinned Z3 version must be the same in the compiler and the installer.
 pinned=$(sed -n 's/^VERSION=//p' ../tools/install-z3.sh)
 if grep -A1 'fn tested_z3_version' ../compiler/verify.vow | grep -q "\"$pinned\""; then

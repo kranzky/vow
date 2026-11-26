@@ -2,6 +2,30 @@
 
 ## Unreleased
 
+- `std/json` reads exactly JSON:
+  - a `\u` surrogate without its pair becomes U+FFFD and what follows it is kept
+    (`"\ud83dA"` lost nothing but became invalid UTF-8, and `"\ud83d\u0041"` lost the
+    `A`);
+  - a number that begins with `0` and another digit, and a control character written
+    raw in a string, are errors (`01` was 1);
+  - `-9223372036854775808` is an `Int` (it became a `Float`), and a number too large
+    for a `Float` is an error (`1e400` was read as infinity and printed as `null`);
+  - an error gives the offset of the byte that is wrong; some gave the one after;
+  - arrays and objects may be nested 1000 deep, and deeper text is an error:
+    100,000 brackets overflowed the stack, and such a message killed the language
+    server.
+- `std/text` promises more: `contains` says that no index has the text when it is
+  false, `compare` returns 0 for equal strings and only for strings of the same
+  length and bytes, `repeat` gives its result's length, and `replace` keeps the length
+  when the two texts have the same length and keeps the bytes when there is nothing
+  to replace (it now returns the string itself then).
+- `install.sh` runs the new `vowc` before it installs anything, and puts it in place
+  in one step: a release that does not run on the machine left a broken `vowc` where a
+  working one had been, and reported success.
+- `make test` first checks that the copies of `std/` and the runtime built into the
+  compiler, and the C seed, are what the sources give, and asks for `make bootstrap`
+  if not; it ran the tests with the old ones. A generation step that fails no longer
+  leaves an empty file behind.
 - Faster programs, with no change to what any program computes:
   - a struct in a list is updated where it is: `set ps = set_at(list: ps, at: i, value:
     ps[i] with (x: ...))` no longer copies the struct (20 million updates take 0.06 s,

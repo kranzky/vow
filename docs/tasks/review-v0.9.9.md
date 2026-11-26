@@ -830,12 +830,19 @@ No crash or hang in 30,000 fuzzed edits, and malformed framing is survived.
   `1e400` prints back as `null`; error offsets are one past the offending byte.
 - **Fix:** U+FFFD for a lone surrogate, and process what follows it normally; reject
   leading zeros and bytes below 0x20; special-case the minimum integer.
+- **Done.** As proposed. A high surrogate followed by a `\u` escape that does not
+  complete it is U+FFFD, and that escape is read as any other (it may begin a pair).
+  A number too large for a Float is an error, not an infinity. The checks for a
+  separator and for an escape come before the reader moves on, so the offset is the
+  wrong byte's. Test: `tests/run/json_strict.vow`.
 
 ### S2. `json.parse` overflows the stack on deep nesting, which also kills the language server (reproduced by one reviewer)
 
 - **Where:** `std/json.vow:225-303`. 100,000 nested brackets segfault; a framed body
   of 200,000 `[` kills `vow-lsp`.
 - **Fix:** a depth counter in the reader, and `Err` past a limit.
+- **Done.** `read_value` is given the depth and refuses an array or object inside
+  1000 others (`json.max_depth()`). 100,000 brackets are an error at byte 1000.
 
 ### S3. `std/text` contracts are weaker than the README says (from reading)
 
@@ -843,6 +850,17 @@ No crash or hang in 30,000 fuzzed edits, and malformed framing is survived.
   result; `replace` and `repeat` have no postcondition.
 - **Fix:** `not result implies forall ...` on `contains`; `(result == 0) == (a == b)`
   on `compare`; lengths on `repeat`.
+- **Done.** `contains` and `repeat` as proposed (`repeat` is built with `++`, which
+  the verifier follows). `compare`: `(a == b) implies (result == 0)`, and `(result ==
+  0)` implies the same length and the same byte at each index. `replace`: the same
+  length when `old` and `new` have the same length, and the same bytes when `old`
+  does not occur. Test: `tests/run/text_contracts.vow`.
+- **Not done.** `(result == 0) implies (a == b)`: the verifier has no way to conclude
+  that two strings are equal from their bytes (two empty strings are not provably
+  equal), so no contract can promise `==` of a string that was built. A first
+  version of `replace` that carried "nothing to replace so far" as a loop invariant
+  needed 625,008 units of work for one proof (a third of the limit); it now looks for
+  the first occurrence before the loop, and its largest proof needs 12,329.
 
 ## G. Packages and running programs
 
@@ -952,6 +970,9 @@ No crash or hang in 30,000 fuzzed edits, and malformed framing is survived.
   ...", exit 0, with a binary that cannot run.
 - **Fix:** run the new binary from the temp directory first; copy to a temp name and
   `mv` into place.
+- **Done.** As proposed, for `vowc` and `vow-lsp`. `VOW_RELEASE_BASE` says where
+  releases are fetched from, so that `tests/run.sh` can install releases it makes: one
+  that runs, two whose `vowc` does not, and one with a wrong checksum.
 - **Fine:** the checksum is verified, and a truncated download installs nothing.
 
 ### T5. The Makefile can leave an empty generated file, and `make test` does not see edits to `std/` or the runtime (reproduced by one reviewer)
@@ -963,6 +984,10 @@ No crash or hang in 30,000 fuzzed edits, and malformed framing is survived.
   the old copies until `make bootstrap`.
 - **Fix:** `.DELETE_ON_ERROR:` (or write to a temp file and `mv`), also for the seed;
   make `test` check that the embedded copies are current.
+- **Done.** `.DELETE_ON_ERROR:`, and `make test` begins with `test-current`: each
+  embedded file must be its source embedded, and `seed/vowc.c` what the compiler's
+  source gives; otherwise it stops and asks for `make bootstrap`. (The seed is copied
+  into place only after the fixpoint check, so it needed nothing.)
 
 ## Open tasks, reviewed
 

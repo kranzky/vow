@@ -1,0 +1,46 @@
+// language: 0.9
+// What std/text promises is enough to prove things about its results: contains says
+// what holds when it is false, compare when it is 0, repeat and replace give lengths.
+import "std/text.vow" as text
+
+// When s does not contain the one-byte string p, the first byte of s is not p's.
+fn first_differs(s: String where len(it) > 0, p: String where len(it) == 1) -> Bool
+  ensures result
+do
+  if text.contains(s: s, p: p) then
+    return true
+  end if
+  return s[0] != p[0]
+end fn first_differs
+
+// Two strings that compare as equal have the same length and the same last byte.
+fn same_end(a: String where len(it) > 0, b: String) -> Bool
+  ensures result
+do
+  if text.compare(a: a, b: b) != 0 then
+    return true
+  end if
+  return a[len(a) - 1] == b[len(a) - 1]
+end fn same_end
+
+// A rule of n dashes: its last byte can be read with no check.
+fn rule_end(n: Int where it > 0) -> Int where (0 <= it) and (it < 256) do
+  let r = text.repeat(s: "-", n: n)
+  return r[n - 1]
+end fn rule_end
+
+// Replacing a byte by another keeps every index in bounds.
+fn swapped_at(s: String, i: Int where (0 <= it) and (it < len(s))) -> Int where (0 <= it) and (it < 256) do
+  let t = text.replace(s: s, old: "/", new: ":")
+  return t[i]
+end fn swapped_at
+
+fn main() uses console do
+  if first_differs(s: "hello", p: "z") and same_end(a: "abc", b: "abc") then
+    print("proved\n")
+  end if
+  print(char(rule_end(3)) ++ " " ++ char(swapped_at(s: "a/b/c", i: 3)) ++ "\n")
+  print(text.repeat(s: "ab", n: 3) ++ "|" ++ text.repeat(s: "ab", n: 0) ++ "|" ++ text.repeat(s: "ab", n: -2) ++ "|\n")
+  print(text.replace(s: "a-b-c", old: "-", new: "+++") ++ " " ++ text.replace(s: "abc", old: "x", new: "y") ++ " " ++ text.replace(s: "xxxx", old: "xx", new: "") ++ "|" ++ text.replace(s: "", old: "x", new: "y") ++ "|\n")
+  print(int_to_str(text.compare(a: "a", b: "b")) ++ " " ++ int_to_str(text.compare(a: "ab", b: "a")) ++ " " ++ int_to_str(text.compare(a: "", b: "")) ++ "\n")
+end fn main

@@ -5,6 +5,10 @@
 #
 # VOW_INSTALL_DIR chooses the directory (default ~/.local/bin); VOW_VERSION picks a
 # release tag (default: the latest). vowc also needs a C compiler and Z3.
+#
+# Nothing is installed unless the checksum matches and the new vowc runs here, and the
+# old one is replaced in one step, so a failed install leaves a working one as it was.
+# (VOW_RELEASE_BASE, for the tests, is where releases are fetched from.)
 set -eu
 
 repo=kranzky/vow
@@ -29,7 +33,7 @@ if [ -z "$tag" ]; then
 fi
 
 name="vowc-${tag#v}-$target"
-url="https://github.com/$repo/releases/download/$tag/$name.tar.gz"
+url="${VOW_RELEASE_BASE:-https://github.com/$repo/releases/download}/$tag/$name.tar.gz"
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 
@@ -43,13 +47,24 @@ else
 fi || { echo "vow: checksum mismatch; not installing" >&2; exit 1; }
 
 tar -xzf "$tmp/$name.tar.gz" -C "$tmp"
+chmod +x "$tmp/$name/vowc"
+# The new compiler must run on this machine before it replaces anything.
+version=$("$tmp/$name/vowc" version 2>/dev/null | head -n 1) || version=
+case "$version" in
+  "vowc "*) ;;
+  *) echo "vow: the downloaded vowc does not run on this machine; nothing was installed" >&2; exit 1 ;;
+esac
+
+# Copied beside its destination and then renamed over it: never a half-written file.
+put() {
+  cp "$1" "$dir/.$2.new.$$" && chmod +x "$dir/.$2.new.$$" && mv -f "$dir/.$2.new.$$" "$dir/$2" ||
+    { rm -f "$dir/.$2.new.$$"; echo "vow: could not write $dir/$2" >&2; exit 1; }
+}
 mkdir -p "$dir"
-cp "$tmp/$name/vowc" "$dir/vowc"
-chmod +x "$dir/vowc"
-echo "vow: installed $("$dir/vowc" version | head -1) to $dir/vowc"
+put "$tmp/$name/vowc" vowc
+echo "vow: installed $version to $dir/vowc"
 if [ -f "$tmp/$name/vow-lsp" ]; then
-  cp "$tmp/$name/vow-lsp" "$dir/vow-lsp"
-  chmod +x "$dir/vow-lsp"
+  put "$tmp/$name/vow-lsp" vow-lsp
   echo "vow: installed the language server to $dir/vow-lsp"
 fi
 

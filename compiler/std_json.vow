@@ -5,10 +5,12 @@ fn std_json() -> String do
     "// `import \"std/json.vow\" as json`: then json.parse(s), json.text(j), json.get(j, key)\n" ++
     "// and the type json.Value.\n" ++
     "//\n" ++
-    "// A number is an Int variant when it is an integer that fits, and otherwise a Float.\n" ++
-    "// An object keeps its members in order, duplicates included; json.get finds the first\n" ++
-    "// member with a key. Strings are bytes: \\u escapes are decoded\n" ++
-    "// to UTF-8, and printing escapes only '\"', '\\' and control characters.\n" ++
+    "// A number is an Int variant when it is an integer that fits, and otherwise a Float;\n" ++
+    "// one too large for a Float is an error. An object keeps its members in order,\n" ++
+    "// duplicates included; json.get finds the first member with a key. Strings are bytes:\n" ++
+    "// \\u escapes are decoded to UTF-8 (a surrogate without its pair becomes U+FFFD), and\n" ++
+    "// printing escapes only '\"', '\\' and control characters. Arrays and objects may be\n" ++
+    "// nested 1000 deep; json.parse gives an error for more.\n" ++
     "\n" ++
     "import \"std/text.vow\" (is_digit, is_space, starts_at)\n" ++
     "\n" ++
@@ -198,10 +200,14 @@ fn std_json() -> String do
     "  end while\n" ++
     "end fn jr_skip_space\n" ++
     "\n" ++
-    "private fn jr_error(r: JsonReader, msg: String) -> String do\n" ++
-    "  return msg ++ \" at byte \" ++ int_to_str(r.pos)\n" ++
-    "end fn jr_error\n") ++
-    ("\n" ++
+    "private fn jr_error(r: JsonReader, msg: String) -> String do\n") ++
+    ("  return jr_error_at(pos: r.pos, msg: msg)\n" ++
+    "end fn jr_error\n" ++
+    "\n" ++
+    "private fn jr_error_at(pos: Int, msg: String) -> String do\n" ++
+    "  return msg ++ \" at byte \" ++ int_to_str(pos)\n" ++
+    "end fn jr_error_at\n" ++
+    "\n" ++
     "// Consumes the literal word if it comes next.\n" ++
     "private fn jr_word(r: inout JsonReader, word: String) -> Bool\n" ++
     "  ensures r.s == old(r).s\n" ++
@@ -214,10 +220,16 @@ fn std_json() -> String do
     "  return false\n" ++
     "end fn jr_word\n" ++
     "\n" ++
+    "// How deep arrays and objects may be nested: the reader calls itself for each level,\n" ++
+    "// and the stack is not endless.\n" ++
+    "fn max_depth() -> Int do\n" ++
+    "  return 1000\n" ++
+    "end fn max_depth\n" ++
+    "\n" ++
     "// Parses a whole JSON text: one value, with only whitespace around it.\n" ++
     "fn parse(s: String) -> Result<Value, String> do\n" ++
     "  var r = JsonReader(s: s, pos: 0)\n" ++
-    "  let v = try read_value(inout r)\n" ++
+    "  let v = try read_value(r: inout r, depth: 0)\n" ++
     "  jr_skip_space(inout r)\n" ++
     "  if r.pos < len(r.s) then\n" ++
     "    return Result.Err(error: jr_error(r: r, msg: \"unexpected text after the value\"))\n" ++
@@ -225,13 +237,17 @@ fn std_json() -> String do
     "  return Result.Ok(value: v)\n" ++
     "end fn parse\n" ++
     "\n" ++
-    "private fn read_value(r: inout JsonReader) -> Result<Value, String> do\n" ++
+    "// depth is the number of arrays and objects the value is inside.\n" ++
+    "private fn read_value(r: inout JsonReader, depth: Int) -> Result<Value, String> do\n" ++
     "  jr_skip_space(inout r)\n" ++
     "  let c = jr_peek(r)\n" ++
+    "  if ((c == '{') or (c == '[')) and (depth >= max_depth()) then\n" ++
+    "    return Result.Err(error: jr_error(r: r, msg: \"nested more than \" ++ int_to_str(max_depth()) ++ \" deep\"))\n" ++
+    "  end if\n" ++
     "  if c == '{' then\n" ++
-    "    return read_object(inout r)\n" ++
+    "    return read_object(r: inout r, depth: depth + 1)\n" ++
     "  elif c == '[' then\n" ++
-    "    return read_array(inout r)\n" ++
+    "    return read_array(r: inout r, depth: depth + 1)\n" ++
     "  elif c == '\"' then\n" ++
     "    let s = try read_string(inout r)\n" ++
     "    return Result.Ok(value: Value.String(value: s))\n" ++
@@ -247,7 +263,7 @@ fn std_json() -> String do
     "  return Result.Err(error: jr_error(r: r, msg: \"expected a JSON value\"))\n" ++
     "end fn read_value\n" ++
     "\n" ++
-    "private fn read_object(r: inout JsonReader) -> Result<Value, String> do\n" ++
+    "private fn read_object(r: inout JsonReader, depth: Int) -> Result<Value, String> do\n" ++
     "  jr_advance(inout r)\n" ++
     "  var keys: List<String> = []\n" ++
     "  var values: List<Value> = []\n" ++
@@ -267,22 +283,22 @@ fn std_json() -> String do
     "      return Result.Err(error: jr_error(r: r, msg: \"expected ':'\"))\n" ++
     "    end if\n" ++
     "    jr_advance(inout r)\n" ++
-    "    let v = try read_value(inout r)\n" ++
+    "    let v = try read_value(r: inout r, depth: depth)\n" ++
     "    set keys = push(list: keys, item: k)\n" ++
     "    set values = push(list: values, item: v)\n" ++
     "    jr_skip_space(inout r)\n" ++
     "    let c = jr_peek(r)\n" ++
+    "    if (c != '}') and (c != ',') then\n" ++
+    "      return Result.Err(error: jr_error(r: r, msg: \"expected ',' or '}'\"))\n" ++
+    "    end if\n" ++
     "    jr_advance(inout r)\n" ++
     "    if c == '}' then\n" ++
     "      return Result.Ok(value: Value.Object(keys: keys, values: values))\n" ++
     "    end if\n" ++
-    "    if c != ',' then\n" ++
-    "      return Result.Err(error: jr_error(r: r, msg: \"expected ',' or '}'\"))\n" ++
-    "    end if\n" ++
     "  end while\n" ++
     "end fn read_object\n" ++
     "\n" ++
-    "private fn read_array(r: inout JsonReader) -> Result<Value, String> do\n" ++
+    "private fn read_array(r: inout JsonReader, depth: Int) -> Result<Value, String> do\n" ++
     "  jr_advance(inout r)\n" ++
     "  var items: List<Value> = []\n" ++
     "  jr_skip_space(inout r)\n" ++
@@ -291,22 +307,23 @@ fn std_json() -> String do
     "    return Result.Ok(value: Value.Array(items: items))\n" ++
     "  end if\n" ++
     "  while true do\n" ++
-    "    let v = try read_value(inout r)\n" ++
+    "    let v = try read_value(r: inout r, depth: depth)\n" ++
     "    set items = push(list: items, item: v)\n" ++
     "    jr_skip_space(inout r)\n" ++
     "    let c = jr_peek(r)\n" ++
+    "    if (c != ']') and (c != ',') then\n" ++
+    "      return Result.Err(error: jr_error(r: r, msg: \"expected ',' or ']'\"))\n" ++
+    "    end if\n" ++
     "    jr_advance(inout r)\n" ++
     "    if c == ']' then\n" ++
     "      return Result.Ok(value: Value.Array(items: items))\n" ++
-    "    end if\n" ++
-    "    if c != ',' then\n" ++
-    "      return Result.Err(error: jr_error(r: r, msg: \"expected ',' or ']'\"))\n" ++
     "    end if\n" ++
     "  end while\n" ++
     "end fn read_array\n" ++
     "\n" ++
     "// A number: an integer that fits in an Int is an Int variant; one with a fraction or an\n" ++
-    "// exponent, or too large for an Int, is a Float.\n" ++
+    "// exponent, or too large for an Int, is a Float, and one too large for a Float is an\n" ++
+    "// error (it would be an infinity, which JSON cannot write back).\n" ++
     "private fn read_number(r: inout JsonReader) -> Result<Value, String> do\n" ++
     "  let start = r.pos\n" ++
     "  var negative = false\n" ++
@@ -316,6 +333,10 @@ fn std_json() -> String do
     "  end if\n" ++
     "  if not is_digit(jr_peek(r)) then\n" ++
     "    return Result.Err(error: jr_error(r: r, msg: \"expected a digit\"))\n" ++
+    "  end if\n" ++
+    "  let digits = r.pos\n" ++
+    "  if (jr_peek(r) == '0') and ((r.pos + 1) < len(r.s)) and is_digit(r.s[r.pos + 1]) then\n" ++
+    "    return Result.Err(error: jr_error(r: r, msg: \"a number cannot begin with 0 and another digit\"))\n" ++
     "  end if\n" ++
     "  var n = 0\n" ++
     "  var fits = true\n" ++
@@ -328,6 +349,8 @@ fn std_json() -> String do
     "    end if\n" ++
     "    set r = r with (pos: r.pos + 1)\n" ++
     "  end while\n" ++
+    "  // The smallest Int: its digits are one more than the largest Int's.\n" ++
+    "  let smallest = negative and (not fits) and starts_at(s: r.s, at: digits, p: \"9223372036854775808\") and (r.pos == (digits + 19))\n" ++
     "  var float = not fits\n" ++
     "  if jr_peek(r) == '.' then\n" ++
     "    set float = true\n" ++
@@ -350,13 +373,19 @@ fn std_json() -> String do
     "  end if\n" ++
     "  if float then\n" ++
     "    if (0 <= start) and (start <= r.pos) and (r.pos <= len(r.s)) then\n" ++
+    "      if smallest and (r.pos == (digits + 19)) then\n" ++
+    "        return Result.Ok(value: Value.Int(value: -9223372036854775808))\n" ++
+    "      end if\n" ++
     "      match str_to_float(slice(of: r.s, from: start, to: r.pos))\n" ++
     "      case Some(value: x) then\n" ++
+    "        if (x > 1.7976931348623157e308) or (x < -1.7976931348623157e308) then\n" ++
+    "          return Result.Err(error: jr_error_at(pos: start, msg: \"a number too large for a Float\"))\n" ++
+    "        end if\n" ++
     "        return Result.Ok(value: Value.Float(value: x))\n" ++
     "      case None then\n" ++
     "      end match\n" ++
     "    end if\n" ++
-    "    return Result.Err(error: jr_error(r: r, msg: \"malformed number\"))\n" ++
+    "    return Result.Err(error: jr_error_at(pos: start, msg: \"malformed number\"))\n" ++
     "  end if\n" ++
     "  if negative then\n" ++
     "    return Result.Ok(value: Value.Int(value: -n))\n" ++
@@ -371,8 +400,8 @@ fn std_json() -> String do
     "  while (r.pos < len(r.s)) and is_digit(r.s[r.pos])\n" ++
     "    invariant r.s == old(r).s\n" ++
     "    invariant r.pos >= old(r).pos\n" ++
-    "    decreases len(r.s) - r.pos\n" ++
-    "  do\n" ++
+    "    decreases len(r.s) - r.pos\n") ++
+    ("  do\n" ++
     "    set r = r with (pos: r.pos + 1)\n" ++
     "  end while\n" ++
     "end fn jr_digits\n" ++
@@ -387,11 +416,17 @@ fn std_json() -> String do
     "    if c == '\"' then\n" ++
     "      return Result.Ok(value: join(parts: parts, sep: \"\"))\n" ++
     "    end if\n" ++
+    "    if c < 32 then\n" ++
+    "      return Result.Err(error: jr_error_at(pos: r.pos - 1, msg: \"a control character in a string (write it as an escape)\"))\n" ++
+    "    end if\n" ++
     "    if c != '\\\\' then\n" ++
     "      set parts = push(list: parts, item: char(c))\n" ++
     "      continue\n" ++
     "    end if\n" ++
     "    let e = jr_peek(r)\n" ++
+    "    if not ((e == 'n') or (e == 't') or (e == 'r') or (e == 'b') or (e == 'f') or (e == '\"') or (e == '\\\\') or (e == '/') or (e == 'u')) then\n" ++
+    "      return Result.Err(error: jr_error(r: r, msg: \"unknown escape in a string\"))\n" ++
+    "    end if\n" ++
     "    jr_advance(inout r)\n" ++
     "    if e == 'n' then\n" ++
     "      set parts = push(list: parts, item: \"\\n\")\n" ++
@@ -400,23 +435,40 @@ fn std_json() -> String do
     "    elif e == 'r' then\n" ++
     "      set parts = push(list: parts, item: \"\\r\")\n" ++
     "    elif e == 'b' then\n" ++
-    "      set parts = push(list: parts, item: char(8))\n") ++
-    ("    elif e == 'f' then\n" ++
+    "      set parts = push(list: parts, item: char(8))\n" ++
+    "    elif e == 'f' then\n" ++
     "      set parts = push(list: parts, item: char(12))\n" ++
     "    elif (e == '\"') or (e == '\\\\') or (e == '/') then\n" ++
     "      set parts = push(list: parts, item: char(e))\n" ++
-    "    elif e == 'u' then\n" ++
+    "    else\n" ++
     "      var code = try read_hex4(inout r)\n" ++
-    "      // A surrogate pair is one character.\n" ++
-    "      if (code >= 55296) and (code < 56320) and jr_word(r: inout r, word: \"\\\\u\") then\n" ++
+    "      // A surrogate pair is one character. A high surrogate that another \\u escape\n" ++
+    "      // follows without completing it is U+FFFD, and that escape is read as any\n" ++
+    "      // other: it may itself begin a pair.\n" ++
+    "      let whole = r.s\n" ++
+    "      let from = r.pos\n" ++
+    "      var more = false\n" ++
+    "      if (code >= 55296) and (code < 56320) then\n" ++
+    "        set more = jr_word(r: inout r, word: \"\\\\u\")\n" ++
+    "      end if\n" ++
+    "      while more invariant r.s == whole invariant r.pos >= from do\n" ++
     "        let low = try read_hex4(inout r)\n" ++
+    "        set more = false\n" ++
     "        if (low >= 56320) and (low < 57344) then\n" ++
     "          set code = (65536 + ((code - 55296) * 1024)) + (low - 56320)\n" ++
+    "        else\n" ++
+    "          set parts = push(list: parts, item: utf8(65533))\n" ++
+    "          set code = low\n" ++
+    "          if (code >= 55296) and (code < 56320) then\n" ++
+    "            set more = jr_word(r: inout r, word: \"\\\\u\")\n" ++
+    "          end if\n" ++
     "        end if\n" ++
+    "      end while\n" ++
+    "      // A surrogate on its own is no character.\n" ++
+    "      if (code >= 55296) and (code < 57344) then\n" ++
+    "        set code = 65533\n" ++
     "      end if\n" ++
     "      set parts = push(list: parts, item: utf8(code))\n" ++
-    "    else\n" ++
-    "      return Result.Err(error: jr_error(r: r, msg: \"unknown escape in a string\"))\n" ++
     "    end if\n" ++
     "  end while\n" ++
     "  return Result.Err(error: jr_error(r: r, msg: \"unterminated string\"))\n" ++

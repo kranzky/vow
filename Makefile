@@ -5,6 +5,8 @@
 #                   v0.3 language, the frozen Rust bootstrap compiler; the
 #                   reference-counting checks (debug runtime) and the differential
 #                   verifier check
+#                   (after an edit to the compiler, std/ or the runtime it asks
+#                   for make bootstrap first: the tests run the seed's compiler)
 #   make bootstrap  rebuild the compiler with itself (starting from the seed), check
 #                   the self-hosting fixpoint (stage 2 and stage 3 emit identical C)
 #                   and refresh the seed
@@ -24,6 +26,10 @@ CFLAGS ?= -O2 -std=c11 -w
 RUST_VOWC = bootstrap/target/release/vowc
 export VOW_CACHE ?= $(CURDIR)/build/cache
 
+# A recipe that fails does not leave its target behind, half written and newer than
+# its sources (an empty compiler/runtime_h.vow, when Z3 is missing).
+.DELETE_ON_ERROR:
+
 all: build/vowc
 
 build/vowc: seed/vowc.c runtime/vow_rt.h
@@ -33,11 +39,24 @@ build/vowc: seed/vowc.c runtime/vow_rt.h
 $(RUST_VOWC): $(wildcard bootstrap/src/*.rs) runtime/vow_rt.h
 	cd bootstrap && cargo build --release -q
 
-test: build/vowc $(RUST_VOWC) test-site test-rc differential test-fingerprint test-lsp
+test: build/vowc $(RUST_VOWC) test-current test-site test-rc differential test-fingerprint test-lsp
 	@echo "== bootstrap compiler (Rust, frozen at the v0.3 language)"
 	@VOW_FROZEN=1 VOWC=$(CURDIR)/$(RUST_VOWC) tests/run.sh
 	@echo "== self-hosted compiler"
 	@VOWC=$(CURDIR)/build/vowc tests/run.sh
+
+# vowc uses the copies of std/ and of the runtime that are built into it, and
+# build/vowc comes from the seed: after an edit to any of them, or to the compiler,
+# the tests would run what was there before. So they first check that the embedded
+# copies are their sources embedded, and that the seed is what the compiler's source
+# gives. make bootstrap brings both up to date.
+test-current: build/vowc
+	@echo "== the embedded files and the seed are current"
+	@for f in "runtime/vow_rt.h runtime_header compiler/runtime_h.vow" "std/text.vow std_text compiler/std_text.vow" "std/json.vow std_json compiler/std_json.vow"; do \
+	  set -- $$f; \
+	  build/vowc run tools/embed.vow -- $$1 $$2 | cmp -s - $$3 || { echo "$$3 is not $$1 embedded: run make bootstrap"; exit 1; }; \
+	done
+	@build/vowc emit-c compiler/vowc.vow --no-line-directives | cmp -s - seed/vowc.c || { echo "seed/vowc.c is not what compiler/*.vow gives: run make bootstrap"; exit 1; }
 
 build/vowsite: tools/vowsite/vowsite.vow build/vowc runtime/vow_rt.h
 	build/vowc build tools/vowsite/vowsite.vow -o $@

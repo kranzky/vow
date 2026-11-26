@@ -1,0 +1,79 @@
+// language: 0.9
+// std/json reads what JSON allows and nothing else: a surrogate without its pair is
+// U+FFFD (and what follows it is kept), a number may not begin with 0 and another
+// digit, a control character in a string must be an escape, the smallest Int is an
+// Int, a number too large for a Float is an error, an error is at the byte that is
+// wrong, and nesting past 1000 is an error where it overflowed the stack.
+import "std/json.vow" as json
+
+fn hex(s: String) -> String do
+  var out = ""
+  for i in 0..len(s) do
+    let c = s[i]
+    if (c >= 32) and (c < 127) then
+      set out = out ++ char(c)
+    else
+      set out = out ++ "<" ++ int_to_str(c) ++ ">"
+    end if
+  end for
+  return out
+end fn hex
+
+fn show(src: String) uses console do
+  var shown = hex(src)
+  if len(shown) > 40 then
+    set shown = int_to_str(len(src)) ++ " bytes"
+  end if
+  match json.parse(src)
+  case Ok(value: v) then
+    var out = hex(json.text(v))
+    if len(out) > 40 then
+      set out = int_to_str(len(out)) ++ " bytes"
+    end if
+    print(shown ++ "  =>  " ++ out ++ "\n")
+  case Err(error: e) then
+    print(shown ++ "  =>  error: " ++ e ++ "\n")
+  end match
+end fn show
+
+// n arrays, one inside the other.
+fn nested(n: Int) -> String do
+  var open = ""
+  var close = ""
+  for i in 0..n do
+    set open = open ++ "["
+    set close = close ++ "]"
+  end for
+  return open ++ close
+end fn nested
+
+fn main() uses console do
+  show("\"\\ud83dA\"")
+  show("\"\\ud83d\\u0041\"")
+  show("\"\\ud83d\"")
+  show("\"\\ude00x\"")
+  show("\"\\ud83d\\ude00\"")
+  show("\"\\ud83d\\ud83d\\ude00\"")
+  show("01")
+  show("-012")
+  show("0")
+  show("-0")
+  show("0.5")
+  show("\"a\tb\"")
+  show("-9223372036854775808")
+  show("9223372036854775807")
+  show("9223372036854775808")
+  show("-9223372036854775809")
+  show("1e400")
+  show("-1e400")
+  show("1e-400")
+  show("[1 2]")
+  show("{\"a\" 1}")
+  show("{\"a\":1 \"b\":2}")
+  show("\"\\q\"")
+  show("[1,]")
+  show("tru")
+  show(nested(1000))
+  show(nested(1001))
+  show(nested(50000))
+end fn main

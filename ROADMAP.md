@@ -118,8 +118,9 @@ Must-have, tooling:
       types and contracts, go to definition
 - [x] Language server: hover with the facts the verifier knows at that point
 - [x] Pinned Z3 version (5.3.2, installed by `tools/install-z3.sh`; CI uses it)
-- [ ] Verifier performance: the driver already uses one Z3 process with push/pop per
-      function and obligation; the measured gains are tasks V1, V2, V5 and V6 below
+- [x] Verifier performance: functions with nothing to prove are not sent (V1), proofs
+      run in several Z3 processes (V2), a proof is kept by what it sends to Z3 (V5),
+      and a fact is sent once for the obligations that share it (V6)
 - [ ] Publish a first package: a git repository of verified Vow code, listed at
       vow.kranzky.com/packages.html and imported by a test program through `vow.pkg`
 
@@ -223,11 +224,11 @@ Language server:
       hover waits 23 s behind a cold proof today)
 
 Standard library:
-- [ ] S1: `std/json`: surrogates, leading zeros, control bytes in strings, the minimum
+- [x] S1: `std/json`: surrogates, leading zeros, control bytes in strings, the minimum
       integer, error offsets
-- [ ] S2: `std/json`: a depth limit (100,000 nested brackets segfault, and one such
+- [x] S2: `std/json`: a depth limit (100,000 nested brackets segfault, and one such
       message kills the language server)
-- [ ] S3: `std/text`: contracts for `contains`, `compare`, `replace` and `repeat`
+- [x] S3: `std/text`: contracts for `contains`, `compare`, `replace` and `repeat`
 
 Packages and running programs:
 - [x] G1: `vowc add lib <url> main` can pin the branch `feature/main`
@@ -246,9 +247,9 @@ Tests, CI and releases:
 - [x] T3: the Release workflow runs the tests with the binaries before it uploads them,
       and publishes a draft release last; permissions, timeouts and pinned actions in
       CI; the site deploys after CI passes
-- [ ] T4: `install.sh` runs the new binary before it replaces the old one, and
+- [x] T4: `install.sh` runs the new binary before it replaces the old one, and
       replaces it atomically
-- [ ] T5: the Makefile deletes a half-written generated file, and `make test` notices
+- [x] T5: the Makefile deletes a half-written generated file, and `make test` notices
       stale embedded copies of `std/` and the runtime
 
 Release criteria:
