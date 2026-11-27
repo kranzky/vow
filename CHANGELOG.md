@@ -1,5 +1,46 @@
 # Changelog
 
+## Unreleased
+
+- The language server (`vow-lsp`):
+  - each open document has its own diagnostics. Opening a second file cleared those
+    of the first, and closing a file left its diagnostics behind. A file that open
+    documents import, and is not open itself, shows what they find in it; and the
+    documents that import a file are checked again when it is saved or closed;
+  - a function named `test_...` in a program or a library is an ordinary function. It
+    was reported as a test of the wrong shape, and since that was an error, nothing in
+    the file was proved (opening `compiler/vowc.vow` showed it). The rule applies to a
+    file of tests: one without `main` that has a test;
+  - columns are UTF-16 code units, as the protocol counts them, in diagnostics, hover
+    and go to definition: after `é` or an emoji on a line they were off. A file that
+    cannot be opened is reported at the start of the file, not at line -1;
+  - a failed proof stays after an edit, where its function now is, until the document
+    is next proved (it vanished at the first keystroke after a save). It goes at once
+    if its function does;
+  - a name is looked up as the language does: a parameter, binding, loop variable,
+    pattern binder or quantifier variable of the function around it first, and only
+    then a declaration. Hovering a parameter called `text` in a file that imports
+    `std/json` showed `fn json.text`, and go to definition on a pattern binder could
+    jump to a `let` of the same name in another function. A name after a dot is a
+    field or a qualified name and never a local; the label of an argument or field is
+    not a name; and a definition is found at the declared name, not at `fn`;
+  - a proof is made in steps, while no message is waiting, so a request is answered
+    between two steps (a hover sent after opening the server's own source with no
+    proofs kept waited for the whole proof; it is now answered in 0.25 s and the
+    proof finishes at 0.85 s). Of several edits that are waiting only the last is
+    checked, `$/cancelRequest` is honoured for a request not yet begun, and the proofs
+    a step makes are kept even if the rest are abandoned. The request `vow/proofs` is
+    answered when the proofs that are waiting are made, for a client that sends a
+    whole session at once.
+- `input_ready(ms) -> Bool` (`uses console`): whether a read of standard input would
+  not wait, waiting up to `ms` milliseconds for that. A program can now do other work
+  while no input is waiting; the language server needed it. Standard input is read
+  through the runtime's own buffer, so that input already read from the descriptor
+  counts.
+- `begin_proof`, `prove_step` and `proof_result` in `compiler/pipeline.vow`:
+  verification in steps, for a tool that has other work to do
+  between them. `vowc` makes one step of everything, as before.
+
 ## v0.9.11
 
 - `std/json` reads exactly JSON:

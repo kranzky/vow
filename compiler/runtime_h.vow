@@ -40,6 +40,7 @@ fn runtime_header() -> String do
     "#include <string.h>\n" ++
     "#include <signal.h>\n" ++
     "#include <sys/resource.h>\n" ++
+    "#include <sys/select.h>\n" ++
     "#include <sys/stat.h>\n" ++
     "#include <sys/wait.h>\n" ++
     "#include <unistd.h>\n" ++
@@ -199,9 +200,9 @@ fn runtime_header() -> String do
     "    return x;\n" ++
     "}\n" ++
     "\n" ++
-    "static void vow_destroy(V x);\n" ++
-    "\n") ++
-    ("static inline void vdrop(V x) {\n" ++
+    "static void vow_destroy(V x);\n") ++
+    ("\n" ++
+    "static inline void vdrop(V x) {\n" ++
     "    if (x) {\n" ++
     "        VHdr *h = VH(x);\n" ++
     "        VOW_ALIVE(h);\n" ++
@@ -399,9 +400,9 @@ fn runtime_header() -> String do
     "    else if (VI(d) == 0) vow_rank_found = 2;\n" ++
     "}\n" ++
     "\n" ++
-    "// Every rank step begins with this: 1 when the run should go no further.\n" ++
-    "static inline int vow_rank_skip(V a, V d) {\n") ++
-    ("    if (vow_rank_left < 0) return 0;\n" ++
+    "// Every rank step begins with this: 1 when the run should go no further.\n") ++
+    ("static inline int vow_rank_skip(V a, V d) {\n" ++
+    "    if (vow_rank_left < 0) return 0;\n" ++
     "    vow_rank_meet(a, d);\n" ++
     "    if (vow_rank_found || vow_rank_left == 0) return 1;\n" ++
     "    vow_rank_left--;\n" ++
@@ -599,9 +600,9 @@ fn runtime_header() -> String do
     "    int64_t la = VS(a)->len, need = la;\n" ++
     "    for (int64_t i = 0; i < k; i++) need += VS(parts[i])->len;\n" ++
     "    VHdr *h = VH(a);\n" ++
-    "    V s = a;\n" ++
-    "    if (h->rc == 1) {\n") ++
-    ("        size_t fixed = sizeof(VHdr) + sizeof(VStr) + 1;\n" ++
+    "    V s = a;\n") ++
+    ("    if (h->rc == 1) {\n" ++
+    "        size_t fixed = sizeof(VHdr) + sizeof(VStr) + 1;\n" ++
     "        int64_t room = (int64_t)(vow_round(fixed + (size_t)(h->mask ? (int64_t)h->mask : la)) - fixed);\n" ++
     "        if (need <= room) {\n" ++
     "            h->mask = (uint64_t)room;\n" ++
@@ -799,9 +800,9 @@ fn runtime_header() -> String do
     "    if (!vow_none_obj) vow_none_obj = vow_immortal(vow_fields(1, 0));\n" ++
     "    return vow_none_obj;\n" ++
     "}\n" ++
-    "\n" ++
-    "// Consumes x.\n") ++
-    ("static V vsome(V x, int heap) {\n" ++
+    "\n") ++
+    ("// Consumes x.\n" ++
+    "static V vsome(V x, int heap) {\n" ++
     "    V r = vow_fields(2, heap ? 2 : 0);\n" ++
     "    VP(r)[0] = 1;\n" ++
     "    VP(r)[1] = x;\n" ++
@@ -999,9 +1000,9 @@ fn runtime_header() -> String do
     "        return x;\n" ++
     "    }\n" ++
     "    return vdup(x);\n" ++
-    "}\n" ++
-    "\n") ++
-    ("#define vlist_steal(l, i) vlist_steal_at((l), (i), __FILE__, __LINE__)\n" ++
+    "}\n") ++
+    ("\n" ++
+    "#define vlist_steal(l, i) vlist_steal_at((l), (i), __FILE__, __LINE__)\n" ++
     "\n" ++
     "// Consumes l. The beginning of a list that nothing else refers to stays where it is\n" ++
     "// (`set xs = slice(of: xs, from: 0, to: len(xs) - 1)` takes the last element off in\n" ++
@@ -1199,9 +1200,9 @@ fn runtime_header() -> String do
     "    return vsome(v, flags & VN_VAL_HEAP);\n" ++
     "}\n" ++
     "\n" ++
-    "static V vmap_has(V m, V k, int flags) { return (V)(vn_find(m, k, flags) != 0); }\n" ++
-    "\n") ++
-    ("// value_or(opt: lookup(map: m, key: k), default: d) without the Option: borrows m and\n" ++
+    "static V vmap_has(V m, V k, int flags) { return (V)(vn_find(m, k, flags) != 0); }\n") ++
+    ("\n" ++
+    "// value_or(opt: lookup(map: m, key: k), default: d) without the Option: borrows m and\n" ++
     "// k and consumes d; the result owns a reference to the value.\n" ++
     "static V vmap_get_or(V m, V k, V d, int flags) {\n" ++
     "    V n = vn_find(m, k, flags);\n" ++
@@ -1399,9 +1400,9 @@ fn runtime_header() -> String do
     "#if !defined(__SANITIZE_ADDRESS__)\n" ++
     "    struct rlimit lim;\n" ++
     "    vow_stack_top = (char *)top;\n" ++
-    "    vow_stack_limit = (size_t)1 << 30;\n" ++
-    "    if (getrlimit(RLIMIT_STACK, &lim) == 0 && lim.rlim_cur != RLIM_INFINITY) vow_stack_limit = (size_t)lim.rlim_cur;\n") ++
-    ("    stack_t alt;\n" ++
+    "    vow_stack_limit = (size_t)1 << 30;\n") ++
+    ("    if (getrlimit(RLIMIT_STACK, &lim) == 0 && lim.rlim_cur != RLIM_INFINITY) vow_stack_limit = (size_t)lim.rlim_cur;\n" ++
+    "    stack_t alt;\n" ++
     "    alt.ss_sp = vow_fault_stack;\n" ++
     "    alt.ss_size = sizeof vow_fault_stack;\n" ++
     "    alt.ss_flags = 0;\n" ++
@@ -1545,33 +1546,93 @@ fn runtime_header() -> String do
     "    return l;\n" ++
     "}\n" ++
     "\n" ++
-    "// Standard input. Both flush stdout first, so a prompt or a response is out before the\n" ++
-    "// program waits.\n" ++
-    "static V vread_line(void) {\n" ++
-    "    fflush(stdout);\n" ++
-    "    size_t cap = 0;\n" ++
-    "    char *buf = NULL;\n" ++
-    "    ssize_t n = getline(&buf, &cap, stdin);\n" ++
-    "    if (n < 0) {\n" ++
-    "        free(buf);\n" ++
-    "        return vnone();\n" ++
+    "// Standard input is read through this buffer and not stdio's, so that input_ready can\n" ++
+    "// tell whether bytes already read from the descriptor are waiting.\n" ++
+    "static char *vow_in_buf = NULL;\n" ++
+    "static size_t vow_in_cap = 0, vow_in_pos = 0, vow_in_len = 0;\n" ++
+    "static int vow_in_ended = 0;\n" ++
+    "\n" ++
+    "// Reads more of standard input after what is waiting: 0 at its end (or on an error,\n" ++
+    "// which ends it).\n" ++
+    "static int vow_in_fill(void) {\n" ++
+    "    if (vow_in_ended) return 0;\n" ++
+    "    if (vow_in_pos > 0) {\n" ++
+    "        memmove(vow_in_buf, vow_in_buf + vow_in_pos, vow_in_len - vow_in_pos);\n" ++
+    "        vow_in_len -= vow_in_pos;\n" ++
+    "        vow_in_pos = 0;\n" ++
     "    }\n" ++
-    "    if (n > 0 && buf[n - 1] == '\\n') n--;\n" ++
-    "    V s = vstr_new(buf, (int64_t)n);\n" ++
-    "    free(buf);\n" ++
-    "    return vsome(s, 1);\n" ++
+    "    if (vow_in_len == vow_in_cap) {\n" ++
+    "        vow_in_cap = vow_in_cap ? vow_in_cap * 2 : 65536;\n" ++
+    "        vow_in_buf = (char *)vow_xrealloc(vow_in_buf, vow_in_cap);\n" ++
+    "    }\n" ++
+    "    for (;;) {\n" ++
+    "        ssize_t k = read(0, vow_in_buf + vow_in_len, vow_in_cap - vow_in_len);\n" ++
+    "        if (k < 0 && errno == EINTR) continue;\n" ++
+    "        if (k <= 0) {\n" ++
+    "            vow_in_ended = 1;\n" ++
+    "            return 0;\n" ++
+    "        }\n" ++
+    "        vow_in_len += (size_t)k;\n" ++
+    "        return 1;\n" ++
+    "    }\n" ++
     "}\n" ++
     "\n" ++
-    "// Up to n bytes (fewer at the end of input). The string is allocated at the length read,\n" ++
-    "// since an object's size class is computed from its length when it is freed.\n" ++
+    "// read_line and read_bytes flush stdout first, so a prompt or a response is out before\n" ++
+    "// the program waits.\n" ++
+    "static V vread_line(void) {\n" ++
+    "    fflush(stdout);\n" ++
+    "    size_t seen = 0;\n" ++
+    "    for (;;) {\n" ++
+    "        size_t have = vow_in_len - vow_in_pos;\n" ++
+    "        char *from = vow_in_buf + vow_in_pos;\n" ++
+    "        char *nl = have > seen ? (char *)memchr(from + seen, '\\n', have - seen) : NULL;\n" ++
+    "        if (nl) {\n" ++
+    "            V s = vstr_new(from, (int64_t)(nl - from));\n" ++
+    "            vow_in_pos += (size_t)(nl - from) + 1;\n" ++
+    "            return vsome(s, 1);\n" ++
+    "        }\n" ++
+    "        seen = have;\n" ++
+    "        if (!vow_in_fill()) break;\n" ++
+    "    }\n" ++
+    "    // The end of input: what is left is a last line without a newline.\n" ++
+    "    size_t have = vow_in_len - vow_in_pos;\n" ++
+    "    if (have == 0) return vnone();\n" ++
+    "    V s = vstr_new(vow_in_buf + vow_in_pos, (int64_t)have);\n" ++
+    "    vow_in_pos = vow_in_len;\n" ++
+    "    return vsome(s, 1);\n" ++
+    "}\n") ++
+    ("\n" ++
+    "// Up to n bytes (fewer at the end of input).\n" ++
     "static V vread_bytes(V n) {\n" ++
     "    fflush(stdout);\n" ++
     "    size_t want = VI(n) > 0 ? (size_t)VI(n) : 0;\n" ++
-    "    char *buf = (char *)vow_xmalloc(want);\n" ++
-    "    size_t got = fread(buf, 1, want, stdin);\n" ++
-    "    V s = vstr_new(buf, (int64_t)got);\n" ++
-    "    free(buf);\n" ++
+    "    while (vow_in_len - vow_in_pos < want && vow_in_fill()) {\n" ++
+    "    }\n" ++
+    "    size_t got = vow_in_len - vow_in_pos;\n" ++
+    "    if (got > want) got = want;\n" ++
+    "    V s = vstr_new(vow_in_buf + vow_in_pos, (int64_t)got);\n" ++
+    "    vow_in_pos += got;\n" ++
     "    return s;\n" ++
+    "}\n" ++
+    "\n" ++
+    "// input_ready(ms): whether a read of standard input would have something to give (or\n" ++
+    "// would find its end) without waiting, once up to ms milliseconds have passed.\n" ++
+    "static V vinput_ready(V ms) {\n" ++
+    "    fflush(stdout);\n" ++
+    "    if (vow_in_pos < vow_in_len || vow_in_ended) return (V)1;\n" ++
+    "    int64_t wait = VI(ms) > 0 ? VI(ms) : 0;\n" ++
+    "    for (;;) {\n" ++
+    "        fd_set fds;\n" ++
+    "        FD_ZERO(&fds);\n" ++
+    "        FD_SET(0, &fds);\n" ++
+    "        struct timeval tv;\n" ++
+    "        tv.tv_sec = (time_t)(wait / 1000);\n" ++
+    "        tv.tv_usec = (suseconds_t)((wait % 1000) * 1000);\n" ++
+    "        int r = select(1, &fds, NULL, NULL, &tv);\n" ++
+    "        if (r < 0 && errno == EINTR) continue;\n" ++
+    "        // An error (standard input is closed, say) is found by the read.\n" ++
+    "        return (V)(r != 0);\n" ++
+    "    }\n" ++
     "}\n" ++
     "\n" ++
     "static V vgetenv(V name) {\n" ++
@@ -1600,8 +1661,8 @@ fn runtime_header() -> String do
     "        const char *dir = getenv(\"TMPDIR\");\n" ++
     "        if (!dir || !*dir) dir = \"/tmp\";\n" ++
     "        size_t dlen = strlen(dir);\n" ++
-    "        char *tmpl = (char *)vow_xmalloc(dlen + 32);\n") ++
-    ("        snprintf(tmpl, dlen + 32, \"%s/vow-run-XXXXXX\", dir);\n" ++
+    "        char *tmpl = (char *)vow_xmalloc(dlen + 32);\n" ++
+    "        snprintf(tmpl, dlen + 32, \"%s/vow-run-XXXXXX\", dir);\n" ++
     "        in_fd = mkstemp(tmpl);\n" ++
     "        if (in_fd >= 0) {\n" ++
     "            unlink(tmpl);\n" ++

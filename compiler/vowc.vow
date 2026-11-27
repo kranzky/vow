@@ -475,7 +475,7 @@ fn main() uses console, fs, proc do
     end for
     return
   end if
-  let ck = check_source(src: src, test_mode: cmd == "test")
+  let ck = check_source(src: src, need_main: cmd != "test", tests: cmd == "test")
   if len(ck.errs) > 0 then
     report(diags: shown(src: src, diags: ck.errs), files: src.files, json: json)
     exit(1)

@@ -749,6 +749,61 @@ VOW
   rm -rf "$zdir"
 fi
 
+# Standard input (not in the frozen bootstrap compiler): lines, bytes and the end of
+# input, read from a pipe; and input_ready, which says whether a read would wait. It
+# is true when a line is waiting, when bytes that came with an earlier line are, and at
+# the end of input; false while a writer holds the pipe open and has sent nothing.
+if [ -z "$VOW_FROZEN" ]; then
+  sdir=$(mktemp -d)
+  sok=true
+  cat > "$sdir/in.vow" <<'VOW'
+// language: 0.9
+fn shown(l: Option<String>) -> String do
+  match l
+  case Some(value: s) then
+    return "[" ++ s ++ "]"
+  case None then
+    return "end"
+  end match
+end fn shown
+
+fn ready(ms: Int) -> String uses console do
+  if input_ready(ms) then
+    return "ready"
+  end if
+  return "waiting"
+end fn ready
+
+fn main() uses console do
+  print(ready(1000) ++ "\n")
+  print(shown(read_line()) ++ "\n")
+  print(ready(0) ++ " [" ++ read_bytes(2) ++ "]\n")
+  print(shown(read_line()) ++ "\n")
+  print(ready(1000) ++ " " ++ shown(read_line()) ++ "\n")
+end fn main
+VOW
+  if "$VOWC" build "$sdir/in.vow" -o "$sdir/in" > "$sdir/build.out" 2>&1; then
+    got=$(printf 'one\nabcdef' | "$sdir/in" | tr '\n' ' ')
+    [ "$got" = "ready [one] ready [ab] [cdef] ready end " ] || { sok=false; echo "stdin: a line, bytes and a last line: $got"; }
+    got=$("$sdir/in" < /dev/null | tr '\n' ' ')
+    [ "$got" = "ready end ready [] end ready end " ] || { sok=false; echo "stdin: no input: $got"; }
+    got=$( (sleep 2; printf 'late\nab') | "$sdir/in" | tr '\n' ' ')
+    [ "$got" = "waiting [late] ready [ab] end ready end " ] || { sok=false; echo "stdin: input that comes late: $got"; }
+    # A line longer than the buffer first holds (whether the bytes after it have come
+    # when it is read depends on how the writer divides them).
+    got=$(awk 'BEGIN { for (i = 0; i < 200000; i++) printf "x"; printf "\nyz\n" }' | "$sdir/in" | sed 's/^waiting/ready/' | wc -c | tr -d ' ')
+    [ "$got" = "200033" ] || { sok=false; echo "stdin: a line of 200,000 bytes: $got bytes of output"; }
+  else
+    sok=false; echo "stdin: the program does not build: $(cat "$sdir/build.out")"
+  fi
+  if $sok; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1)); echo "FAIL standard input"
+  fi
+  rm -rf "$sdir"
+fi
+
 # install.sh installs nothing that does not run here, and replaces a working vowc only
 # with one that does (it copied the new one over the old and then tried it, with the
 # failure hidden by a pipe). Releases are made here and fetched from a directory.

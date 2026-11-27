@@ -178,7 +178,7 @@ end fn main
 ```
 
 Built-ins: `len push slice join int_to_str str_to_int char insert lookup has keys hash
-panic print eprint read_line read_bytes read_file write_file make_dir list_dir real_path args
+panic print eprint read_line read_bytes input_ready read_file write_file make_dir list_dir real_path args
 getenv run run_attached exit
 int_to_float float_to_int float_to_str float_to_fixed str_to_float floor ceil round sqrt abs_float
 is_nan`. Signatures are in the

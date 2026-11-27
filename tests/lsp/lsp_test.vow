@@ -80,3 +80,231 @@ fn test_modules() uses proc do
   let defined = contains(s: o.out, p: "\"id\":3,\"result\":{\"uri\":\"file://" ++ dir ++ "/tests/modules/geo.vow\"")
   check defined
 end fn test_modules
+
+// ---- sessions made of parts ----
+
+fn doc_uri(name: String) -> String uses proc do
+  return "file://" ++ value_or(opt: getenv("PWD"), default: ".") ++ "/tests/" ++ name
+end fn doc_uri
+
+fn opened(uri: String, text: String) -> String do
+  return "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didOpen\",\"params\":{\"textDocument\":{\"uri\":\"" ++ uri ++ "\",\"languageId\":\"vow\",\"version\":1,\"text\":" ++ json.quote(text) ++ "}}}"
+end fn opened
+
+fn changed(uri: String, text: String) -> String do
+  return "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didChange\",\"params\":{\"textDocument\":{\"uri\":\"" ++ uri ++ "\",\"version\":2},\"contentChanges\":[{\"text\":" ++ json.quote(text) ++ "}]}}"
+end fn changed
+
+fn told(method: String, uri: String) -> String do
+  return "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/" ++ method ++ "\",\"params\":{\"textDocument\":{\"uri\":\"" ++ uri ++ "\"}}}"
+end fn told
+
+fn asked(id: Int, method: String, uri: String, line: Int, character: Int) -> String do
+  return "{\"jsonrpc\":\"2.0\",\"id\":" ++ int_to_str(id) ++ ",\"method\":\"textDocument/" ++ method ++ "\",\"params\":{\"textDocument\":{\"uri\":\"" ++ uri ++ "\"},\"position\":{\"line\":" ++ int_to_str(line) ++ ",\"character\":" ++ int_to_str(character) ++ "}}}"
+end fn asked
+
+// Answered once the proofs that are waiting are made: the server makes a proof when
+// no message is waiting, and here every message is.
+fn proofs(id: Int) -> String do
+  return "{\"jsonrpc\":\"2.0\",\"id\":" ++ int_to_str(id) ++ ",\"method\":\"vow/proofs\"}"
+end fn proofs
+
+// What the server says in a session of these messages, with its proofs made at the end.
+fn talk(msgs: List<String>) -> String uses proc do
+  return talk_as(argv: ["build/vow-lsp"], msgs: msgs)
+end fn talk
+
+fn talk_as(argv: List<String>, msgs: List<String>) -> String uses proc do
+  var input = frame("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}")
+  for m in msgs do
+    set input = input ++ frame(m)
+  end for
+  set input = input ++ frame(proofs(998)) ++ frame("{\"jsonrpc\":\"2.0\",\"id\":999,\"method\":\"shutdown\"}") ++ frame("{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}")
+  let o = run(argv: argv, input: input)
+  return o.out
+end fn talk_as
+
+// How many times p is in s.
+fn count(s: String, p: String) -> Int do
+  var n = 0
+  var from = find(s: s, p: p, from: 0)
+  while from >= 0 invariant n >= 0 do
+    set n = n + 1
+    set from = find(s: s, p: p, from: from + 1)
+  end while
+  return n
+end fn count
+
+fn cleared(uri: String) -> String do
+  return "{\"uri\":\"" ++ uri ++ "\",\"diagnostics\":[]}"
+end fn cleared
+
+// Each open document has its own diagnostics: opening another leaves them, and
+// closing the document withdraws them.
+fn test_documents_apart() uses proc do
+  let a = doc_uri("lsp/a.vow")
+  let b = doc_uri("lsp/b.vow")
+  let bad = "fn main() do\n  x = 1\nend fn main\n"
+  let good = "fn main() do\nend fn main\n"
+  let two = talk([opened(uri: a, text: bad), opened(uri: b, text: good)])
+  let reported = count(s: two, p: "only a call can be used as a statement") == 1
+  check reported
+  let left = not contains(s: two, p: cleared(a))
+  check left
+  let shut = talk([opened(uri: a, text: bad), opened(uri: b, text: good), told(method: "didClose", uri: a)])
+  let withdrawn = contains(s: shut, p: cleared(a))
+  check withdrawn
+end fn test_documents_apart
+
+// A function named test_... in a program is an ordinary function, and its proofs are
+// made; in a file of tests it must have the shape of a test.
+fn test_named_like_a_test() uses proc do
+  let a = doc_uri("lsp/a.vow")
+  let helper = "fn test_bit(n: Int, bit: Int) -> Bool do\n  return n == bit\nend fn test_bit\n"
+  let program = talk([opened(uri: a, text: helper ++ "\nfn main() do\n  assert 1 == 2\nend fn main\n")])
+  let proved = contains(s: program, p: "cannot prove assertion: 1 == 2")
+  check proved
+  let ordinary = not contains(s: program, p: "must take no parameters")
+  check ordinary
+  let library = talk([opened(uri: a, text: helper)])
+  let quiet = not contains(s: library, p: "publishDiagnostics")
+  check quiet
+  let tests = talk([opened(uri: a, text: "fn test_a() do\n  check 1 == 1\nend fn test_a\n\nfn test_b(n: Int) do\nend fn test_b\n")])
+  let shaped = contains(s: tests, p: "test function 'test_b' must take no parameters and return nothing")
+  check shaped
+end fn test_named_like_a_test
+
+// Columns are UTF-16 code units: "é" is two bytes and one unit, the emoji four bytes
+// and two units. Nothing is at a negative line or column.
+fn test_columns() uses proc do
+  let a = doc_uri("lsp/a.vow")
+  let text = "fn main() uses console do\n  print(\"héllo 😀\") y = 1\nend fn main\n"
+  let out = talk([opened(uri: a, text: text)])
+  let placed = contains(s: out, p: "\"range\":{\"start\":{\"line\":1,\"character\":20},\"end\":{\"line\":1,\"character\":21}}")
+  check placed
+  // The 't' of len(t) is at byte 17 and unit 13 of its line.
+  let fine = "fn main() uses console do\n  let t = \"hé 😀\"\n  print(\"😀\" ++ t)\nend fn main\n"
+  let asks = talk([opened(uri: a, text: fine), asked(id: 2, method: "hover", uri: a, line: 2, character: 16), asked(id: 3, method: "definition", uri: a, line: 2, character: 16)])
+  let typed = contains(s: asks, p: "t: String")
+  check typed
+  let defined = contains(s: asks, p: "\"id\":3,\"result\":{\"uri\":\"" ++ a ++ "\",\"range\":{\"start\":{\"line\":1,\"character\":6}")
+  check defined
+  let missing = talk([told(method: "didSave", uri: doc_uri("lsp/no_such_file.vow"))])
+  let at_start = contains(s: missing, p: "\"range\":{\"start\":{\"line\":0,\"character\":0}")
+  check at_start
+  let never_negative = not contains(s: missing, p: ":-1")
+  check never_negative
+end fn test_columns
+
+// A failed proof stays after an edit that is not proved, where its function now is;
+// it goes when the function is gone, or the next proof succeeds.
+fn test_proofs_kept() uses proc do
+  let a = doc_uri("lsp/a.vow")
+  let first = "fn main() do\n  assert 1 == 2\nend fn main\n"
+  let moved = "// a comment\n\nfn main() do\n  assert 1 == 2\nend fn main\n"
+  let other = "// a comment\n\nfn main() do\nend fn main\n\nfn spare() do\nend fn spare\n"
+  let out = talk([opened(uri: a, text: first), proofs(2), changed(uri: a, text: moved)])
+  let found = contains(s: out, p: "\"start\":{\"line\":1,\"character\":2}")
+  check found
+  let follows = contains(s: out, p: "\"start\":{\"line\":3,\"character\":2}")
+  check follows
+  let stays = not contains(s: out, p: cleared(a))
+  check stays
+  let fixed = talk([opened(uri: a, text: first), proofs(2), changed(uri: a, text: other), told(method: "didSave", uri: a)])
+  let goes = contains(s: fixed, p: cleared(a))
+  check goes
+end fn test_proofs_kept
+
+// A name is a parameter or binding of the function around it before it is a
+// declaration, and a binding is found in the function it is in.
+fn test_locals_first() uses proc do
+  let a = doc_uri("lsp/a.vow")
+  // Line 2 is text_len, whose parameter has the name of json.text; line 8 is the
+  // 'case' whose binder n has the name of the 'let' on line 3.
+  var text = "import \"std/json.vow\" as json\n\nfn text_len(text: String) -> Int do\n  let n = len(text)\n  return n\nend fn text_len\n\n"
+  set text = text ++ "fn first(xs: List<Int>) -> Int do\n  match pick(xs)\n  case Some(value: n) then\n    return n\n  case None then\n    return 0\n  end match\nend fn first\n\n"
+  set text = text ++ "fn pick(xs: List<Int>) -> Option<Int> requires forall i in 0..len(xs): xs[i] >= 0 do\n  if len(xs) > 0 then\n    return Option.Some(value: xs[0])\n  end if\n  return Option.None\nend fn pick\n\n"
+  set text = text ++ "fn main() uses console do\n  print(json.text(json.Value.Null) ++ int_to_str(text_len(\"abc\")))\nend fn main\n"
+  var msgs = [opened(uri: a, text: text)]
+  set msgs = msgs ++ [asked(id: 2, method: "hover", uri: a, line: 3, character: 14)]
+  set msgs = msgs ++ [asked(id: 3, method: "definition", uri: a, line: 10, character: 11)]
+  set msgs = msgs ++ [asked(id: 4, method: "hover", uri: a, line: 9, character: 12)]
+  set msgs = msgs ++ [asked(id: 5, method: "hover", uri: a, line: 24, character: 13)]
+  set msgs = msgs ++ [asked(id: 6, method: "hover", uri: a, line: 16, character: 74)]
+  set msgs = msgs ++ [asked(id: 7, method: "definition", uri: a, line: 24, character: 49)]
+  let out = talk(msgs)
+  let parameter = contains(s: out, p: "\"id\":2,\"result\":{\"contents\":{\"kind\":\"markdown\",\"value\":\"```vow\\ntext: String")
+  check parameter
+  let binder = contains(s: out, p: "\"id\":3,\"result\":{\"uri\":\"" ++ a ++ "\",\"range\":{\"start\":{\"line\":9,\"character\":19}")
+  check binder
+  // The label of a pattern's field is not a name.
+  let label = contains(s: out, p: "\"id\":4,\"result\":null")
+  check label
+  let qualified = contains(s: out, p: "\"id\":5,\"result\":{\"contents\":{\"kind\":\"markdown\",\"value\":\"```vow\\nfn json.text(j: json.Value) -> String")
+  check qualified
+  let quantified = contains(s: out, p: "\"id\":6,\"result\":{\"contents\":{\"kind\":\"markdown\",\"value\":\"```vow\\ni: Int")
+  check quantified
+  // A declaration is found at its name, not at its keyword.
+  let named = contains(s: out, p: "\"id\":7,\"result\":{\"uri\":\"" ++ a ++ "\",\"range\":{\"start\":{\"line\":2,\"character\":3},\"end\":{\"line\":2,\"character\":11}}")
+  check named
+end fn test_locals_first
+
+// An open document that imports another is checked again when that one is saved or
+// closed: here geo.vow is open with a buffer that lacks dist2, then closed unsaved.
+fn test_importers() uses proc do
+  let a = doc_uri("lsp/a.vow")
+  let geo = doc_uri("modules/geo.vow")
+  let text = "import \"../modules/geo.vow\" as geo\n\nfn main() uses console do\n  print(int_to_str(geo.dist2(a: geo.origin(), b: geo.origin())))\nend fn main\n"
+  let lacking = "struct Point\n  x: Int,\n  y: Int,\nend struct Point\n\nfn origin() -> Point do\n  return Point(x: 0, y: 0)\nend fn origin\n"
+  let out = talk([opened(uri: a, text: text), opened(uri: geo, text: lacking), told(method: "didSave", uri: geo), told(method: "didClose", uri: geo)])
+  let broken = contains(s: out, p: "{\"uri\":\"" ++ a ++ "\",\"diagnostics\":[{")
+  check broken
+  let mended = contains(s: out, p: cleared(a))
+  check mended
+end fn test_importers
+
+// A proof is made when no message is waiting: a request sent after a document is
+// opened is answered before the document is proved. A request that a later message
+// cancels is not answered, and of two edits that are waiting only the later is checked.
+fn test_waiting_messages() uses proc do
+  let a = doc_uri("lsp/a.vow")
+  let text = "fn main() do\n  let n = 1\n  assert n == 2\nend fn main\n"
+  let out = talk([opened(uri: a, text: text), asked(id: 2, method: "hover", uri: a, line: 2, character: 9)])
+  let answered = find(s: out, p: "n: Int", from: 0)
+  let proved = find(s: out, p: "cannot prove assertion: n == 2", from: 0)
+  let in_order = (answered >= 0) and (proved > answered)
+  check in_order
+  let cancel = "{\"jsonrpc\":\"2.0\",\"method\":\"$/cancelRequest\",\"params\":{\"id\":2}}"
+  let stopped = talk([opened(uri: a, text: text), asked(id: 2, method: "hover", uri: a, line: 2, character: 9), cancel])
+  let refused = contains(s: stopped, p: "\"id\":2,\"error\":{\"code\":-32800")
+  check refused
+  let unanswered = not contains(s: stopped, p: "n: Int")
+  check unanswered
+  let one = "fn main() do\n  x = 1\nend fn main\n"
+  let two = "fn main() do\n  yy = 1\nend fn main\n"
+  let edits = talk([opened(uri: a, text: "fn main() do\nend fn main\n"), changed(uri: a, text: one), changed(uri: a, text: two)])
+  let latest = contains(s: edits, p: "\"start\":{\"line\":1,\"character\":2},\"end\":{\"line\":1,\"character\":4}")
+  check latest
+  let once = count(s: edits, p: "publishDiagnostics") == 1
+  check once
+end fn test_waiting_messages
+
+// A proof made in steps finds what one made at once does. Here are 1,200 queries (a
+// step sends 1,000), with a failure in the first function and one in the last; no
+// proof is kept, so that every function is sent each time this runs.
+fn test_proof_in_steps() uses proc do
+  let a = doc_uri("lsp/a.vow")
+  var parts = ["fn f0(n: Int) -> Int ensures result > n do\n  return n\nend fn f0\n"]
+  for i in 1..599 do
+    let name = "f" ++ int_to_str(i)
+    set parts = push(list: parts, item: "fn " ++ name ++ "(n: Int) -> Int ensures result == (n + " ++ int_to_str(i) ++ ") do\n  return n + " ++ int_to_str(i) ++ "\nend fn " ++ name ++ "\n")
+  end for
+  set parts = push(list: parts, item: "fn f599(n: Int) -> Int ensures result < n do\n  return n\nend fn f599\n")
+  let out = talk_as(argv: ["env", "VOW_CACHE=/dev/null/none", "build/vow-lsp"], msgs: [opened(uri: a, text: join(parts: parts, sep: ""))])
+  let first = contains(s: out, p: "cannot prove postcondition of 'f0': result > n")
+  check first
+  let last = contains(s: out, p: "cannot prove postcondition of 'f599': result < n")
+  check last
+  let only = count(s: out, p: "cannot prove") == 2
+  check only
+end fn test_proof_in_steps

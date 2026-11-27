@@ -214,14 +214,15 @@ Speed of the runtime and generated code:
 - [x] P7: `float_to_str` without 17 print-and-parse round trips
 
 Language server:
-- [ ] L1: checking one file clears the diagnostics of every other open file
-- [ ] L2: an ordinary function named `test_...` is reported as an error, and hides
+- [x] L1: checking one file clears the diagnostics of every other open file
+- [x] L2: an ordinary function named `test_...` is reported as an error, and hides
       every proof failure in the file
-- [ ] L3: positions in UTF-16 code units, not bytes; never negative
-- [ ] L4: keep proof failures on screen after the first keystroke that follows a save
-- [ ] L5: hover and go-to-definition resolve local names before global ones
-- [ ] L6: drop stale edits and prove in a process that a newer edit can abandon (a
-      hover waits 23 s behind a cold proof today)
+- [x] L3: positions in UTF-16 code units, not bytes; never negative
+- [x] L4: keep proof failures on screen after the first keystroke that follows a save
+- [x] L5: hover and go-to-definition resolve local names before global ones
+- [x] L6: drop stale edits and prove in steps between messages, so a hover does not
+      wait for a proof (it waited 23 s behind a cold proof; now 0.25 s). A proof is
+      abandoned between steps, not within one
 
 Standard library:
 - [x] S1: `std/json`: surrogates, leading zeros, control bytes in strings, the minimum

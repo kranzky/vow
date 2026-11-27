@@ -5,38 +5,144 @@
 // - Diagnostics: type and effect errors as you edit; the verifier's failed proofs (with
 //   counterexamples) and holes (with the facts known there) when a file is opened or
 //   saved, since proving takes longer. Unsaved buffers are what gets checked.
+//   A proof is made in steps while no message is waiting, so a request is answered
+//   between two steps and not after the proof; an edit that a later edit has already
+//   replaced is not checked. The request "vow/proofs" is answered once the proofs that
+//   are waiting are made (for a client that sends a whole session at once).
 // - Hover: a function's signature and contract, a type's declaration, or the type of a
 //   variable, parameter, binding or field, with the facts the verifier knows about it
 //   at that line.
 // - Go to definition: functions, types, variants, and local bindings and parameters.
+//
+// A name is looked up as the language does: a parameter or binding of the function
+// around it first, then a declaration. Columns are in UTF-16 code units, as the
+// protocol counts them.
 
 import "../../compiler/pipeline.vow"
 import "std/json.vow" as json
 
+// A diagnostic and the file it is in.
+struct Placed
+  file: String,
+  d: Diag,
+end struct Placed
+
+// A failed proof, kept until the document is next proved: the function it is in (""
+// if none) and how many lines below the function's first line, so that it follows the
+// function as the text above it changes.
+struct Kept
+  file: String,
+  d: Diag,
+  fn_name: String,
+  off: Int,
+end struct Kept
+
+// What the last check of an open document found.
+struct Root
+  // The files of its program (not the standard library's).
+  files: List<String>,
+  // Its diagnostics, those of proofs included, each where it is now.
+  found: List<Placed>,
+  // The failed proofs of its last proof run.
+  proofs: List<Kept>,
+end struct Root
+
+// A document being proved: the program as it was when the proof was asked for.
+struct Job
+  path: String,
+  src: Source,
+  p: Proving,
+end struct Job
+
 struct Server
   // The text of each open document, by path.
   docs: Map<String, String>,
-  // Files diagnostics were last published for, so that fixed ones can be cleared.
-  published: List<String>,
+  // The proofs asked for and not finished: the first is the one being made.
+  jobs: List<Job>,
+  // What was found for each open document.
+  roots: Map<String, Root>,
+  // The diagnostics last published for each file, as JSON text ("[]" if absent).
+  sent: Map<String, String>,
   shutdown: Bool,
 end struct Server
 
 fn main() uses console, fs, proc do
-  var s = Server(docs: {}, published: [], shutdown: false)
+  var s = Server(docs: {}, jobs: [], roots: {}, sent: {}, shutdown: false)
+  // The messages read and not yet handled, from `at`.
+  var queue: List<json.Value> = []
+  var at = 0
+  var ended = false
   var going = true
-  while going do
-    match read_message()
-    case None then
-      set going = false
-    case Some(value: body) then
-      match json.parse(body)
-      case Ok(value: msg) then
-        handle(s: inout s, msg: msg)
-      case Err(error: e) then
-      end match
-    end match
+  while going invariant at >= 0 do
+    if at >= len(queue) then
+      set queue = []
+      set at = 0
+      if (len(s.jobs) > 0) and (ended or not input_ready(0)) then
+        // Nothing to answer: more of the proof.
+        prove_more(inout s)
+      elif ended then
+        set going = false
+      else
+        read_into(queue: inout queue, ended: inout ended)
+      end if
+      continue
+    end if
+    // With the first message, all that have arrived since: a later one may replace it.
+    var waiting = (not ended) and input_ready(0)
+    while waiting do
+      read_into(queue: inout queue, ended: inout ended)
+      set waiting = (not ended) and input_ready(0)
+    end while
+    if at < len(queue) then
+      let msg = queue[at]
+      set at = at + 1
+      handle(s: inout s, msg: msg, later: slice(of: queue, from: at, to: len(queue)))
+    end if
   end while
 end fn main
+
+// Reads one message onto the queue (one that is not JSON is dropped), or notes that
+// the input has ended.
+fn read_into(queue: inout List<json.Value>, ended: inout Bool) uses console do
+  match read_message()
+  case None then
+    set ended = true
+  case Some(value: body) then
+    match json.parse(body)
+    case Ok(value: msg) then
+      set queue = push(list: queue, item: msg)
+    case Err(error: e) then
+    end match
+  end match
+end fn read_into
+
+// Whether a message that follows replaces this edit: an edit of the same document
+// (each one carries the whole text).
+fn replaced_later(uri: String, later: List<json.Value>) -> Bool do
+  for m in later do
+    if (get_string(j: m, path: ["method"]) == "textDocument/didChange") and (get_string(j: m, path: ["params", "textDocument", "uri"]) == uri) then
+      return true
+    end if
+  end for
+  return false
+end fn replaced_later
+
+// Whether a message that follows cancels the request with this id.
+fn cancelled_later(id: json.Value, later: List<json.Value>) -> Bool do
+  let want = json.text(id)
+  for m in later do
+    if get_string(j: m, path: ["method"]) == "$/cancelRequest" then
+      match get(j: m, path: ["params", "id"])
+      case Some(value: x) then
+        if json.text(x) == want then
+          return true
+        end if
+      case None then
+      end match
+    end if
+  end for
+  return false
+end fn cancelled_later
 
 // ---- messages ----
 
@@ -120,11 +226,20 @@ fn get_int(j: json.Value, path: List<String>) -> Int do
   end match
 end fn get_int
 
-fn handle(s: inout Server, msg: json.Value) uses console, fs, proc do
+fn handle(s: inout Server, msg: json.Value, later: List<json.Value>) uses console, fs, proc do
   let method = get_string(j: msg, path: ["method"])
   let id = json.get(j: msg, key: "id")
   let uri = get_string(j: msg, path: ["params", "textDocument", "uri"])
   let path = uri_path(uri)
+  match id
+  case Some(value: x) then
+    if (len(method) > 0) and cancelled_later(id: x, later: later) then
+      let err = obj(keys: ["code", "message"], values: [jint(-32800), jstr("cancelled")])
+      send(obj(keys: ["jsonrpc", "id", "error"], values: [jstr("2.0"), x, err]))
+      return
+    end if
+  case None then
+  end match
   if method == "initialize" then
     let sync = obj(keys: ["openClose", "change", "save"], values: [json.Value.Bool(value: true), jint(1), json.Value.Bool(value: true)])
     let caps = obj(keys: ["textDocumentSync", "hoverProvider", "definitionProvider"],
@@ -132,7 +247,13 @@ fn handle(s: inout Server, msg: json.Value) uses console, fs, proc do
     let info = obj(keys: ["name"], values: [jstr("vow-lsp")])
     reply(id: id, value: obj(keys: ["capabilities", "serverInfo"], values: [caps, info]))
   elif method == "shutdown" then
-    set s = s with (shutdown: true)
+    // The proofs that are waiting are not made.
+    set s = s with (shutdown: true, jobs: [])
+    reply(id: id, value: json.Value.Null)
+  elif method == "vow/proofs" then
+    while len(s.jobs) > 0 do
+      prove_more(inout s)
+    end while
     reply(id: id, value: json.Value.Null)
   elif method == "exit" then
     if s.shutdown then
@@ -151,7 +272,9 @@ fn handle(s: inout Server, msg: json.Value) uses console, fs, proc do
         if len(xs) > 0 then
           let text = get_string(j: xs[len(xs) - 1], path: ["text"])
           set s = s with (docs: insert(map: s.docs, key: path, value: text))
-          diagnose(s: inout s, path: path, prove: false)
+          if not replaced_later(uri: uri, later: later) then
+            diagnose(s: inout s, path: path, prove: false)
+          end if
         end if
       else
       end match
@@ -159,6 +282,8 @@ fn handle(s: inout Server, msg: json.Value) uses console, fs, proc do
     end match
   elif method == "textDocument/didSave" then
     diagnose(s: inout s, path: path, prove: true)
+    // The open documents that import this one see what was saved.
+    dependents(s: inout s, path: path, prove: true)
   elif method == "textDocument/didClose" then
     var docs: Map<String, String> = {}
     for k in keys(s.docs) do
@@ -167,14 +292,15 @@ fn handle(s: inout Server, msg: json.Value) uses console, fs, proc do
       end if
     end for
     set s = s with (docs: docs)
+    forget(s: inout s, path: path)
+    // The open documents that import this one now see the file, not the buffer.
+    dependents(s: inout s, path: path, prove: true)
   elif method == "textDocument/hover" then
-    let line = get_int(j: msg, path: ["params", "position", "line"]) + 1
-    let col = get_int(j: msg, path: ["params", "position", "character"]) + 1
-    reply(id: id, value: hover(s: s, path: path, line: line, col: col))
+    let at = cursor(s: s, msg: msg, path: path)
+    reply(id: id, value: hover(s: s, path: path, line: at.line, col: at.col))
   elif method == "textDocument/definition" then
-    let line = get_int(j: msg, path: ["params", "position", "line"]) + 1
-    let col = get_int(j: msg, path: ["params", "position", "character"]) + 1
-    reply(id: id, value: definition(s: s, path: path, line: line, col: col))
+    let at = cursor(s: s, msg: msg, path: path)
+    reply(id: id, value: definition(s: s, path: path, line: at.line, col: at.col))
   elif is_some(id) then
     match id
     case Some(value: x) then
@@ -245,50 +371,239 @@ end fn path_uri
 
 // ---- diagnostics ----
 
-// Checks the document (and the files it imports), and with prove, verifies it; then
-// publishes the diagnostics of every file involved, clearing those now without any.
+fn no_root() -> Root do
+  return Root(files: [], found: [], proofs: [])
+end fn no_root
+
+fn root_of(s: Server, path: String) -> Root do
+  match lookup(map: s.roots, key: path)
+  case Some(value: r) then
+    return r
+  case None then
+    return no_root()
+  end match
+end fn root_of
+
+// Checks the document (and the files it imports), and with prove, asks for its proof
+// (prove_more makes it); then publishes the diagnostics of every file involved whose
+// diagnostics changed. Failed proofs stay until the next proof is made: a check without
+// one (on each edit) keeps those of the last.
 fn diagnose(s: inout Server, path: String, prove: Bool) uses console, fs, proc do
   let src = load_with(root: path, overrides: s.docs)
+  let before = root_of(s: s, path: path)
   var diags = src.errs
+  let proofs = before.proofs
+  if prove then
+    // A proof of what the document was is no longer wanted.
+    unqueue(s: inout s, path: path)
+  end if
   if len(diags) == 0 then
-    let ck = check_source(src: src, test_mode: true)
+    let ck = check_source(src: src, need_main: false, tests: is_test_file(src.items))
     set diags = ck.errs
-    if (len(diags) == 0) and (prove or (len(ck.c.info.holes) > 0)) then
-      let vr = verify_source(src: src, c: ck.c, no_cache: false, v03: false)
-      set diags = vr.diags
-      if len(vr.error) > 0 then
-        set diags = push(list: diags, item: diag(pos: Pos(file: 0, line: 1, col: 1), msg: vr.error))
-      end if
+    if (len(diags) == 0) and (len(ck.c.info.holes) > 0) then
+      // A program with holes is not proved: these are the holes, with what is known
+      // at each.
+      set diags = verify_source(src: src, c: ck.c, no_cache: false, v03: false).diags
+    elif (len(diags) == 0) and prove then
+      let job = Job(path: path, src: src, p: begin_proof(src: src, c: ck.c, no_cache: false, v03: false))
+      set s = s with (jobs: push(list: s.jobs, item: job))
     end if
   end if
-  set diags = shown(src: src, diags: diags)
+  var found: List<Placed> = []
+  for d in shown(src: src, diags: diags) do
+    if (d.pos.file >= 0) and (d.pos.file < len(src.files)) then
+      set found = push(list: found, item: Placed(file: src.files[d.pos.file], d: d))
+    end if
+  end for
+  for k in proofs do
+    match placed_now(src: src, k: k)
+    case Some(value: d) then
+      set found = push(list: found, item: Placed(file: k.file, d: d))
+    case None then
+    end match
+  end for
   var files: List<String> = []
   for f in src.files do
     if not starts_with(s: f, p: "<std>/") then
       set files = push(list: files, item: f)
     end if
   end for
-  for f in s.published do
-    if not contains_str(xs: files, x: f) then
-      set files = push(list: files, item: f)
-    end if
-  end for
-  var published: List<String> = []
-  for f in files do
-    var items: List<json.Value> = []
-    for d in diags do
-      if (d.pos.file >= 0) and (d.pos.file < len(src.files)) and (src.files[d.pos.file] == f) then
-        set items = push(list: items, item: lsp_diag(d: d, text: doc_text(s: s, path: f)))
-      end if
-    end for
-    if len(items) > 0 then
-      set published = push(list: published, item: f)
-    end if
-    let params = obj(keys: ["uri", "diagnostics"], values: [jstr(path_uri(f)), json.Value.Array(items: items)])
-    notify(method: "textDocument/publishDiagnostics", params: params)
-  end for
-  set s = s with (published: published)
+  set s = s with (roots: insert(map: s.roots, key: path, value: Root(files: files, found: found, proofs: proofs)))
+  publish(s: inout s, files: before.files ++ files)
 end fn diagnose
+
+fn unqueue(s: inout Server, path: String) do
+  var jobs: List<Job> = []
+  for j in s.jobs do
+    if j.path != path then
+      set jobs = push(list: jobs, item: j)
+    end if
+  end for
+  set s = s with (jobs: jobs)
+end fn unqueue
+
+// How many queries Z3 is sent in one step of a proof: enough to use every processor,
+// few enough that a request rarely waits long.
+fn step_queries() -> Int do
+  return 1000
+end fn step_queries
+
+// Makes the next step of the first proof that is waiting; when that finishes it, the
+// document's failed proofs are those it found.
+fn prove_more(s: inout Server) uses console, fs, proc do
+  if len(s.jobs) == 0 then
+    return
+  end if
+  let job = s.jobs[0]
+  let p = prove_step(p: job.p, queries: step_queries())
+  var jobs = [job with (p: p)]
+  if p.done then
+    set jobs = []
+  end if
+  set s = s with (jobs: jobs ++ slice(of: s.jobs, from: 1, to: len(s.jobs)))
+  if not p.done then
+    return
+  end if
+  let vr = proof_result(src: job.src, p: p)
+  var got = vr.diags
+  if len(vr.error) > 0 then
+    set got = push(list: got, item: diag(pos: vr.error_pos, msg: vr.error))
+  end if
+  match lookup(map: s.roots, key: job.path)
+  case Some(value: r) then
+    let proofs = kept(src: job.src, diags: shown(src: job.src, diags: got))
+    set s = s with (roots: insert(map: s.roots, key: job.path, value: r with (proofs: proofs)))
+    // Placed in the document as it is now, and published.
+    diagnose(s: inout s, path: job.path, prove: false)
+  case None then
+  end match
+end fn prove_more
+
+// Each diagnostic with the function it is in.
+fn kept(src: Source, diags: List<Diag>) -> List<Kept> do
+  var out: List<Kept> = []
+  for d in diags do
+    if (d.pos.file >= 0) and (d.pos.file < len(src.files)) then
+      var name = ""
+      var top = 0
+      for item in src.items do
+        match item
+        case FnItem(decl: f) then
+          if (f.pos.file == d.pos.file) and (f.pos.line <= d.pos.line) and (f.pos.line >= top) then
+            set name = f.name
+            set top = f.pos.line
+          end if
+        else
+        end match
+      end for
+      set out = push(list: out, item: Kept(file: src.files[d.pos.file], d: d, fn_name: name, off: d.pos.line - top))
+    end if
+  end for
+  return out
+end fn kept
+
+// A kept diagnostic where its function is now. None if the function or its file is
+// gone; where it was, if the text does not parse as it stands.
+fn placed_now(src: Source, k: Kept) -> Option<Diag> do
+  var file = -1
+  for i in 0..len(src.files) do
+    if src.files[i] == k.file then
+      set file = i
+    end if
+  end for
+  if file < 0 then
+    return Option.None
+  end if
+  if len(k.fn_name) == 0 then
+    return Option.Some(value: k.d)
+  end if
+  for item in src.items do
+    match item
+    case FnItem(decl: f) then
+      if (f.name == k.fn_name) and (f.pos.file == file) then
+        let pos = k.d.pos
+        return Option.Some(value: k.d with (pos: pos with (line: f.pos.line + k.off)))
+      end if
+    else
+    end match
+  end for
+  if len(src.errs) > 0 then
+    return Option.Some(value: k.d)
+  end if
+  return Option.None
+end fn placed_now
+
+// Publishes each file's diagnostics, if they are not what was last published for it.
+// An open document's are those found when it was checked itself; another file's are
+// those found for it by every open document that imports it.
+fn publish(s: inout Server, files: List<String>) uses console, fs do
+  var done: List<String> = []
+  for f in files do
+    if contains_str(xs: done, x: f) then
+      continue
+    end if
+    set done = push(list: done, item: f)
+    var ds: List<Diag> = []
+    match lookup(map: s.roots, key: f)
+    case Some(value: r) then
+      for p in r.found do
+        if p.file == f then
+          set ds = push(list: ds, item: p.d)
+        end if
+      end for
+    case None then
+      for k in keys(s.roots) do
+        for p in root_of(s: s, path: k).found do
+          if p.file == f then
+            set ds = push(list: ds, item: p.d)
+          end if
+        end for
+      end for
+    end match
+    var items: List<json.Value> = []
+    if len(ds) > 0 then
+      let text = doc_text(s: s, path: f)
+      var seen: List<String> = []
+      for d in ds do
+        let j = lsp_diag(d: d, text: text)
+        let t = json.text(j)
+        if not contains_str(xs: seen, x: t) then
+          set seen = push(list: seen, item: t)
+          set items = push(list: items, item: j)
+        end if
+      end for
+    end if
+    let all = json.Value.Array(items: items)
+    let now = json.text(all)
+    if now != value_or(opt: lookup(map: s.sent, key: f), default: "[]") then
+      notify(method: "textDocument/publishDiagnostics", params: obj(keys: ["uri", "diagnostics"], values: [jstr(path_uri(f)), all]))
+      set s = s with (sent: insert(map: s.sent, key: f, value: now))
+    end if
+  end for
+end fn publish
+
+// A closed document: what was found for it is withdrawn.
+fn forget(s: inout Server, path: String) uses console, fs do
+  let before = root_of(s: s, path: path)
+  var roots: Map<String, Root> = {}
+  for k in keys(s.roots) do
+    if k != path then
+      set roots = insert(map: roots, key: k, value: root_of(s: s, path: k))
+    end if
+  end for
+  set s = s with (roots: roots)
+  unqueue(s: inout s, path: path)
+  publish(s: inout s, files: before.files ++ [path])
+end fn forget
+
+// Checks again each other open document whose program has the file at path.
+fn dependents(s: inout Server, path: String, prove: Bool) uses console, fs, proc do
+  for k in keys(s.roots) do
+    if (k != path) and contains_str(xs: root_of(s: s, path: k).files, x: path) then
+      diagnose(s: inout s, path: k, prove: prove)
+    end if
+  end for
+end fn dependents
 
 fn doc_text(s: Server, path: String) -> String uses fs do
   match lookup(map: s.docs, key: path)
@@ -308,12 +623,73 @@ fn lsp_diag(d: Diag, text: String) -> json.Value do
   if d.kind == "hole" then
     set severity = 3
   end if
-  let line = d.pos.line - 1
-  let start = d.pos.col - 1
-  let end_col = word_end(text: text, line: d.pos.line, col: d.pos.col) - 1
-  let range = obj(keys: ["start", "end"], values: [position(line: line, col: start), position(line: line, col: end_col)])
+  // A diagnostic about the file as a whole has no line: it is shown at the start.
+  let line = at_least(n: d.pos.line - 1, least: 0)
+  let l = line_of(text: text, line: d.pos.line)
+  let start = at_least(n: d.pos.col - 1, least: 0)
+  let end_col = at_least(n: word_end(text: text, line: d.pos.line, col: d.pos.col) - 1, least: start + 1)
+  let range = obj(keys: ["start", "end"],
+    values: [position(line: line, col: units(l: l, n: start)), position(line: line, col: units(l: l, n: end_col))])
   return obj(keys: ["range", "severity", "source", "message"], values: [range, jint(severity), jstr("vow"), jstr(msg)])
 end fn lsp_diag
+
+fn at_least(n: Int, least: Int) -> Int ensures result >= least do
+  if n < least then
+    return least
+  end if
+  return n
+end fn at_least
+
+// The protocol counts a column in UTF-16 code units; the compiler counts bytes of
+// UTF-8. A byte that begins a character is one unit, or two if the character is
+// outside the basic plane (four bytes); a byte that continues one is none.
+fn unit_width(c: Int) -> Int ensures (0 <= result) and (result <= 2) do
+  if c >= 240 then
+    return 2
+  elif (c < 128) or (c >= 192) then
+    return 1
+  end if
+  return 0
+end fn unit_width
+
+// The code units in the first n bytes of l.
+fn units(l: String, n: Int) -> Int ensures result >= 0 do
+  var out = 0
+  var i = 0
+  while (i < n) and (i < len(l)) invariant i >= 0 invariant out >= 0 decreases len(l) - i do
+    set out = out + unit_width(l[i])
+    set i = i + 1
+  end while
+  return out
+end fn units
+
+// The bytes before code unit n of l (all of them, if l is shorter).
+fn bytes_before(l: String, n: Int) -> Int ensures (0 <= result) and (result <= len(l)) do
+  var seen = 0
+  var i = 0
+  while i < len(l) invariant i >= 0 decreases len(l) - i do
+    let w = unit_width(l[i])
+    if (w > 0) and ((seen + w) > n) then
+      return i
+    end if
+    set seen = seen + w
+    set i = i + 1
+  end while
+  return len(l)
+end fn bytes_before
+
+// The line and column (from 1, in bytes) a request's position names.
+struct Cursor
+  line: Int,
+  col: Int,
+end struct Cursor
+
+fn cursor(s: Server, msg: json.Value, path: String) -> Cursor uses fs do
+  let line = at_least(n: get_int(j: msg, path: ["params", "position", "line"]), least: 0) + 1
+  let l = line_of(text: doc_text(s: s, path: path), line: line)
+  let col = bytes_before(l: l, n: get_int(j: msg, path: ["params", "position", "character"])) + 1
+  return Cursor(line: line, col: col)
+end fn cursor
 
 fn position(line: Int, col: Int) -> json.Value do
   return obj(keys: ["line", "character"], values: [jint(line), jint(col)])
@@ -373,6 +749,396 @@ fn word_at(text: String, line: Int, col: Int) -> Word do
   return Word(text: slice(of: l, from: a, to: b + 1), col: a + 1)
 end fn word_at
 
+// ---- names ----
+
+// A parameter or binding of the function around the cursor.
+struct Binding
+  found: Bool,
+  // Where the name is written, and the lines it is in scope: from, to before upto.
+  pos: Pos,
+  from: Int,
+  upto: Int,
+  // Its type as written (a parameter's, or a binding's that gives one), or "".
+  ty: String,
+  // The value a 'let' or 'var' gives it.
+  value: Option<Expr>,
+end struct Binding
+
+fn no_binding() -> Binding do
+  return Binding(found: false, pos: Pos(file: -1, line: 0, col: 0), from: 0, upto: 0, ty: "", value: Option.None)
+end fn no_binding
+
+// What the name at the cursor refers to.
+enum Target
+  TLocal(l: Binding),
+  TItem(item: Item),
+  TVariant(item: Item, pos: Pos),
+  // A quantifier's variable, and where it is written.
+  TQuant(pos: Pos),
+  // A field of a value.
+  TField,
+  TNone,
+end enum Target
+
+// The declaration of the open file that line is in: the last that begins on or before
+// it, if that is a function. With the line the next declaration begins on (or a line
+// past any).
+struct Host
+  f: Option<FnDecl>,
+  upto: Int,
+end struct Host
+
+fn host_fn(items: List<Item>, line: Int) -> Host do
+  var top = 0
+  var upto = 1000000000
+  var host: Option<FnDecl> = Option.None
+  for item in items do
+    let p = item_pos(item)
+    if p.file == 0 then
+      if (p.line <= line) and (p.line >= top) then
+        set top = p.line
+        match item
+        case FnItem(decl: f) then
+          set host = Option.Some(value: f)
+        else
+          set host = Option.None
+        end match
+      elif (p.line > line) and (p.line < upto) then
+        set upto = p.line
+      end if
+    end if
+  end for
+  return Host(f: host, upto: upto)
+end fn host_fn
+
+// The parameter or binding called name that is in scope at line of f: the innermost.
+fn binding_at(f: FnDecl, name: String, line: Int, upto: Int, text: String) -> Binding do
+  var best = no_binding()
+  for p in f.params do
+    if p.name == name then
+      set best = Binding(found: true, pos: p.pos, from: f.pos.line, upto: upto, ty: pretty_type(p.ty), value: Option.None)
+    end if
+  end for
+  binding_in(stmts: f.body, name: name, line: line, upto: upto, text: text, best: inout best)
+  return best
+end fn binding_at
+
+// Blocks are told apart by line: a statement reaches to the line the next one begins
+// on, and a branch of it to the line the next branch begins on.
+fn binding_in(stmts: List<Stmt>, name: String, line: Int, upto: Int, text: String, best: inout Binding) do
+  for i in 0..len(stmts) do
+    let st = stmts[i]
+    if st.pos.line > line then
+      return
+    end if
+    var next = upto
+    if (i + 1) < len(stmts) then
+      set next = stmts[i + 1].pos.line
+    end if
+    let inside = line < next
+    // A 'let', 'var' or 'for' statement: the name follows the four-character keyword.
+    let named = st.pos with (col: st.pos.col + 4)
+    var starts: List<Int> = []
+    var blocks: List<List<Stmt>> = []
+    match st.kind
+    case Let(name: n, ty: t, value: v, mutable: m) then
+      if n == name then
+        var ty = ""
+        match t
+        case Some(value: te) then
+          set ty = pretty_type(te)
+        case None then
+        end match
+        set best = Binding(found: true, pos: named, from: st.pos.line, upto: upto, ty: ty, value: Option.Some(value: v))
+      end if
+    case While(cond: c, invs: invs, dec: d, body: b) then
+      set starts = [st.pos.line]
+      set blocks = [b]
+    case ForRange(name: n, lo: lo, hi: hi, invs: invs, body: b) then
+      if inside and (n == name) then
+        set best = Binding(found: true, pos: named, from: st.pos.line, upto: next, ty: "Int", value: Option.None)
+      end if
+      set starts = [st.pos.line]
+      set blocks = [b]
+    case ForEach(name: n, list: l, invs: invs, body: b) then
+      if inside and (n == name) then
+        set best = Binding(found: true, pos: named, from: st.pos.line, upto: next, ty: "", value: Option.None)
+      end if
+      set starts = [st.pos.line]
+      set blocks = [b]
+    case If(arms: arms, els: els) then
+      for a in arms do
+        set starts = push(list: starts, item: a.cond.pos.line)
+        set blocks = push(list: blocks, item: a.body)
+      end for
+      match els
+      case Some(value: b) then
+        if len(b) > 0 then
+          set starts = push(list: starts, item: b[0].pos.line)
+          set blocks = push(list: blocks, item: b)
+        end if
+      case None then
+      end match
+    case Match(scrut: sc, cases: cases, els: els) then
+      for cs in cases do
+        set starts = push(list: starts, item: cs.pos.line)
+        set blocks = push(list: blocks, item: cs.body)
+      end for
+      match els
+      case Some(value: b) then
+        if len(b) > 0 then
+          set starts = push(list: starts, item: b[0].pos.line)
+          set blocks = push(list: blocks, item: b)
+        end if
+      case None then
+      end match
+      if inside then
+        let pick = branch(starts: starts, line: line)
+        if (pick >= 0) and (pick < len(cases)) then
+          let cs = cases[pick]
+          match cs.pat
+          case PVariant(name: vn, binds: binds) then
+            for bd in binds do
+              if bd.binder == name then
+                let at = name_pos(l: line_of(text: text, line: cs.pos.line), pos: cs.pos, name: name, binder: true)
+                set best = Binding(found: true, pos: at, from: cs.pos.line, upto: branch_end(starts: starts, pick: pick, upto: next), ty: "", value: Option.None)
+              end if
+            end for
+          else
+          end match
+        end if
+      end if
+    else
+    end match
+    if inside then
+      let pick = branch(starts: starts, line: line)
+      if (pick >= 0) and (pick < len(blocks)) then
+        binding_in(stmts: blocks[pick], name: name, line: line, upto: branch_end(starts: starts, pick: pick, upto: next), text: text, best: inout best)
+      end if
+    end if
+  end for
+end fn binding_in
+
+// The branch line is in: the last that begins on or before it, or -1.
+fn branch(starts: List<Int>, line: Int) -> Int ensures (-1 <= result) and (result < len(starts)) do
+  var pick = -1
+  for j in 0..len(starts) invariant (-1 <= pick) and (pick < len(starts)) do
+    if starts[j] <= line then
+      set pick = j
+    end if
+  end for
+  return pick
+end fn branch
+
+fn branch_end(starts: List<Int>, pick: Int, upto: Int) -> Int do
+  if (pick >= -1) and ((pick + 1) < len(starts)) then
+    return starts[pick + 1]
+  end if
+  return upto
+end fn branch_end
+
+fn spaces_end(l: String, from: Int) -> Int requires from >= 0 ensures result >= from do
+  var i = from
+  while (i < len(l)) and (l[i] == ' ') invariant i >= from decreases len(l) - i do
+    set i = i + 1
+  end while
+  return i
+end fn spaces_end
+
+// Whether name is written at byte i of l as a whole word.
+fn word_is_at(l: String, i: Int, name: String) -> Bool do
+  let e = i + len(name)
+  if (i < 0) or (e > len(l)) or (len(name) == 0) then
+    return false
+  end if
+  if slice(of: l, from: i, to: e) != name then
+    return false
+  end if
+  if (i > 0) and is_alnum(l[i - 1]) then
+    return false
+  end if
+  return (e >= len(l)) or not is_alnum(l[e])
+end fn word_is_at
+
+// Where name is written on the line of pos, at or after it: with binder, the one
+// that a ',' or ')' follows (a pattern's binder, in "case Some(value: value)"), or
+// else the first. pos itself if it is not there.
+fn name_pos(l: String, pos: Pos, name: String, binder: Bool) -> Pos do
+  var first = -1
+  var i = at_least(n: pos.col - 1, least: 0)
+  while (i + len(name)) <= len(l) invariant i >= 0 decreases len(l) - i do
+    if word_is_at(l: l, i: i, name: name) then
+      if first < 0 then
+        set first = i
+      end if
+      let after = spaces_end(l: l, from: i + len(name))
+      if binder and (after < len(l)) and ((l[after] == ',') or (l[after] == ')')) then
+        return pos with (col: i + 1)
+      end if
+    end if
+    set i = i + 1
+  end while
+  if first >= 0 then
+    return pos with (col: first + 1)
+  end if
+  return pos
+end fn name_pos
+
+// What comes before the word that begins at byte a of l: "" if it is not after a
+// '.'; the names it is qualified by ("json." or "json.Value."); or "." if it is the
+// field of a value that is not a name (a call or an element).
+fn prefix_of(l: String, a: Int) -> String do
+  if (a <= 0) or (a > len(l)) then
+    return ""
+  end if
+  if l[a - 1] != '.' then
+    return ""
+  end if
+  var start = a
+  while (start > 0) and (l[start - 1] == '.') invariant (0 <= start) and (start <= a) decreases start do
+    // The name before this dot.
+    let dot = start - 1
+    var k = dot
+    while (k > 0) and is_alnum(l[k - 1]) invariant (0 <= k) and (k <= dot) decreases k do
+      set k = k - 1
+    end while
+    if k == dot then
+      return "."
+    end if
+    set start = k
+  end while
+  return slice(of: l, from: start, to: a)
+end fn prefix_of
+
+// Whether the word from byte a to byte b of l names an argument or a field, in
+// "f(n: 1)" or on a line of its own: a ':' follows it, and it begins the line or
+// follows a '(' or ','. (A parameter or binding declared there is written so too.)
+fn is_label(l: String, a: Int, b: Int) -> Bool do
+  if (a < 0) or (b < a) or (b > len(l)) then
+    return false
+  end if
+  let after = spaces_end(l: l, from: b)
+  if (after >= len(l)) or (l[after] != ':') then
+    return false
+  end if
+  var i = a
+  while (i > 0) and (l[i - 1] == ' ') invariant (0 <= i) and (i <= a) decreases i do
+    set i = i - 1
+  end while
+  if i == 0 then
+    return true
+  end if
+  return (l[i - 1] == '(') or (l[i - 1] == ',')
+end fn is_label
+
+// A declaration's name as the open file writes it.
+fn display(names: Map<String, String>, canon: String) -> String do
+  return value_or(opt: lookup(map: names, key: canon), default: canon)
+end fn display
+
+// The declaration or variant called qual (word, with what qualifies it) in the open
+// file.
+fn global(src: Source, names: Map<String, String>, qual: String, word: String) -> Target do
+  for item in src.items do
+    if display(names: names, canon: item_name(item)) == qual then
+      return Target.TItem(item: item)
+    end if
+  end for
+  let dot = find_last_byte(s: qual, c: '.')
+  for item in src.items do
+    match item
+    case EnumItem(decl: e) then
+      for vd in e.variants do
+        if vd.name == word then
+          if dot < 0 then
+            return Target.TVariant(item: item, pos: vd.pos)
+          elif (dot <= len(qual)) and (display(names: names, canon: e.name) == slice(of: qual, from: 0, to: dot)) then
+            return Target.TVariant(item: item, pos: vd.pos)
+          end if
+        end if
+      end for
+    else
+    end match
+  end for
+  if dot >= 0 then
+    // Qualified in a way this file does not: by the name alone.
+    for item in src.items do
+      if local_name(item_name(item)) == word then
+        return Target.TItem(item: item)
+      end if
+    end for
+    for item in src.items do
+      match item
+      case EnumItem(decl: e) then
+        for vd in e.variants do
+          if vd.name == word then
+            return Target.TVariant(item: item, pos: vd.pos)
+          end if
+        end for
+      else
+      end match
+    end for
+  end if
+  return Target.TNone
+end fn global
+
+fn target_of(src: Source, text: String, line: Int, w: Word) -> Target do
+  let l = line_of(text: text, line: line)
+  let a = w.col - 1
+  let prefix = prefix_of(l: l, a: a)
+  var names: Map<String, String> = {}
+  if len(src.names) > 0 then
+    set names = src.names[0]
+  end if
+  let host = host_fn(items: src.items, line: line)
+  if len(prefix) > 0 then
+    var of_value = prefix == "."
+    if not of_value then
+      let dot = find_byte(s: prefix, c: '.', from: 0)
+      if (dot > 0) and (dot <= len(prefix)) then
+        let head = slice(of: prefix, from: 0, to: dot)
+        if (head == "it") or (head == "result") then
+          set of_value = true
+        else
+          match host.f
+          case Some(value: f) then
+            set of_value = binding_at(f: f, name: head, line: line, upto: host.upto, text: text).found
+          case None then
+          end match
+        end if
+      end if
+    end if
+    if of_value then
+      return Target.TField
+    end if
+    return global(src: src, names: names, qual: prefix ++ w.text, word: w.text)
+  end if
+  let label = is_label(l: l, a: a, b: a + len(w.text))
+  match host.f
+  case Some(value: f) then
+    let loc = binding_at(f: f, name: w.text, line: line, upto: host.upto, text: text)
+    let here = loc.found and (loc.pos.line == line) and (loc.pos.col == w.col)
+    if label and not here then
+      return Target.TNone
+    end if
+    if loc.found then
+      return Target.TLocal(l: loc)
+    end if
+    var q = Pos(file: -1, line: 0, col: 0)
+    for e in fn_exprs(f) do
+      quant_at(e: e, line: line, name: w.text, at: inout q)
+    end for
+    if q.file >= 0 then
+      return Target.TQuant(pos: q)
+    end if
+  case None then
+    if label then
+      return Target.TNone
+    end if
+  end match
+  return global(src: src, names: names, qual: w.text, word: w.text)
+end fn target_of
+
 // ---- hover and definition ----
 
 fn markdown(code: String) -> json.Value do
@@ -380,80 +1146,72 @@ fn markdown(code: String) -> json.Value do
   return obj(keys: ["contents"], values: [obj(keys: ["kind", "value"], values: [jstr("markdown"), jstr(value)])])
 end fn markdown
 
-// The declaration a name refers to: one with exactly that name (in the open file's
-// namespace), or else one in a module (json.parse is found from parse).
-fn find_item(items: List<Item>, name: String) -> Option<Item> do
-  for item in items do
-    if item_name(item) == name then
-      return Option.Some(value: item)
-    end if
-  end for
-  for item in items do
-    if local_name(item_name(item)) == name then
-      return Option.Some(value: item)
-    end if
-  end for
-  return Option.None
-end fn find_item
-
 fn hover(s: Server, path: String, line: Int, col: Int) -> json.Value uses fs do
-  let w = word_at(text: doc_text(s: s, path: path), line: line, col: col)
+  let text = doc_text(s: s, path: path)
+  let w = word_at(text: text, line: line, col: col)
   if len(w.text) == 0 then
     return json.Value.Null
   end if
   let src = load_with(root: path, overrides: s.docs)
-  let ck = check_source(src: src, test_mode: true)
+  let ck = check_source(src: src, need_main: false, tests: false)
   let info = ck.c.info
   // Module declarations, named as this document names them.
   var names: Map<String, String> = {}
   if len(src.names) > 0 then
     set names = src.names[0]
   end if
-  // A declaration with this name.
-  match find_item(items: src.items, name: w.text)
-  case Some(value: item) then
+  var reads: List<Found> = []
+  var ty = ""
+  match target_of(src: src, text: text, line: line, w: w)
+  case TItem(item: item) then
     match item
     case FnItem(decl: f) then
       return markdown(show_names(text: fn_contract(f), names: names, others: src.others))
     else
       return markdown(show_names(text: pretty_item(item), names: names, others: src.others))
     end match
-  case None then
+  case TVariant(item: item, pos: pos) then
+    return markdown(show_names(text: pretty_item(item), names: names, others: src.others))
+  case TQuant(pos: pos) then
+    return markdown(w.text ++ ": Int")
+  case TField then
+    // The field's type, from an expression on this line that reads it.
+    match host_fn(items: src.items, line: line).f
+    case Some(value: f) then
+      for e in fn_exprs(f) do
+        find_in_expr(e: e, from: line, upto: line + 1, name: w.text, field: true, out: inout reads)
+      end for
+    case None then
+    end match
+  case TLocal(l: loc) then
+    set ty = loc.ty
+    match loc.value
+    case Some(value: v) then
+      if (len(ty) == 0) and not is_unknown(type_of(info: info, e: v)) then
+        set ty = ty_show(type_of(info: info, e: v))
+      end if
+    case None then
+    end match
+    if len(ty) == 0 then
+      // From a use of it: the one at the cursor, or else any in its scope.
+      match host_fn(items: src.items, line: line).f
+      case Some(value: f) then
+        for e in fn_exprs(f) do
+          find_in_expr(e: e, from: loc.from, upto: loc.upto, name: w.text, field: false, out: inout reads)
+        end for
+      case None then
+      end match
+    end if
+  case TNone then
+    return json.Value.Null
   end match
-  // A variant: its enum.
-  for item in src.items do
-    match item
-    case EnumItem(decl: e) then
-      for vd in e.variants do
-        if vd.name == w.text then
-          return markdown(show_names(text: pretty_item(item), names: names, others: src.others))
-        end if
-      end for
-    else
-    end match
-  end for
-  // A variable, binding, parameter or field at this position.
-  var found: List<Found> = []
-  for item in src.items do
-    match item
-    case FnItem(decl: f) then
-      for p in f.params do
-        if (p.pos.file == 0) and (p.pos.line == line) and (p.name == w.text) then
-          return markdown(p.name ++ ": " ++ show_names(text: pretty_type(p.ty), names: names, others: src.others))
-        end if
-      end for
-      find_in_block(stmts: f.body, line: line, name: w.text, out: inout found)
-    else
-    end match
-  end for
-  var ty = ""
-  for x in found do
+  for x in reads do
     let t = type_of(info: info, e: x.e)
-    if (len(ty) == 0) and (x.col == w.col) and not is_unknown(t) then
+    if (len(ty) == 0) and (x.e.pos.line == line) and (x.col == w.col) and not is_unknown(t) then
       set ty = ty_show(t)
     end if
   end for
-  for x in found do
+  for x in reads do
     let t = type_of(info: info, e: x.e)
     if (len(ty) == 0) and not is_unknown(t) then
       set ty = ty_show(t)
@@ -462,12 +1220,12 @@ fn hover(s: Server, path: String, line: Int, col: Int) -> json.Value uses fs do
   if len(ty) == 0 then
     return json.Value.Null
   end if
-  var text = w.text ++ ": " ++ show_names(text: ty, names: names, others: src.others)
+  var shown_as = w.text ++ ": " ++ show_names(text: ty, names: names, others: src.others)
   let facts = facts_about(src: src, ck: ck, line: line, name: w.text)
   if len(facts) > 0 then
-    set text = text ++ "\n// known here:\n" ++ join(parts: facts, sep: "\n")
+    set shown_as = shown_as ++ "\n// known here:\n" ++ join(parts: facts, sep: "\n")
   end if
-  return markdown(text)
+  return markdown(shown_as)
 end fn hover
 
 // What the verifier knows when it reaches line (in the function around it) that
@@ -478,17 +1236,7 @@ fn facts_about(src: Source, ck: Checked, line: Int, name: String) -> List<String
   if len(ck.errs) > 0 then
     return none
   end if
-  var host: Option<FnDecl> = Option.None
-  for item in src.items do
-    match item
-    case FnItem(decl: f) then
-      if (f.pos.file == 0) and (f.pos.line <= line) then
-        set host = Option.Some(value: f)
-      end if
-    else
-    end match
-  end for
-  match host
+  match host_fn(items: src.items, line: line).f
   case Some(value: f) then
     var v = new_verifier(ck.c.info)
     set v = v with (probe_line: line)
@@ -506,103 +1254,40 @@ fn facts_about(src: Source, ck: Checked, line: Int, name: String) -> List<String
 end fn facts_about
 
 fn definition(s: Server, path: String, line: Int, col: Int) -> json.Value uses fs do
-  let w = word_at(text: doc_text(s: s, path: path), line: line, col: col)
+  let text = doc_text(s: s, path: path)
+  let w = word_at(text: text, line: line, col: col)
   if len(w.text) == 0 then
     return json.Value.Null
   end if
   let src = load_with(root: path, overrides: s.docs)
-  match find_item(items: src.items, name: w.text)
-  case Some(value: item) then
-    return location(files: src.files, pos: item_pos(item), name: w.text)
-  case None then
+  match target_of(src: src, text: text, line: line, w: w)
+  case TItem(item: item) then
+    return location(s: s, files: src.files, pos: item_pos(item), name: w.text)
+  case TVariant(item: item, pos: pos) then
+    return location(s: s, files: src.files, pos: pos, name: w.text)
+  case TQuant(pos: pos) then
+    return location(s: s, files: src.files, pos: pos, name: w.text)
+  case TLocal(l: loc) then
+    return location(s: s, files: src.files, pos: loc.pos, name: w.text)
+  else
+    return json.Value.Null
   end match
-  for item in src.items do
-    match item
-    case EnumItem(decl: e) then
-      for vd in e.variants do
-        if vd.name == w.text then
-          return location(files: src.files, pos: vd.pos, name: w.text)
-        end if
-      end for
-    else
-    end match
-  end for
-  // A local: the nearest binding or parameter before this line in the enclosing function.
-  var best = Pos(file: -1, line: 0, col: 0)
-  for item in src.items do
-    match item
-    case FnItem(decl: f) then
-      if (f.pos.file == 0) and (f.pos.line <= line) then
-        for p in f.params do
-          if (p.name == w.text) and (p.pos.line <= line) and (p.pos.line >= best.line) then
-            set best = p.pos
-          end if
-        end for
-        bindings(stmts: f.body, name: w.text, line: line, best: inout best)
-      end if
-    else
-    end match
-  end for
-  if best.file >= 0 then
-    if best.line != w_line_of_param(src: src, name: w.text, pos: best) then
-      // A 'let', 'var' or 'for' statement: the name follows the four-character keyword.
-      set best = best with (col: best.col + 4)
-    end if
-    return location(files: src.files, pos: best, name: w.text)
-  end if
-  return json.Value.Null
 end fn definition
 
-// pos.line if pos is a parameter's position, else -1.
-fn w_line_of_param(src: Source, name: String, pos: Pos) -> Int do
-  for item in src.items do
-    match item
-    case FnItem(decl: f) then
-      for p in f.params do
-        if (p.name == name) and (p.pos.line == pos.line) and (p.pos.col == pos.col) and (p.pos.file == pos.file) then
-          return pos.line
-        end if
-      end for
-    else
-    end match
-  end for
-  return -1
-end fn w_line_of_param
-
-fn location(files: List<String>, pos: Pos, name: String) -> json.Value do
+fn location(s: Server, files: List<String>, pos: Pos, name: String) -> json.Value uses fs do
   if (pos.file < 0) or (pos.file >= len(files)) or starts_with(s: files[pos.file], p: "<std>/") then
     return json.Value.Null
   end if
-  let start = position(line: pos.line - 1, col: pos.col - 1)
-  let range = obj(keys: ["start", "end"], values: [start, position(line: pos.line - 1, col: (pos.col - 1) + len(name))])
+  let l = line_of(text: doc_text(s: s, path: files[pos.file]), line: pos.line)
+  let line = at_least(n: pos.line - 1, least: 0)
+  // A declaration's position is that of its keyword: the name follows on the line.
+  let a = at_least(n: name_pos(l: l, pos: pos, name: name, binder: false).col - 1, least: 0)
+  let range = obj(keys: ["start", "end"],
+    values: [position(line: line, col: units(l: l, n: a)), position(line: line, col: units(l: l, n: a + len(name)))])
   return obj(keys: ["uri", "range"], values: [jstr(path_uri(files[pos.file])), range])
 end fn location
 
-// The latest 'let', 'var' or loop variable named name on or before line.
-fn bindings(stmts: List<Stmt>, name: String, line: Int, best: inout Pos) do
-  for st in stmts do
-    if (st.pos.file == 0) and (st.pos.line <= line) and (st.pos.line >= best.line) then
-      match st.kind
-      case Let(name: n, ty: t, value: v, mutable: m) then
-        if n == name then
-          set best = st.pos
-        end if
-      case ForRange(name: n, lo: lo, hi: hi, invs: invs, body: b) then
-        if n == name then
-          set best = st.pos
-        end if
-      case ForEach(name: n, list: l, invs: invs, body: b) then
-        if n == name then
-          set best = st.pos
-        end if
-      else
-      end match
-    end if
-    for b in sub_blocks(st) do
-      bindings(stmts: b, name: name, line: line, best: inout best)
-    end for
-  end for
-end fn bindings
+// ---- walking a function ----
 
 fn sub_blocks(st: Stmt) -> List<List<Stmt>> do
   var out: List<List<Stmt>> = []
@@ -636,101 +1321,127 @@ fn sub_blocks(st: Stmt) -> List<List<Stmt>> do
   return out
 end fn sub_blocks
 
-// Expressions named name on line (variables, fields, binding values), in file 0.
+// The expressions a statement has itself (not those of the statements in it).
+fn stmt_exprs(st: Stmt) -> List<Expr> do
+  var es: List<Expr> = []
+  match st.kind
+  case Let(name: n, ty: t, value: v, mutable: m) then
+    set es = [v]
+  case Set(name: n, value: v) then
+    set es = [v]
+  case Return(value: v) then
+    match v
+    case Some(value: x) then
+      set es = [x]
+    case None then
+    end match
+  case If(arms: arms, els: els) then
+    for a in arms do
+      set es = push(list: es, item: a.cond)
+    end for
+  case While(cond: c, invs: invs, dec: d, body: b) then
+    set es = [c] ++ invs ++ d
+  case ForRange(name: n, lo: lo, hi: hi, invs: invs, body: b) then
+    set es = [lo, hi] ++ invs
+  case ForEach(name: n, list: l, invs: invs, body: b) then
+    set es = [l] ++ invs
+  case Match(scrut: sc, cases: cases, els: els) then
+    set es = [sc]
+  case Assert(e: e) then
+    set es = [e]
+  case Check(e: e) then
+    set es = [e]
+  case ExprStmt(e: e) then
+    set es = [e]
+  else
+  end match
+  return es
+end fn stmt_exprs
+
+fn block_exprs(stmts: List<Stmt>, out: inout List<Expr>) do
+  for st in stmts do
+    set out = out ++ stmt_exprs(st)
+    for b in sub_blocks(st) do
+      block_exprs(stmts: b, out: inout out)
+    end for
+  end for
+end fn block_exprs
+
+// Every expression of a function: its contract's and its body's.
+fn fn_exprs(f: FnDecl) -> List<Expr> do
+  var out = f.pre ++ f.post ++ f.dec
+  block_exprs(stmts: f.body, out: inout out)
+  return out
+end fn fn_exprs
+
+fn children(e: Expr) -> List<Expr> do
+  var out: List<Expr> = []
+  match e.kind
+  case Call(callee: c, args: args) then
+    set out = [c]
+    for a in args do
+      set out = push(list: out, item: a.value)
+    end for
+  case ListLit(items: items) then
+    set out = items
+  case Index(obj: o, idx: i) then
+    set out = [o, i]
+  case Field(obj: o, name: n) then
+    set out = [o]
+  case With(obj: o, args: args) then
+    set out = [o]
+    for a in args do
+      set out = push(list: out, item: a.value)
+    end for
+  case Unary(op: op, x: x) then
+    set out = [x]
+  case Binary(op: op, l: l, r: r) then
+    set out = [l, r]
+  case Quant(q: q, name: n, lo: lo, hi: hi, body: b) then
+    set out = [lo, hi, b]
+  else
+  end match
+  return out
+end fn children
+
+// An expression that reads name, and the column it is at (-1 for a field).
 struct Found
   e: Expr,
   col: Int,
 end struct Found
 
-fn find_in_block(stmts: List<Stmt>, line: Int, name: String, out: inout List<Found>) do
-  for st in stmts do
-    var es: List<Expr> = []
-    match st.kind
-    case Let(name: n, ty: t, value: v, mutable: m) then
-      if (n == name) and (st.pos.file == 0) and (st.pos.line == line) then
-        set out = push(list: out, item: Found(e: v, col: -1))
-      end if
-      set es = [v]
-    case Set(name: n, value: v) then
-      set es = [v]
-    case Return(value: v) then
-      match v
-      case Some(value: x) then
-        set es = [x]
-      case None then
-      end match
-    case If(arms: arms, els: els) then
-      for a in arms do
-        set es = push(list: es, item: a.cond)
-      end for
-    case While(cond: c, invs: invs, dec: d, body: b) then
-      set es = [c] ++ invs ++ d
-    case ForRange(name: n, lo: lo, hi: hi, invs: invs, body: b) then
-      set es = [lo, hi] ++ invs
-    case ForEach(name: n, list: l, invs: invs, body: b) then
-      set es = [l] ++ invs
-    case Match(scrut: sc, cases: cases, els: els) then
-      set es = [sc]
-    case Assert(e: e) then
-      set es = [e]
-    case Check(e: e) then
-      set es = [e]
-    case ExprStmt(e: e) then
-      set es = [e]
-    else
-    end match
-    for e in es do
-      find_in_expr(e: e, line: line, name: name, out: inout out)
-    end for
-    for b in sub_blocks(st) do
-      find_in_block(stmts: b, line: line, name: name, out: inout out)
-    end for
-  end for
-end fn find_in_block
-
-fn find_in_expr(e: Expr, line: Int, name: String, out: inout List<Found>) do
-  if (e.pos.file == 0) and (e.pos.line == line) then
+// The variables called name (or with field, the fields) in e, on the lines from, to
+// before upto, of the open file.
+fn find_in_expr(e: Expr, from: Int, upto: Int, name: String, field: Bool, out: inout List<Found>) do
+  if (e.pos.file == 0) and (e.pos.line >= from) and (e.pos.line < upto) then
     match e.kind
     case Var(name: n) then
-      if n == name then
+      if (n == name) and not field then
         set out = push(list: out, item: Found(e: e, col: e.pos.col))
       end if
     case Field(obj: o, name: n) then
-      if n == name then
+      if (n == name) and field then
         set out = push(list: out, item: Found(e: e, col: -1))
       end if
     else
     end match
   end if
+  for c in children(e) do
+    find_in_expr(e: c, from: from, upto: upto, name: name, field: field, out: inout out)
+  end for
+end fn find_in_expr
+
+// Where a quantifier on line binds name: its variable follows the seven characters
+// of "forall " or "exists ".
+fn quant_at(e: Expr, line: Int, name: String, at: inout Pos) do
   match e.kind
-  case Call(callee: c, args: args) then
-    find_in_expr(e: c, line: line, name: name, out: inout out)
-    for a in args do
-      find_in_expr(e: a.value, line: line, name: name, out: inout out)
-    end for
-  case ListLit(items: items) then
-    for x in items do
-      find_in_expr(e: x, line: line, name: name, out: inout out)
-    end for
-  case Index(obj: o, idx: i) then
-    find_in_expr(e: o, line: line, name: name, out: inout out)
-    find_in_expr(e: i, line: line, name: name, out: inout out)
-  case Field(obj: o, name: n) then
-    find_in_expr(e: o, line: line, name: name, out: inout out)
-  case With(obj: o, args: args) then
-    find_in_expr(e: o, line: line, name: name, out: inout out)
-    for a in args do
-      find_in_expr(e: a.value, line: line, name: name, out: inout out)
-    end for
-  case Unary(op: op, x: x) then
-    find_in_expr(e: x, line: line, name: name, out: inout out)
-  case Binary(op: op, l: l, r: r) then
-    find_in_expr(e: l, line: line, name: name, out: inout out)
-    find_in_expr(e: r, line: line, name: name, out: inout out)
   case Quant(q: q, name: n, lo: lo, hi: hi, body: b) then
-    find_in_expr(e: lo, line: line, name: name, out: inout out)
-    find_in_expr(e: hi, line: line, name: name, out: inout out)
-    find_in_expr(e: b, line: line, name: name, out: inout out)
+    if (n == name) and (e.pos.file == 0) and (e.pos.line == line) then
+      set at = e.pos with (col: e.pos.col + 7)
+    end if
   else
   end match
-end fn find_in_expr
+  for c in children(e) do
+    quant_at(e: c, line: line, name: name, at: inout at)
+  end for
+end fn quant_at

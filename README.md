@@ -133,7 +133,9 @@ make test                             # test suite (also needs Rust for the froz
 `vow-lsp` is a language server, installed next to `vowc` by the release archives and
 `install.sh` (from source: `make lsp` builds `build/vow-lsp`). As you edit it reports
 type and effect errors; when you open or save a file, it also reports failed proofs
-(with counterexamples) and holes (with the facts known there). Hover shows a function's
+(with counterexamples) and holes (with the facts known there). A proof is made while
+the server has nothing else to do, so a hover is answered during one, and a failed
+proof stays on screen, following its function, until the file is next proved. Hover shows a function's
 signature and contract, a type's declaration, or the type of a variable, binding or
 field together with what the verifier knows about it at that line (branch conditions,
 refinements, invariants, callers' contracts); go to definition finds functions, types, variants and local bindings. Any editor

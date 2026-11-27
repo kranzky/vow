@@ -255,6 +255,8 @@ fn builtin_params(name: String) -> Option<List<String>> do
     return Option.Some(value: none)
   case "read_bytes" then
     return Option.Some(value: ["n"])
+  case "input_ready" then
+    return Option.Some(value: ["ms"])
   case "int_to_float" then
     return Option.Some(value: ["n"])
   case "str_to_float" then
@@ -287,7 +289,7 @@ fn is_builtin(name: String) -> Bool do
 end fn is_builtin
 
 fn builtin_effect(name: String) -> String do
-  if (name == "print") or (name == "eprint") or (name == "read_line") or (name == "read_bytes") then
+  if (name == "print") or (name == "eprint") or (name == "read_line") or (name == "read_bytes") or (name == "input_ready") then
     return "console"
   elif (name == "read_file") or (name == "write_file") or (name == "make_dir") or (name == "list_dir") or (name == "real_path") then
     return "fs"
@@ -4454,6 +4456,9 @@ fn builtin_call(c: inout Checker, e: Expr, name: String, a: List<Expr> where len
   case "read_bytes" then
     want(c: inout c, x: a[0], t: Ty.TInt, what: "the number of bytes")
     return Ty.TStr
+  case "input_ready" then
+    want(c: inout c, x: a[0], t: Ty.TInt, what: "the milliseconds to wait")
+    return Ty.TBool
   case "make_dir" then
     want(c: inout c, x: a[0], t: Ty.TStr, what: "the path")
     return Ty.TBool

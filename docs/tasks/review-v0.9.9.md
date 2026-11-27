@@ -778,6 +778,12 @@ No crash or hang in 30,000 fuzzed edits, and malformed framing is survived.
   errors are cleared while it is still broken. Closing an unsaved broken buffer leaves
   its diagnostics published.
 - **Fix:** track published files per root document.
+- **Done.** The server keeps, for each open document, the files of its program and
+  what its last check found (`Root`), and publishes a file's diagnostics only when
+  they change. An open document's are those found when it was checked itself; a file
+  that is not open shows what every open document that imports it finds there.
+  Closing a document withdraws what it found, and the open documents that import a
+  file are checked again when it is saved or closed.
 
 ### L2. A function named `test_...` is a false error, and it hides every proof failure (reproduced)
 
@@ -788,6 +794,11 @@ No crash or hang in 30,000 fuzzed edits, and malformed framing is survived.
   diagnostic, verification never runs. Opening `compiler/vowc.vow` shows it
   (`fn test_names`).
 - **Fix:** keep "no main needed", drop the test-shape rule unless the file is a test.
+- **Done.** `check_source` takes `need_main` and `tests` in place of `test_mode`.
+  The server passes `tests: is_test_file(...)`: the root file has no `main` and has
+  a function named `test_...` of the shape of a test. So a library whose only
+  `test_...` function is a helper is not a file of tests (and a file of tests whose
+  only test is malformed is reported by `vowc test`, not by the editor).
 
 ### L3. Positions are bytes, not UTF-16 code units (reproduced by one reviewer)
 
@@ -796,12 +807,18 @@ No crash or hang in 30,000 fuzzed edits, and malformed framing is survived.
   column. A "cannot open" on the root file is published at line -1, character -1.
 - **Fix:** convert with the line's text (or negotiate `positionEncoding: utf-8`), and
   clamp to 0.
+- **Done.** Converted with the line's text, both ways (`units`, `bytes_before`), in
+  diagnostics, hover and definition; lines and columns are never below 0.
 
 ### L4. Proof failures vanish on the first keystroke after a save (reproduced by one reviewer)
 
 - **Where:** `tools/lsp/vowlsp.vow:146-161, 256`.
 - **Fix:** keep the last proof diagnostics per file and republish them until the next
   proof run.
+- **Done.** Kept per open document, each with the function it is in and its line
+  below the function's first, so that it follows the function as the text above it
+  changes, and goes when the function does. While the text does not parse it stays
+  where it was.
 
 ### L5. Hover and go-to-definition look up global names before local ones (reproduced by one reviewer)
 
@@ -810,6 +827,14 @@ No crash or hang in 30,000 fuzzed edits, and malformed framing is survived.
   `fn json.text(...)`; a definition request on a pattern binder jumps to a `let` of
   the same name in another function.
 - **Fix:** resolve the enclosing function's locals first.
+- **Done.** `target_of` resolves a name as the language does: a parameter, `let`,
+  `var`, loop variable, pattern binder or quantifier variable in scope at the line,
+  then a declaration as the file names it, then a variant. Scopes are told apart by
+  line (a statement reaches to the line the next begins on), which is exact for code
+  laid out by `vowc fmt`. A name after a dot is a field (if what is before it is a
+  value) or a qualified name; a label (`f(n: 1)`, `Some(value: x)`, a field in a
+  declaration) resolves to nothing. Not done: go to definition on a field, and the
+  types of the locals of generic functions (the checker records types for instances).
 
 ### L6. A proof blocks the server, and stale edits are all processed (measured by one reviewer)
 
@@ -819,6 +844,18 @@ No crash or hang in 30,000 fuzzed edits, and malformed framing is survived.
   V1 removes most of the 23 s.
 - **Fix:** keep only the latest edit per document; prove in a child process that a
   newer edit can abandon.
+- **Done, in another way.** The server reads every message that has arrived before
+  it handles the first, so an edit that a later one replaces is not checked, and a
+  request that a later `$/cancelRequest` names is refused. A proof is not made in
+  the handler: it is queued, and made in steps of 1,000 queries while no message is
+  waiting (`begin_proof`, `prove_step` in `compiler/pipeline.vow`), so a request is
+  answered between two steps; a newer proof of the same document, its closing, or
+  `shutdown` abandons the rest, and the proofs already made are in the store. This
+  needed one new built-in, `input_ready(ms)`. Opening the server's own source with
+  no proofs kept: a hover sent 50 ms later is answered at 0.25 s, the proof is done
+  at 0.85 s. Not done: a child process. Vow has no way to wait for input and a child
+  at once, and a step is not interrupted, so a step of hard proofs (each up to the
+  query budget) still delays a request by its length.
 
 ## S. The standard library
 

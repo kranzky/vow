@@ -37,6 +37,7 @@
 #include <string.h>
 #include <signal.h>
 #include <sys/resource.h>
+#include <sys/select.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -1542,33 +1543,93 @@ static V vargs(void) {
     return l;
 }
 
-// Standard input. Both flush stdout first, so a prompt or a response is out before the
-// program waits.
+// Standard input is read through this buffer and not stdio's, so that input_ready can
+// tell whether bytes already read from the descriptor are waiting.
+static char *vow_in_buf = NULL;
+static size_t vow_in_cap = 0, vow_in_pos = 0, vow_in_len = 0;
+static int vow_in_ended = 0;
+
+// Reads more of standard input after what is waiting: 0 at its end (or on an error,
+// which ends it).
+static int vow_in_fill(void) {
+    if (vow_in_ended) return 0;
+    if (vow_in_pos > 0) {
+        memmove(vow_in_buf, vow_in_buf + vow_in_pos, vow_in_len - vow_in_pos);
+        vow_in_len -= vow_in_pos;
+        vow_in_pos = 0;
+    }
+    if (vow_in_len == vow_in_cap) {
+        vow_in_cap = vow_in_cap ? vow_in_cap * 2 : 65536;
+        vow_in_buf = (char *)vow_xrealloc(vow_in_buf, vow_in_cap);
+    }
+    for (;;) {
+        ssize_t k = read(0, vow_in_buf + vow_in_len, vow_in_cap - vow_in_len);
+        if (k < 0 && errno == EINTR) continue;
+        if (k <= 0) {
+            vow_in_ended = 1;
+            return 0;
+        }
+        vow_in_len += (size_t)k;
+        return 1;
+    }
+}
+
+// read_line and read_bytes flush stdout first, so a prompt or a response is out before
+// the program waits.
 static V vread_line(void) {
     fflush(stdout);
-    size_t cap = 0;
-    char *buf = NULL;
-    ssize_t n = getline(&buf, &cap, stdin);
-    if (n < 0) {
-        free(buf);
-        return vnone();
+    size_t seen = 0;
+    for (;;) {
+        size_t have = vow_in_len - vow_in_pos;
+        char *from = vow_in_buf + vow_in_pos;
+        char *nl = have > seen ? (char *)memchr(from + seen, '\n', have - seen) : NULL;
+        if (nl) {
+            V s = vstr_new(from, (int64_t)(nl - from));
+            vow_in_pos += (size_t)(nl - from) + 1;
+            return vsome(s, 1);
+        }
+        seen = have;
+        if (!vow_in_fill()) break;
     }
-    if (n > 0 && buf[n - 1] == '\n') n--;
-    V s = vstr_new(buf, (int64_t)n);
-    free(buf);
+    // The end of input: what is left is a last line without a newline.
+    size_t have = vow_in_len - vow_in_pos;
+    if (have == 0) return vnone();
+    V s = vstr_new(vow_in_buf + vow_in_pos, (int64_t)have);
+    vow_in_pos = vow_in_len;
     return vsome(s, 1);
 }
 
-// Up to n bytes (fewer at the end of input). The string is allocated at the length read,
-// since an object's size class is computed from its length when it is freed.
+// Up to n bytes (fewer at the end of input).
 static V vread_bytes(V n) {
     fflush(stdout);
     size_t want = VI(n) > 0 ? (size_t)VI(n) : 0;
-    char *buf = (char *)vow_xmalloc(want);
-    size_t got = fread(buf, 1, want, stdin);
-    V s = vstr_new(buf, (int64_t)got);
-    free(buf);
+    while (vow_in_len - vow_in_pos < want && vow_in_fill()) {
+    }
+    size_t got = vow_in_len - vow_in_pos;
+    if (got > want) got = want;
+    V s = vstr_new(vow_in_buf + vow_in_pos, (int64_t)got);
+    vow_in_pos += got;
     return s;
+}
+
+// input_ready(ms): whether a read of standard input would have something to give (or
+// would find its end) without waiting, once up to ms milliseconds have passed.
+static V vinput_ready(V ms) {
+    fflush(stdout);
+    if (vow_in_pos < vow_in_len || vow_in_ended) return (V)1;
+    int64_t wait = VI(ms) > 0 ? VI(ms) : 0;
+    for (;;) {
+        fd_set fds;
+        FD_ZERO(&fds);
+        FD_SET(0, &fds);
+        struct timeval tv;
+        tv.tv_sec = (time_t)(wait / 1000);
+        tv.tv_usec = (suseconds_t)((wait % 1000) * 1000);
+        int r = select(1, &fds, NULL, NULL, &tv);
+        if (r < 0 && errno == EINTR) continue;
+        // An error (standard input is closed, say) is found by the read.
+        return (V)(r != 0);
+    }
 }
 
 static V vgetenv(V name) {

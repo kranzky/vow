@@ -33,9 +33,10 @@ struct Checked
   errs: List<Diag>,
 end struct Checked
 
-// Type-checks a loaded program and analyses its recursion. In test mode (vowc test) the
-// program needs no main, and its test functions must have the right shape.
-fn check_source(src: Source, test_mode: Bool) -> Checked do
+// Type-checks a loaded program and analyses its recursion. Without need_main the
+// program may lack a main; with tests (vowc test, or an editor's file of tests) each
+// function named test_... must have the shape of a test.
+fn check_source(src: Source, need_main: Bool, tests: Bool) -> Checked do
   var c = check_program(items: src.items, files: src.files, next_id: src.next_id)
   var errs = src.errs
   var at: List<String> = []
@@ -48,11 +49,11 @@ fn check_source(src: Source, test_mode: Bool) -> Checked do
     if contains_str(xs: at, x: pos_key(d.pos)) then
       continue
     end if
-    if (not test_mode) or (d.msg != "the program has no 'fn main()'") then
+    if need_main or (d.msg != "the program has no 'fn main()'") then
       set errs = push(list: errs, item: d)
     end if
   end for
-  if test_mode then
+  if tests then
     set errs = errs ++ test_shape_errors(src.items)
   end if
   let rec = recursion(items: src.items, info: c.info)
@@ -146,14 +147,35 @@ fn query_keys(src: Source, c: Checker) -> List<FnKey> do
   return out
 end fn query_keys
 
-// Verifies a checked program. Every function's queries are generated, which is quick;
-// those whose verification key is in the proof store are not sent to Z3, and the keys
-// of those proved are added to it. v03 (VOW_SMT_V03, for tests/differential.sh) proves
-// with the v0.3 encoding, which lacks facts later found to be needed: such a run
+// A verification in progress: what verify_source does, in steps, for a caller that has
+// other work to do between them (the language server answers requests).
+struct Proving
+  // The proof store, or "" to keep nothing.
+  store: String,
+  pre: List<String>,
+  // Every function with something to send to Z3, and how many have been sent.
+  vcs: List<FnVc>,
+  next: Int,
+  // Those of vcs whose proofs can be kept.
+  asked: List<FnKey>,
+  // v03: one script, with every function in it.
+  every: Bool,
+  // The holes, if the program has any: then nothing is proved.
+  holes: List<Diag>,
+  failures: List<Failure>,
+  // Trouble running Z3 ("" if none), and the function it was proving.
+  error: String,
+  fn_name: String,
+  done: Bool,
+end struct Proving
+
+// Begins to verify a checked program. Every function's queries are generated, which is
+// quick; those whose verification key is in the proof store are not sent to Z3, and the
+// keys of those proved are added to it. v03 (VOW_SMT_V03, for tests/differential.sh)
+// proves with the v0.3 encoding, which lacks facts later found to be needed: such a run
 // neither reads the store nor adds to it.
-fn verify_source(src: Source, c: Checker, no_cache: Bool, v03: Bool) -> Verified uses fs, proc do
-  let none: List<Diag> = []
-  let nowhere = Pos(file: 0, line: 0, col: 0)
+fn begin_proof(src: Source, c: Checker, no_cache: Bool, v03: Bool) -> Proving uses fs, proc do
+  let none: List<Failure> = []
   var store = ""
   if not (no_cache or v03) then
     set store = proof_store()
@@ -181,44 +203,86 @@ fn verify_source(src: Source, c: Checker, no_cache: Bool, v03: Bool) -> Verified
     else
     end match
   end for
+  var holes: List<Diag> = []
+  var done = false
   if len(c.info.holes) > 0 then
-    return Verified(diags: hole_diags(c: c, v: v), error: "", error_pos: nowhere, undecided: false)
+    set holes = hole_diags(c: c, v: v)
+    set done = true
   end if
-  let r = discharge(pre: order_preamble(v.preamble), vcs: vcs, every: v03)
+  return Proving(store: store, pre: order_preamble(v.preamble), vcs: vcs, next: 0, asked: asked, every: v03, holes: holes,
+    failures: none, error: "", fn_name: "", done: done)
+end fn begin_proof
+
+// Sends Z3 the next functions: as many as have `queries` queries between them (one
+// function at least), or with queries <= 0 all that are left. The proofs made are
+// added to the store, so a verification that is abandoned keeps those it made.
+fn prove_step(p: Proving, queries: Int) -> Proving uses fs, proc do
+  if p.done then
+    return p
+  end if
+  var part: List<FnVc> = []
+  var names: Map<String, Bool> = {}
+  var count = 0
+  var i = p.next
+  if i < 0 then
+    set i = 0
+  end if
+  let n = len(p.vcs)
+  while (i < n) and ((queries <= 0) or (count < queries)) invariant i >= 0 decreases n - i do
+    let vc = p.vcs[i]
+    set part = push(list: part, item: vc)
+    set names = insert(map: names, key: vc.name, value: true)
+    set count = count + (len(vc.obs) + 1)
+    set i = i + 1
+  end while
+  let r = discharge(pre: p.pre, vcs: part, every: p.every)
   if len(r.error) > 0 then
+    return p with (next: i, error: r.error, fn_name: r.fn_name, done: true)
+  end if
+  var failed: Map<String, Bool> = {}
+  for f in r.failures do
+    set failed = insert(map: failed, key: f.fn_name, value: true)
+  end for
+  for h in p.asked do
+    if has(map: names, key: h.name) and not has(map: failed, key: h.name) then
+      // Failing to write is no error: the proof is made again next time.
+      let dir = proof_dir(store: p.store, key: h.key)
+      let made = make_dir(dir)
+      let written = write_file(path: dir ++ "/" ++ h.key, contents: "")
+    end if
+  end for
+  return p with (next: i, failures: p.failures ++ r.failures, done: i >= n)
+end fn prove_step
+
+// What a finished verification found.
+fn proof_result(src: Source, p: Proving) -> Verified do
+  let none: List<Diag> = []
+  let nowhere = Pos(file: 0, line: 0, col: 0)
+  if len(p.holes) > 0 then
+    return Verified(diags: p.holes, error: "", error_pos: nowhere, undecided: false)
+  end if
+  if len(p.error) > 0 then
     var at = nowhere
     for item in src.items do
       match item
       case FnItem(decl: f) then
-        if f.name == r.fn_name then
+        if f.name == p.fn_name then
           set at = f.pos
         end if
       else
       end match
     end for
     // The function named as its file names it.
-    var msg = r.error
-    let named = shown(src: src, diags: [diag(pos: at, msg: r.error)])
+    var msg = p.error
+    let named = shown(src: src, diags: [diag(pos: at, msg: p.error)])
     if len(named) > 0 then
       set msg = named[0].msg
     end if
     return Verified(diags: none, error: msg, error_pos: at, undecided: false)
   end if
-  var failed: Map<String, Bool> = {}
-  for f in r.failures do
-    set failed = insert(map: failed, key: f.fn_name, value: true)
-  end for
-  for h in asked do
-    if not has(map: failed, key: h.name) then
-      // Failing to write is no error: the proof is made again next time.
-      let dir = proof_dir(store: store, key: h.key)
-      let made = make_dir(dir)
-      let kept = write_file(path: dir ++ "/" ++ h.key, contents: "")
-    end if
-  end for
   var diags: List<Diag> = []
   var undecided = false
-  for f in r.failures do
+  for f in p.failures do
     set diags = push(list: diags, item: failure_diag(f))
     // Z3 gave up; not "unknown-unfolded", which no Z3 decides.
     if f.verdict == "unknown" then
@@ -226,6 +290,12 @@ fn verify_source(src: Source, c: Checker, no_cache: Bool, v03: Bool) -> Verified
     end if
   end for
   return Verified(diags: diags, error: "", error_pos: nowhere, undecided: undecided)
+end fn proof_result
+
+// Verifies a checked program (begin_proof, in one step).
+fn verify_source(src: Source, c: Checker, no_cache: Bool, v03: Bool) -> Verified uses fs, proc do
+  let p = begin_proof(src: src, c: c, no_cache: no_cache, v03: v03)
+  return proof_result(src: src, p: prove_step(p: p, queries: 0))
 end fn verify_source
 
 fn hole_diags(c: Checker, v: Verifier) -> List<Diag> do
@@ -253,6 +323,28 @@ fn hole_diags(c: Checker, v: Verifier) -> List<Diag> do
   end for
   return out
 end fn hole_diags
+
+// Whether the root file is a file of tests: it has no main, and a function named
+// test_... that takes no parameters and returns nothing. (A function named test_bit
+// in a program or a library is an ordinary function.)
+fn is_test_file(items: List<Item>) -> Bool do
+  var some = false
+  for item in items do
+    match item
+    case FnItem(decl: f) then
+      if f.pos.file == 0 then
+        if f.name == "main" then
+          return false
+        end if
+        if starts_with(s: f.name, p: "test_") and (len(f.params) == 0) and is_none(f.ret) and (len(f.tparams) == 0) then
+          set some = true
+        end if
+      end if
+    else
+    end match
+  end for
+  return some
+end fn is_test_file
 
 fn test_shape_errors(items: List<Item>) -> List<Diag> do
   var out: List<Diag> = []
